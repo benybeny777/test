@@ -105,7 +105,8 @@
 | `ai.models_dir` | path | `app_data_dir/models` | モデルの保存先 |
 | `ai.llm_model` | string | 未定 | 会話・表情選択LLMの GGUF 名（1.5B級で足りる見込み） |
 | `ai.stt_model` | string | 未定 | whisper.cpp のモデル名 |
-| `ai.image_denoise` | f32 | 未定 | 表情インペイントの denoise 強度（[SPEC.md](../SPEC.md) 4.7.1） |
+| `ai.image_denoise` | f32 | 0.65 | 表情・口形インペイントの実測採用値（[SPEC.md](../SPEC.md) 4.7.1） |
+| `ai.blink_denoise` | f32 | 0.85 | 閉眼の基準画像だけに使う実測採用値 |
 | `ai.mesh_model` | string | 未定 | 画像→3D モデル名 |
 
 **`gpu_backend` の設定は持たない。** CUDA 必須が決定事項であり、CPU フォールバックを実装しないため、選択肢が存在しない（[SPEC.md](../SPEC.md) 8）。
@@ -116,9 +117,9 @@
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `comfy.port` | u16 | 未定 | 同梱ComfyUIの待受ポート。**既定8188を避け、利用者の既存環境と衝突させない** |
-| `comfy.startup_timeout_seconds` | u32 | 未定 | 起動待ちの上限。超えたら明示エラー |
-| `comfy.workflow_dir` | path | 同梱リソース | ワークフローJSONの置き場 |
+| `comfy.port` | u16 | 58120 | 同梱ComfyUIの待受ポート。既定8188を避ける |
+| `comfy.startup_timeout_seconds` | u32 | 600 | 初回起動が180秒を超えた実測に基づく上限 |
+| `comfy.workflow_dir` | path | 同梱 `workflows` | ワークフローJSONの置き場 |
 | `comfy.unload_before_mesh` | bool | true | 画像→3D生成の前にComfyUIのモデルをアンロードしてVRAMを空ける（[SPEC.md](../SPEC.md) 3.1） |
 
 ## 外部生成画像のインポート（[SPEC.md](../SPEC.md) 4.10 D）
