@@ -57,7 +57,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "mesh",
         )
     };
-    let config = AppConfig::default();
+    // 実アプリと同じ優先順位で環境変数を反映する。検証用設定は temp 内に閉じる。
+    let config = AppConfig::load(
+        &context
+            .repository_root
+            .join("temp/pipeline-probe-config.json"),
+    )?;
     let start = STAGES
         .iter()
         .position(|stage| *stage == first_stage)
