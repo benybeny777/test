@@ -9,11 +9,23 @@
 | Rust（cargo） | 安定版 latest |
 | Tauri CLI | `cargo install tauri-cli --version '^2'` |
 | WebView2 ランタイム | Windows のみ。多くの環境で導入済み |
-| CUDA 対応 NVIDIA GPU | 画像→3D と表情生成に必要。VRAM 8GB 以上を推奨 |
+| **CUDA 対応 NVIDIA GPU** | **必須。VRAM 8GB 以上。** CPU フォールバックは実装しない |
 
 **Node.js はアプリとビルドの依存にしない。** 作業用ツール（スクリーンショット撮影など）としての利用は可。判断基準は「アプリのビルド・起動・配布に Node が要るようになるか」（[AGENTS.md](../AGENTS.md)）。
 
-**Python は利用者側では不要。** 画像→3D とリギングの2工程だけが Python 3.12 を使い、ランタイムを同梱する（[SPEC.md](../SPEC.md) 3.1）。開発時は `cargo xtask setup sidecar` が用意する。
+**Python は利用者側では不要。** ランタイムを同梱する。ただし**同梱する Python 環境は1つだけ**で、ComfyUI・画像→3D・リギングが同じ Python 3.12 環境を共有する（[SPEC.md](../SPEC.md) 2 方針5）。**用途ごとに環境を分けない。** 開発時は `cargo xtask setup sidecar` が用意する。
+
+依存が衝突したら環境を増やすのではなく版を揃えて解決する。解決できない場合だけ理由を明記して利用者へ相談する。
+
+## ComfyUI（同梱）
+
+画像生成・編集のバックエンドは ComfyUI（[SPEC.md](../SPEC.md) 4.7.2）。開発時も**同梱版を使い、開発機の手元 ComfyUI に依存しない**。手元環境で動いて利用者環境で動かない、が最も起きやすい失敗。
+
+- `cargo xtask setup comfy` が本体・カスタムノード・ワークフローを用意する（予定）
+- カスタムノードは**固定版**で同梱する。自動更新しない。ノード更新でワークフローが壊れるため
+- ワークフロー JSON はリポジトリで管理する
+- ポートは利用者の既存 ComfyUI（既定 8188）と衝突させない
+- **常駐 ComfyUI と単発の画像→3D生成を同時に走らせない。** VRAM を取り合う（[SPEC.md](../SPEC.md) 3.1）
 
 PowerShell を使う場合は **PowerShell 7 の `pwsh`** を既定にする。見つからなければ Windows PowerShell 5.1 へ黙って降格せず、導入が必要な理由を利用者へ伝える。
 
@@ -35,7 +47,8 @@ temp/        一時作成物のみ。.gitignore 済み
 
 | コマンド | 用途 |
 |---|---|
-| `cargo xtask setup engines` | llama.cpp / whisper.cpp / stable-diffusion.cpp のバイナリを取得 |
+| `cargo xtask setup engines` | llama.cpp / whisper.cpp のバイナリを取得 |
+| `cargo xtask setup comfy` | 同梱 ComfyUI 本体・カスタムノード（固定版）・ワークフローを用意 |
 | `cargo xtask setup sidecar` | Python 3.12 ランタイムと依存を用意（**CUDA wheel は対応GPU検出時のみ**） |
 | `cargo xtask setup models` | モデルを取得 |
 | `cargo xtask dev` | 開発起動 |

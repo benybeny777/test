@@ -89,12 +89,31 @@
 | キー | 型 | 既定値 | 説明 |
 |---|---|---|---|
 | `ai.models_dir` | path | `app_data_dir/models` | モデルの保存先 |
-| `ai.gpu_backend` | enum | auto | `auto` / `cuda` / `cpu`。**CUDA は対応 GPU 検出時のみ有効**（[AGENTS.md](../AGENTS.md)） |
-| `ai.llm_model` | string | 未定 | 会話LLMの GGUF 名 |
+| `ai.llm_model` | string | 未定 | 会話・表情選択LLMの GGUF 名（1.5B級で足りる見込み） |
 | `ai.stt_model` | string | 未定 | whisper.cpp のモデル名 |
-| `ai.image_model` | string | 未定 | 表情・背景生成に使うモデル名 |
 | `ai.image_denoise` | f32 | 未定 | 表情インペイントの denoise 強度（[SPEC.md](../SPEC.md) 4.7.1） |
 | `ai.mesh_model` | string | 未定 | 画像→3D モデル名 |
+
+**`gpu_backend` の設定は持たない。** CUDA 必須が決定事項であり、CPU フォールバックを実装しないため、選択肢が存在しない（[SPEC.md](../SPEC.md) 8）。
+
+## ComfyUI（同梱）
+
+[SPEC.md](../SPEC.md) 3.1 の「ComfyUI 固有の規則」を参照。**利用者の既存 ComfyUI 環境を読まない・書かない・ポートを奪わない。**
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---|---|
+| `comfy.port` | u16 | 未定 | 同梱ComfyUIの待受ポート。**既定8188を避け、利用者の既存環境と衝突させない** |
+| `comfy.startup_timeout_seconds` | u32 | 未定 | 起動待ちの上限。超えたら明示エラー |
+| `comfy.workflow_dir` | path | 同梱リソース | ワークフローJSONの置き場 |
+| `comfy.unload_before_mesh` | bool | true | 画像→3D生成の前にComfyUIのモデルをアンロードしてVRAMを空ける（[SPEC.md](../SPEC.md) 3.1） |
+
+## 外部生成画像のインポート（[SPEC.md](../SPEC.md) 4.10 D）
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---|---|
+| `import.check_alignment` | bool | true | 投入画像の位置ずれを中立と照合して警告する |
+| `import.check_mirrored` | bool | true | 左右反転を検出して警告する |
+| `import.alignment_tolerance` | f32 | 未定 | 許容するずれ量。超えたら警告 |
 
 ## 表示・構図
 
