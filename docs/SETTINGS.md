@@ -6,7 +6,21 @@
 - 利用者がよく使う項目だけの説明は [README.md](../README.md) にあり、ここの全キーを複製しない
 - 優先順位は **永続ファイル（`app_config_dir/config.json`） > 環境変数 > ハードコード既定値**
 
-> **現在は設計段階のため、実装済みのキーはありません。** 下表は T1 以降で実装する予定のキーです。実装した時点で「予定」列を消し、実際の型と既定値へ更新してください。新しい設定を足したら**必ず同じ作業内でこの表を更新する**（[AGENTS.md](../AGENTS.md)）。
+実装済みキーは下表にまとめ、`config.rs` の双方向同期テストで記載漏れ・削除漏れを検出する。後半の「予定設定」は設計予約であり、実装済みキーには含めない。新しい設定を足したら**必ず同じ作業内でこの表を更新する**（[AGENTS.md](../AGENTS.md)）。
+
+## 実装済み設定
+
+<!-- implemented-settings:start -->
+| キー | 型 | 既定値 | 環境変数 | 検証範囲 | 実行中反映 |
+|---|---|---|---|---|---|
+| `display.language` | string | `ja` | `LVS_DISPLAY_LANGUAGE` | 空文字不可 | 次回起動 |
+| `display.preview_fps` | u32 | 30 | `LVS_DISPLAY_PREVIEW_FPS` | 1〜240 | 次回起動 |
+| `display.preview_scale` | f32 | 0.5 | `LVS_DISPLAY_PREVIEW_SCALE` | 0.1〜2.0 | 次回起動 |
+<!-- implemented-settings:end -->
+
+保存先は `app_config_dir/config.json`。優先順位は永続ファイル、環境変数、既定値の順。未知キーや不正値を含むファイルは `.corrupt` へ退避し、標準エラーへ理由を出して既定値で起動する。
+
+## 予定設定
 
 ## 命名規則
 
@@ -114,11 +128,3 @@
 | `import.check_alignment` | bool | true | 投入画像の位置ずれを中立と照合して警告する |
 | `import.check_mirrored` | bool | true | 左右反転を検出して警告する |
 | `import.alignment_tolerance` | f32 | 未定 | 許容するずれ量。超えたら警告 |
-
-## 表示・構図
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `display.preview_fps` | u32 | 30 | 本体プレビューのフレームレート。OBS 側を主とするため低くてよい（[SPEC.md](../SPEC.md) 4.6） |
-| `display.preview_scale` | f32 | 0.5 | 本体プレビューの描画倍率 |
-| `display.language` | string | ja | 表示言語 |
