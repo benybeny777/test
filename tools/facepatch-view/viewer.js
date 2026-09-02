@@ -83,11 +83,26 @@ camera.updateProjectionMatrix();
 scene.add(gltf.scene);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x303040, 2.2));
 
-renderer.render(scene, camera);
+const mixer = gltf.animations.length > 0 ? new THREE.AnimationMixer(gltf.scene) : null;
+if (mixer) {
+  mixer.clipAction(gltf.animations[0]).play();
+  const fixedTime = Number(parameters.get("time"));
+  if (parameters.has("time") && Number.isFinite(fixedTime)) {
+    mixer.setTime(fixedTime);
+  }
+}
+const clock = new THREE.Clock();
+function render() {
+  if (mixer && !parameters.has("time")) {
+    mixer.update(clock.getDelta());
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(render);
+}
+render();
 status.dataset.state = "ready";
-status.textContent = `Three.js 表示完了 · mesh ${meshCount}`;
+status.textContent = `Three.js 表示完了 · mesh ${meshCount} · animation ${gltf.animations.length}`;
 
 addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
-  renderer.render(scene, camera);
 });

@@ -33,6 +33,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
         "expression" => run_expression(&args[1..]),
         "mesh" => run_mesh(&args[1..]),
+        "rig" => run_rig(&args[1..]),
         "facepatch" => run_facepatch(&args[1..]),
         "verify" => {
             run("cargo", &["fmt", "--all", "--", "--check"])?;
@@ -52,7 +53,7 @@ fn main() -> Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|mesh|facepatch|setup comfy|setup sidecar|setup models>"
+                "usage: cargo xtask <dev|build|verify|expression|mesh|rig|facepatch|setup comfy|setup sidecar|setup models>"
             );
             Ok(())
         }
@@ -257,6 +258,22 @@ fn run_expression(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn run_rig(args: &[String]) -> Result<()> {
+    let root = root()?;
+    let python = root.join("sidecar/.venv/Scripts/python.exe");
+    let script = root.join("sidecar/rigging/generate.py");
+    let status = Command::new(&python)
+        .arg(script)
+        .args(args)
+        .current_dir(&root)
+        .status()
+        .context("failed to start rigging generator")?;
+    if !status.success() {
+        bail!("rigging generator failed with {status}");
+    }
+    Ok(())
+}
+
 fn run_facepatch(args: &[String]) -> Result<()> {
     let root = root()?;
     let status = Command::new("cargo")
@@ -299,13 +316,26 @@ fn verify_python_sidecars() -> Result<()> {
     )?;
     run_at(
         &root,
-        python,
+        &python,
         [
             OsStr::new("-m"),
             OsStr::new("unittest"),
             OsStr::new("discover"),
             OsStr::new("-s"),
             OsStr::new("sidecar/mesh"),
+            OsStr::new("-p"),
+            OsStr::new("test_*.py"),
+        ],
+    )?;
+    run_at(
+        &root,
+        python,
+        [
+            OsStr::new("-m"),
+            OsStr::new("unittest"),
+            OsStr::new("discover"),
+            OsStr::new("-s"),
+            OsStr::new("sidecar/rigging"),
             OsStr::new("-p"),
             OsStr::new("test_*.py"),
         ],

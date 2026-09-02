@@ -77,6 +77,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask verify` | 書式・静的解析・テスト・文書同期をまとめて実行 |
 | `cargo xtask facepatch --model <vrm/glb> --neutral <png> --expression-dir <36枚のディレクトリ> --atlas <png> --frame <json> --output-dir <dir> --diagnostics <dir>` | 中立スキニング済みメッシュへ36表情を逆投影 |
 | `cargo xtask mesh --input <png> --output <dir>` | anime-segで背景除去し、TripoSRで2048² UVアトラス付きGLBを単発生成 |
+| `cargo xtask rig --input <glb> --output <dir> --name <表示名>` | A/Tポーズを検査し、19ボーンとheat diffusionウェイトを持つVRMを単発生成 |
 | `cargo run -p local-vtuber-studio --bin lipsync-probe` | 既定マイクを3秒だけ16kHzへ変換し、FFT判定窓を検査して停止 |
 | `cargo run -p local-vtuber-studio --bin stream-probe` | 透過OBSページを58090〜58099の空きポートで30秒配信し、女性3体の状態を切替 |
 
@@ -94,6 +95,8 @@ cargo xtask expression --input temp/input.png --output temp/expressions --identi
 `setup sidecar` は `nvidia-smi` でCUDA対応GPUを確認してから、Python 3.12.13とハッシュ固定済み依存を単一環境へ同期する。`setup models` はT0で固定したリビジョンから取得し、SHA-256不一致なら採用せず中間ファイルを削除する。CPUフォールバックはない。
 
 `mesh` は入力原本を `source/input.png` に保存し、`foreground.png`、`reconstruction-input.png`、`texture.png`、`mesh.glb`、`metrics.json` を出力する。全身が画面高の68%未満、腕幅が画面幅の32%未満、中央ずれが12%超ならA/Tポーズ不適合として生成前に停止する。生成中はHugging Faceをオフライン固定し、初回セットアップ以外の外向き通信を許可しない。
+
+`rig` はUVテクスチャ付き単一GLBを読み、正面A/Tポーズでない入力を明示エラーにする。AポーズはVRMのTポーズへ正規化し、自前のグラフheat diffusionで各頂点の上位4ウェイトを決める。出力は `rigged.vrm` と `rig-metrics.json`。同じPython 3.12環境のNumPy・SciPy・trimeshだけを使い、Blenderや追加モデルは同梱しない。
 
 T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`tools/facepatch-view/` をリポジトリルートからローカルHTTP配信し、`model` と、外部テクスチャを確認する場合だけ `texture` のクエリへローカルパスを渡す。投影テクスチャはアンリットで、PNGの上下方向をThree.jsのUVへ合わせるため `flipY=true` とする。製品の描画実装も `ui/shared/vendor/three/` を共有し、CDNへ接続しない。
 
