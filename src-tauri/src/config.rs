@@ -6,15 +6,39 @@ use thiserror::Error;
 use crate::store;
 
 pub const SETTING_KEYS: &[&str] = &[
+    "ai.blink_denoise",
+    "ai.image_denoise",
+    "ai.llm_model",
+    "ai.mesh_model",
+    "ai.models_dir",
+    "ai.stt_model",
     "avatar.blink_duration_ms",
     "avatar.blink_max_ms",
     "avatar.blink_min_ms",
     "avatar.crossfade_ms",
     "avatar.idle_sway_degrees",
     "avatar.idle_sway_period_ms",
+    "comfy.port",
+    "comfy.startup_timeout_seconds",
+    "comfy.unload_before_mesh",
+    "comfy.workflow_dir",
     "display.language",
     "display.preview_fps",
     "display.preview_scale",
+    "facepatch.alpha_threshold",
+    "facepatch.depth_window",
+    "facepatch.diff_threshold",
+    "facepatch.face_mask_center",
+    "facepatch.face_mask_radius",
+    "facepatch.head_weight_threshold",
+    "facepatch.max_ray_hits",
+    "facepatch.normal_threshold",
+    "facepatch.pipeline_version",
+    "facepatch.seam_padding",
+    "import.alignment_tolerance",
+    "import.check_alignment",
+    "import.check_mirrored",
+    "import.color_tolerance",
     "lipsync.a_shape_bias",
     "lipsync.device_name",
     "lipsync.formants",
@@ -27,6 +51,11 @@ pub const SETTING_KEYS: &[&str] = &[
     "obs.enabled",
     "obs.port_range_end",
     "obs.port_range_start",
+    "pipeline.atlas_resolution",
+    "pipeline.capture_resolution",
+    "pipeline.keep_intermediates",
+    "pipeline.mesh_resolution",
+    "pipeline.output_dir",
     "vad.enabled",
     "vad.end_silence_seconds",
     "vad.max_seconds",
@@ -36,11 +65,70 @@ pub const SETTING_KEYS: &[&str] = &[
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub ai: AiConfig,
     pub avatar: AvatarConfig,
+    pub comfy: ComfyConfig,
     pub display: DisplayConfig,
+    pub facepatch: FacePatchConfig,
+    pub import: ImportConfig,
     pub lipsync: LipSyncConfig,
     pub vad: VadConfig,
     pub obs: ObsConfig,
+    pub pipeline: PipelineConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PipelineConfig {
+    pub capture_resolution: u32,
+    pub atlas_resolution: u32,
+    pub mesh_resolution: u32,
+    pub output_dir: String,
+    pub keep_intermediates: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct FacePatchConfig {
+    pub pipeline_version: u32,
+    pub diff_threshold: f32,
+    pub alpha_threshold: f32,
+    pub seam_padding: u32,
+    pub head_weight_threshold: f32,
+    pub normal_threshold: f32,
+    pub max_ray_hits: usize,
+    pub depth_window: f32,
+    pub face_mask_center: [f32; 2],
+    pub face_mask_radius: [f32; 2],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct AiConfig {
+    pub models_dir: String,
+    pub llm_model: String,
+    pub stt_model: String,
+    pub image_denoise: f32,
+    pub blink_denoise: f32,
+    pub mesh_model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ComfyConfig {
+    pub port: u16,
+    pub startup_timeout_seconds: u32,
+    pub workflow_dir: String,
+    pub unload_before_mesh: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ImportConfig {
+    pub check_alignment: bool,
+    pub check_mirrored: bool,
+    pub alignment_tolerance: f32,
+    pub color_tolerance: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -65,11 +153,16 @@ pub struct DisplayConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ConfigFile {
+    ai: Option<AiConfig>,
     avatar: Option<AvatarConfigFile>,
+    comfy: Option<ComfyConfig>,
     display: Option<DisplayConfigFile>,
+    facepatch: Option<FacePatchConfig>,
+    import: Option<ImportConfig>,
     lipsync: Option<LipSyncConfigFile>,
     vad: Option<VadConfigFile>,
     obs: Option<ObsConfigFile>,
+    pipeline: Option<PipelineConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -159,6 +252,71 @@ impl Default for DisplayConfig {
             preview_fps: 30,
             preview_scale: 0.5,
             language: "ja".to_owned(),
+        }
+    }
+}
+
+impl Default for PipelineConfig {
+    fn default() -> Self {
+        Self {
+            capture_resolution: 1024,
+            atlas_resolution: 2048,
+            mesh_resolution: 192,
+            output_dir: String::new(),
+            keep_intermediates: true,
+        }
+    }
+}
+
+impl Default for FacePatchConfig {
+    fn default() -> Self {
+        let value = crate::facepatch::ProjectionSettings::default();
+        Self {
+            pipeline_version: 2,
+            diff_threshold: value.diff_threshold,
+            alpha_threshold: value.alpha_threshold,
+            seam_padding: value.seam_padding,
+            head_weight_threshold: value.head_weight_threshold,
+            normal_threshold: value.normal_threshold,
+            max_ray_hits: value.max_ray_hits,
+            depth_window: value.depth_window,
+            face_mask_center: value.face_mask_center,
+            face_mask_radius: value.face_mask_radius,
+        }
+    }
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            models_dir: "models".into(),
+            llm_model: "qwen2.5-1.5b-instruct-q4_k_m.gguf".into(),
+            stt_model: "ggml-small.bin".into(),
+            image_denoise: 0.65,
+            blink_denoise: 0.85,
+            mesh_model: "triposr".into(),
+        }
+    }
+}
+
+impl Default for ComfyConfig {
+    fn default() -> Self {
+        Self {
+            port: 58120,
+            startup_timeout_seconds: 600,
+            workflow_dir: "workflows".into(),
+            unload_before_mesh: true,
+        }
+    }
+}
+
+impl Default for ImportConfig {
+    fn default() -> Self {
+        Self {
+            check_alignment: true,
+            check_mirrored: true,
+            alignment_tolerance: 12.0,
+            color_tolerance: 0.08,
         }
     }
 }
@@ -310,6 +468,13 @@ impl AppConfig {
                 }
             };
         }
+        macro_rules! string_environment {
+            ($name:literal, $target:expr) => {
+                if let Some(value) = environment($name) {
+                    $target = value.to_string_lossy().into_owned();
+                }
+            };
+        }
         parse_environment!("LVS_AVATAR_CROSSFADE_MS", self.avatar.crossfade_ms, u32);
         parse_environment!("LVS_AVATAR_BLINK_MIN_MS", self.avatar.blink_min_ms, u32);
         parse_environment!("LVS_AVATAR_BLINK_MAX_MS", self.avatar.blink_max_ms, u32);
@@ -327,6 +492,65 @@ impl AppConfig {
             "LVS_AVATAR_IDLE_SWAY_PERIOD_MS",
             self.avatar.idle_sway_period_ms,
             u32
+        );
+        parse_environment!("LVS_COMFY_PORT", self.comfy.port, u16);
+        parse_environment!(
+            "LVS_COMFY_STARTUP_TIMEOUT_SECONDS",
+            self.comfy.startup_timeout_seconds,
+            u32
+        );
+        parse_environment!(
+            "LVS_COMFY_UNLOAD_BEFORE_MESH",
+            self.comfy.unload_before_mesh,
+            bool
+        );
+        parse_environment!(
+            "LVS_PIPELINE_CAPTURE_RESOLUTION",
+            self.pipeline.capture_resolution,
+            u32
+        );
+        parse_environment!(
+            "LVS_PIPELINE_ATLAS_RESOLUTION",
+            self.pipeline.atlas_resolution,
+            u32
+        );
+        parse_environment!(
+            "LVS_PIPELINE_MESH_RESOLUTION",
+            self.pipeline.mesh_resolution,
+            u32
+        );
+        parse_environment!(
+            "LVS_PIPELINE_KEEP_INTERMEDIATES",
+            self.pipeline.keep_intermediates,
+            bool
+        );
+        string_environment!("LVS_PIPELINE_OUTPUT_DIR", self.pipeline.output_dir);
+        string_environment!("LVS_AI_MODELS_DIR", self.ai.models_dir);
+        string_environment!("LVS_AI_LLM_MODEL", self.ai.llm_model);
+        string_environment!("LVS_AI_STT_MODEL", self.ai.stt_model);
+        string_environment!("LVS_AI_MESH_MODEL", self.ai.mesh_model);
+        string_environment!("LVS_COMFY_WORKFLOW_DIR", self.comfy.workflow_dir);
+        parse_environment!("LVS_AI_IMAGE_DENOISE", self.ai.image_denoise, f32);
+        parse_environment!("LVS_AI_BLINK_DENOISE", self.ai.blink_denoise, f32);
+        parse_environment!(
+            "LVS_IMPORT_CHECK_ALIGNMENT",
+            self.import.check_alignment,
+            bool
+        );
+        parse_environment!(
+            "LVS_IMPORT_CHECK_MIRRORED",
+            self.import.check_mirrored,
+            bool
+        );
+        parse_environment!(
+            "LVS_IMPORT_ALIGNMENT_TOLERANCE",
+            self.import.alignment_tolerance,
+            f32
+        );
+        parse_environment!(
+            "LVS_IMPORT_COLOR_TOLERANCE",
+            self.import.color_tolerance,
+            f32
         );
         if let Some(value) = environment("LVS_LIPSYNC_DEVICE_NAME") {
             self.lipsync.device_name = value.to_string_lossy().into_owned();
@@ -373,6 +597,9 @@ impl AppConfig {
     }
 
     fn apply_file(&mut self, file: ConfigFile) {
+        if let Some(value) = file.ai {
+            self.ai = value;
+        }
         if let Some(avatar) = file.avatar {
             apply_optional(&mut self.avatar.crossfade_ms, avatar.crossfade_ms);
             apply_optional(&mut self.avatar.blink_min_ms, avatar.blink_min_ms);
@@ -384,6 +611,9 @@ impl AppConfig {
                 avatar.idle_sway_period_ms,
             );
         }
+        if let Some(value) = file.comfy {
+            self.comfy = value;
+        }
         if let Some(display) = file.display {
             if let Some(value) = display.preview_fps {
                 self.display.preview_fps = value;
@@ -394,6 +624,12 @@ impl AppConfig {
             if let Some(value) = display.language {
                 self.display.language = value;
             }
+        }
+        if let Some(value) = file.facepatch {
+            self.facepatch = value;
+        }
+        if let Some(value) = file.import {
+            self.import = value;
         }
         if let Some(lipsync) = file.lipsync {
             apply_optional(&mut self.lipsync.device_name, lipsync.device_name);
@@ -420,9 +656,61 @@ impl AppConfig {
             apply_optional(&mut self.obs.port_range_start, obs.port_range_start);
             apply_optional(&mut self.obs.port_range_end, obs.port_range_end);
         }
+        if let Some(value) = file.pipeline {
+            self.pipeline = value;
+        }
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        if self.pipeline.capture_resolution < 64
+            || self.pipeline.capture_resolution > 4096
+            || self.pipeline.atlas_resolution < 64
+            || self.pipeline.atlas_resolution > 8192
+            || !(32..=512).contains(&self.pipeline.mesh_resolution)
+        {
+            return Err(ConfigError::Validation("pipeline設定が範囲外です".into()));
+        }
+        if self.facepatch.pipeline_version == 0
+            || !(0.0..=1.0).contains(&self.facepatch.diff_threshold)
+            || !(0.0..=1.0).contains(&self.facepatch.alpha_threshold)
+            || self.facepatch.max_ray_hits == 0
+            || self
+                .facepatch
+                .face_mask_radius
+                .iter()
+                .any(|value| *value <= 0.0)
+        {
+            return Err(ConfigError::Validation("facepatch設定が範囲外です".into()));
+        }
+        if self.comfy.port == 8188
+            || self.comfy.port == 0
+            || self.comfy.startup_timeout_seconds == 0
+            || !self.comfy.unload_before_mesh
+            || !(0.0..=1.0).contains(&self.ai.image_denoise)
+            || !(0.0..=1.0).contains(&self.ai.blink_denoise)
+        {
+            return Err(ConfigError::Validation("AI/ComfyUI設定が範囲外です".into()));
+        }
+        if self.ai.models_dir.trim().is_empty()
+            || self.ai.llm_model.trim().is_empty()
+            || self.ai.stt_model.trim().is_empty()
+            || self.ai.mesh_model.trim().is_empty()
+            || self.comfy.workflow_dir.trim().is_empty()
+        {
+            return Err(ConfigError::Validation(
+                "AI/ComfyUIのパスまたはモデル名が空です".into(),
+            ));
+        }
+        if self.import.alignment_tolerance < 0.0
+            || !(0.0..=1.0).contains(&self.import.color_tolerance)
+        {
+            return Err(ConfigError::Validation("import設定が範囲外です".into()));
+        }
+        if !self.pipeline.keep_intermediates {
+            return Err(ConfigError::Validation(
+                "途中再開に必要なためpipeline.keep_intermediatesはtrue固定です".into(),
+            ));
+        }
         if self.avatar.crossfade_ms > 5_000
             || self.avatar.blink_min_ms < 500
             || self.avatar.blink_max_ms < self.avatar.blink_min_ms
@@ -558,6 +846,21 @@ mod tests {
         })
         .unwrap();
         assert_eq!(loaded.display.preview_fps, 48);
+    }
+
+    #[test]
+    fn environment_can_redirect_pipeline_and_model_paths() {
+        let path = std::env::temp_dir().join("lvs-config-does-not-exist-paths.json");
+        let loaded = AppConfig::load_with_environment(&path, |key| match key {
+            "LVS_PIPELINE_OUTPUT_DIR" => Some("C:/characters".into()),
+            "LVS_AI_MODELS_DIR" => Some("D:/models".into()),
+            "LVS_COMFY_WORKFLOW_DIR" => Some("custom-workflows".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(loaded.pipeline.output_dir, "C:/characters");
+        assert_eq!(loaded.ai.models_dir, "D:/models");
+        assert_eq!(loaded.comfy.workflow_dir, "custom-workflows");
     }
 
     #[test]

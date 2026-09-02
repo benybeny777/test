@@ -21,6 +21,13 @@ const TRIPOSR_CONFIG_SHA256: &str =
     "74ca708ce086bf68e97709ea6b3d91f14717921c04691e84043f0eb8fcc68e62";
 const ISNET_ANIME_SHA256: &str = "f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99";
 const DINO_CONFIG_SHA256: &str = "b87c0270b97db085fd82cf114a761fd0f62ae7914fbd407c752a2260646b689c";
+const LLAMA_ZIP_SHA256: &str = "81c2ff62e14b549cd5c766ccdd5c61f09e821a171655c3047bdccfddc2d1a1e2";
+const LLAMA_CUDART_SHA256: &str =
+    "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6";
+const WHISPER_ZIP_SHA256: &str = "c1b17166e1e31a91cc8e9c1f910d3785e3ce757bb2958bf9dce13fdb4880005f";
+const QWEN_SHA256: &str = "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e";
+const WHISPER_MODEL_SHA256: &str =
+    "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b";
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -31,6 +38,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("comfy") => setup_comfy(),
         "setup" if args.get(1).map(String::as_str) == Some("sidecar") => setup_sidecar(),
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
+        "setup" if args.get(1).map(String::as_str) == Some("engines") => setup_engines(),
         "expression" => run_expression(&args[1..]),
         "expression-import" => run_expression_import(&args[1..]),
         "mesh" => run_mesh(&args[1..]),
@@ -54,7 +62,7 @@ fn main() -> Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models>"
+                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup engines>"
             );
             Ok(())
         }
@@ -227,6 +235,160 @@ fn setup_models() -> Result<()> {
     )
 }
 
+fn setup_engines() -> Result<()> {
+    let root = root()?;
+    check_cuda_gpu(&root)?;
+    let downloads = root.join("temp/engine-downloads");
+    let staging = root.join("engines/.staging");
+    let llama = root.join("engines/llama");
+    let whisper = root.join("engines/whisper");
+    let models_llm = root.join("models/llm");
+    let models_stt = root.join("models/stt");
+    let llama_cli = llama.join("llama-cli.exe");
+    let whisper_cli = whisper.join("whisper-cli.exe");
+    let binaries_ready = command_output_contains(&llama_cli, "--version", "build 10621")
+        && command_output_contains(&whisper_cli, "--version", "1.9.3");
+    if binaries_ready {
+        std::fs::create_dir_all(&models_llm)?;
+        std::fs::create_dir_all(&models_stt)?;
+        download_engine_models(&root, &models_llm, &models_stt)?;
+        println!("llama.cpp b10621 と whisper.cpp b4938 は検証済みです");
+        return Ok(());
+    }
+    if llama.exists() || whisper.exists() {
+        bail!(
+            "既存エンジンが固定版と一致しません。engines/llama と engines/whisper を退避してから再実行してください"
+        );
+    }
+    std::fs::create_dir_all(&downloads)?;
+    let llama_zip = downloads.join("llama-cuda.zip");
+    let cudart_zip = downloads.join("llama-cudart.zip");
+    let whisper_zip = downloads.join("whisper-cuda.zip");
+    download_verified(
+        &root,
+        "https://github.com/ggml-org/llama.cpp/releases/download/b10621/llama-b10621-bin-win-cuda-12.4-x64.zip",
+        &llama_zip,
+        LLAMA_ZIP_SHA256,
+    )?;
+    download_verified(
+        &root,
+        "https://github.com/ggml-org/llama.cpp/releases/download/b10621/cudart-llama-bin-win-cuda-12.4-x64.zip",
+        &cudart_zip,
+        LLAMA_CUDART_SHA256,
+    )?;
+    download_verified(
+        &root,
+        "https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-cublas-12.4.0-bin-x64.zip",
+        &whisper_zip,
+        WHISPER_ZIP_SHA256,
+    )?;
+    if staging.exists() {
+        ensure_child(&root, &staging)?;
+        std::fs::remove_dir_all(&staging)?;
+    }
+    let llama_staging = staging.join("llama");
+    let whisper_staging = staging.join("whisper");
+    std::fs::create_dir_all(&llama_staging)?;
+    std::fs::create_dir_all(&whisper_staging)?;
+    extract_flat(&root, &llama_zip, &llama_staging)?;
+    extract_flat(&root, &cudart_zip, &llama_staging)?;
+    extract_flat(&root, &whisper_zip, &whisper_staging)?;
+    if !llama_staging.join("llama-cli.exe").is_file()
+        || !whisper_staging.join("whisper-cli.exe").is_file()
+    {
+        bail!("推論エンジンの展開物にCLIがありません");
+    }
+    std::fs::rename(&llama_staging, &llama)?;
+    std::fs::rename(&whisper_staging, &whisper)?;
+    std::fs::create_dir_all(&models_llm)?;
+    std::fs::create_dir_all(&models_stt)?;
+    download_engine_models(&root, &models_llm, &models_stt)?;
+    if staging.exists() {
+        ensure_child(&root, &staging)?;
+        std::fs::remove_dir_all(&staging)?;
+    }
+    for file in [llama_zip, cudart_zip, whisper_zip] {
+        std::fs::remove_file(file)?;
+    }
+    println!("llama.cpp b10621 と whisper.cpp b4938 を検証して配置しました");
+    Ok(())
+}
+
+fn download_engine_models(root: &Path, models_llm: &Path, models_stt: &Path) -> Result<()> {
+    download_verified(
+        root,
+        "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true",
+        &models_llm.join("qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+        QWEN_SHA256,
+    )?;
+    download_verified(
+        root,
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin?download=true",
+        &models_stt.join("ggml-small.bin"),
+        WHISPER_MODEL_SHA256,
+    )?;
+    Ok(())
+}
+
+fn command_output_contains(program: &Path, argument: &str, expected: &str) -> bool {
+    Command::new(program)
+        .arg(argument)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            combined.contains(expected)
+        })
+}
+
+fn extract_flat(root: &Path, archive: &Path, destination: &Path) -> Result<()> {
+    let unpacked = destination.join(".unpacked");
+    std::fs::create_dir_all(&unpacked)?;
+    run_at(
+        root,
+        "tar.exe",
+        [
+            OsStr::new("-xf"),
+            archive.as_os_str(),
+            OsStr::new("-C"),
+            unpacked.as_os_str(),
+        ],
+    )?;
+    copy_files_flat(&unpacked, destination)?;
+    ensure_child(root, &unpacked)?;
+    std::fs::remove_dir_all(unpacked)?;
+    Ok(())
+}
+
+fn copy_files_flat(source: &Path, destination: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(source)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            copy_files_flat(&path, destination)?;
+        } else if let Some(name) = path.file_name() {
+            std::fs::copy(&path, destination.join(name))?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_child(root: &Path, path: &Path) -> Result<()> {
+    let root = root.canonicalize()?;
+    let target = path.canonicalize()?;
+    if !target.starts_with(&root) || target == root {
+        bail!(
+            "削除対象がリポジトリ配下ではありません: {}",
+            target.display()
+        );
+    }
+    Ok(())
+}
+
 fn run_mesh(args: &[String]) -> Result<()> {
     let root = root()?;
     check_cuda_gpu(&root)?;
@@ -327,6 +489,19 @@ fn verify_python_sidecars() -> Result<()> {
             OsStr::new("discover"),
             OsStr::new("-s"),
             OsStr::new("sidecar/expression"),
+            OsStr::new("-p"),
+            OsStr::new("test_*.py"),
+        ],
+    )?;
+    run_at(
+        &root,
+        &python,
+        [
+            OsStr::new("-m"),
+            OsStr::new("unittest"),
+            OsStr::new("discover"),
+            OsStr::new("-s"),
+            OsStr::new("sidecar/background"),
             OsStr::new("-p"),
             OsStr::new("test_*.py"),
         ],

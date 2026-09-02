@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "/shared/vendor/three/three.module.min.js";
 import { GLTFLoader } from "/shared/vendor/three/addons/loaders/GLTFLoader.js";
 
 const vertexShader = `
@@ -35,6 +35,7 @@ export function createAvatarRenderer(canvas) {
   camera.lookAt(0, 0, 0);
   const clock = new THREE.Clock();
   let model;
+  let modelRoot;
   let modelUrl;
   let mixer;
   let baseTexture;
@@ -47,11 +48,22 @@ export function createAvatarRenderer(canvas) {
   let state = {};
   let disposed = false;
   let animationFrame;
+  const resizeObserver = new ResizeObserver(resize);
   let revision = 0;
+  const poseBones = new Map();
+  const baseBoneRotations = new Map();
   const textureCache = new Map();
 
   function resize() {
-    renderer.setSize(innerWidth, innerHeight, false);
+    const width = Math.max(1, canvas.clientWidth || innerWidth);
+    const height = Math.max(1, canvas.clientHeight || innerHeight);
+    const aspect = width / height;
+    camera.left = -0.7 * aspect;
+    camera.right = 0.7 * aspect;
+    camera.top = 0.7;
+    camera.bottom = -0.7;
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height, false);
   }
 
   function materialFor(texture) {
@@ -82,7 +94,7 @@ export function createAvatarRenderer(canvas) {
     if (!textureCache.has(url)) {
       const pending = new THREE.TextureLoader().loadAsync(url).then((texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
-        texture.flipY = true;
+        texture.flipY = false;
         texture.needsUpdate = true;
         return texture;
       });
@@ -102,17 +114,30 @@ export function createAvatarRenderer(canvas) {
         return;
       }
       disposeModel(model);
-      if (model) scene.remove(model);
+      if (modelRoot) scene.remove(modelRoot);
       model = loaded.scene;
       modelUrl = nextState.modelUrl;
       mixer = loaded.animations.length ? new THREE.AnimationMixer(model) : undefined;
       if (mixer) mixer.clipAction(loaded.animations[0]).play();
+      poseBones.clear();
+      baseBoneRotations.clear();
       model.traverse((object) => {
+        if (object.isBone && object.name) {
+          poseBones.set(object.name, object);
+          baseBoneRotations.set(object.name, object.quaternion.clone());
+        }
         if (!object.isMesh) return;
         object.material?.dispose();
         object.material = materialFor(baseTexture);
       });
-      scene.add(model);
+      const bounds = new THREE.Box3().setFromObject(model);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
+      const focusY = bounds.min.y + size.y * 0.62;
+      model.position.set(-center.x, -focusY, -center.z);
+      modelRoot = new THREE.Group();
+      modelRoot.add(model);
+      scene.add(modelRoot);
     }
     if (!baseTexture || textureUrl !== nextState.textureUrl) {
       const nextTexture = await loadTexture(nextState.textureUrl);
@@ -136,6 +161,7 @@ export function createAvatarRenderer(canvas) {
   function render(now) {
     if (disposed) return;
     mixer?.update(clock.getDelta());
+    applyArmPose(state.armPose);
     if (transition) {
       const duration = Math.max(1, state.crossfadeMs ?? 160);
       const amount = Math.min(1, (now - transition.start) / duration);
@@ -156,24 +182,44 @@ export function createAvatarRenderer(canvas) {
         setMaterialTextures(baseTexture, blinkTexture, amount);
       }
     }
-    if (model) {
+    if (modelRoot) {
       const period = Math.max(100, state.idleSwayPeriodMs ?? 4200);
       const sway = Math.sin((now / period) * Math.PI * 2);
       const degrees = state.idleSwayDegrees ?? 0.7;
-      model.rotation.z = THREE.MathUtils.degToRad(sway * degrees);
-      model.rotation.y = THREE.MathUtils.degToRad((state.yaw ?? 0) + sway * degrees * 0.35);
-      model.rotation.x = THREE.MathUtils.degToRad(state.pitch ?? 0);
-      model.scale.setScalar(state.scale ?? 1);
-      model.position.set(state.offsetX ?? 0, state.offsetY ?? 0, 0);
+      modelRoot.rotation.z = THREE.MathUtils.degToRad(sway * degrees);
+      modelRoot.rotation.y = THREE.MathUtils.degToRad((state.yaw ?? 0) + sway * degrees * 0.35);
+      modelRoot.rotation.x = THREE.MathUtils.degToRad(state.pitch ?? 0);
+      modelRoot.scale.setScalar(state.scale ?? 1);
+      modelRoot.position.set(state.offsetX ?? 0, state.offsetY ?? 0, 0);
     }
     renderer.render(scene, camera);
     animationFrame = requestAnimationFrame(render);
+  }
+
+  function applyArmPose(pose) {
+    if (!pose) return;
+    for (const [name, degrees] of Object.entries(pose)) {
+      const bone = poseBones.get(name);
+      const base = baseBoneRotations.get(name);
+      if (!bone || !base || !Array.isArray(degrees) || degrees.length !== 3) continue;
+      const isZero = degrees.every((value) => Math.abs(value) < 0.0001);
+      if (isZero && name === "head") continue;
+      if (isZero) {
+        bone.quaternion.copy(base);
+        continue;
+      }
+      const offset = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(...degrees.map(THREE.MathUtils.degToRad), "XYZ"),
+      );
+      bone.quaternion.copy(base).multiply(offset);
+    }
   }
 
   function dispose() {
     disposed = true;
     cancelAnimationFrame(animationFrame);
     removeEventListener("resize", resize);
+    resizeObserver.disconnect();
     mixer?.stopAllAction();
     disposeModel(model);
     for (const pending of textureCache.values()) {
@@ -187,6 +233,7 @@ export function createAvatarRenderer(canvas) {
   }
 
   addEventListener("resize", resize);
+  resizeObserver.observe(canvas);
   resize();
   animationFrame = requestAnimationFrame(render);
   return { applyState, dispose };

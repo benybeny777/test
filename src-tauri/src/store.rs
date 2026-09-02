@@ -16,6 +16,19 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), std
     sync_directory(parent)
 }
 
+pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("保存先ディレクトリがありません"))?;
+    fs::create_dir_all(parent)?;
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    replace(temp.path(), path)?;
+    temp.disable_cleanup(true);
+    sync_directory(parent)
+}
+
 #[cfg(windows)]
 fn replace(source: &Path, destination: &Path) -> Result<(), std::io::Error> {
     use std::os::windows::ffi::OsStrExt;
