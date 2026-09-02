@@ -438,6 +438,8 @@ impl PipelineContext {
             return Err(PipelineError::Invalid(format!("未知の工程です: {stage}")));
         }
         let mut manifest = self.load_character(id)?;
+        let directory = self.character_dir(id)?;
+        invalidate_from_stage(&mut manifest, &directory, stage)?;
         set_stage(&mut manifest, stage, "running", "実行中");
         self.save_character(&manifest)?;
         let result = match stage {
@@ -691,6 +693,80 @@ impl PipelineContext {
     }
 }
 
+fn remove_file_if_present(path: &Path) -> Result<(), PipelineError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn remove_dir_if_present(path: &Path) -> Result<(), PipelineError> {
+    match fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn invalidate_from_stage(
+    manifest: &mut CharacterManifest,
+    directory: &Path,
+    stage: &str,
+) -> Result<(), PipelineError> {
+    let start = STAGES
+        .iter()
+        .position(|candidate| *candidate == stage)
+        .ok_or_else(|| PipelineError::Invalid(format!("未知の工程です: {stage}")))?;
+    for invalidated in &STAGES[start..] {
+        manifest.stages.remove(*invalidated);
+    }
+
+    let model = directory.join("model");
+    let facepatch = directory.join("facepatch");
+    match stage {
+        "mesh" => {
+            for name in [
+                "foreground.png",
+                "reconstruction-input.png",
+                "texture.png",
+                "mesh.glb",
+                "metrics.json",
+                "rigged.vrm",
+                "rig-metrics.json",
+                "thumbnail.png",
+            ] {
+                remove_file_if_present(&model.join(name))?;
+            }
+            remove_file_if_present(&directory.join("source/isolated.png"))?;
+            remove_dir_if_present(&facepatch)?;
+        }
+        "rig" => {
+            for name in ["rigged.vrm", "rig-metrics.json", "thumbnail.png"] {
+                remove_file_if_present(&model.join(name))?;
+            }
+            remove_dir_if_present(&facepatch)?;
+        }
+        "capture" => {
+            remove_file_if_present(&model.join("thumbnail.png"))?;
+            remove_dir_if_present(&facepatch)?;
+        }
+        "expression" => {
+            remove_dir_if_present(&facepatch.join("expr"))?;
+            remove_dir_if_present(&facepatch.join("projected"))?;
+            remove_dir_if_present(&facepatch.join("diagnostics"))?;
+            remove_file_if_present(&facepatch.join("signature.txt"))?;
+        }
+        "facepatch" => {
+            remove_dir_if_present(&facepatch.join("projected"))?;
+            remove_dir_if_present(&facepatch.join("diagnostics"))?;
+            remove_file_if_present(&facepatch.join("signature.txt"))?;
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
 fn set_stage(manifest: &mut CharacterManifest, stage: &str, status: &str, message: &str) {
     manifest.stages.insert(
         stage.into(),
@@ -823,5 +899,54 @@ mod tests {
             .generate_background(&AppConfig::default(), "c_test", "night", "")
             .unwrap_err();
         assert!(error.to_string().contains("背景プロンプト"));
+    }
+
+    #[test]
+    fn upstream_rerun_invalidates_statuses_and_dependent_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("c_test");
+        fs::create_dir_all(directory.join("model")).unwrap();
+        fs::create_dir_all(directory.join("facepatch/projected")).unwrap();
+        fs::write(directory.join("model/mesh.glb"), b"old mesh").unwrap();
+        fs::write(directory.join("model/rigged.vrm"), b"old rig").unwrap();
+        fs::write(
+            directory.join("facepatch/projected/smile.png"),
+            b"old patch",
+        )
+        .unwrap();
+        let mut manifest = CharacterManifest {
+            schema_version: 1,
+            character_id: "c_test".into(),
+            display_name: "女性テスト".into(),
+            created_at_iso: "now".into(),
+            updated_at_iso: "now".into(),
+            persona_prompt: String::new(),
+            identity_tags: String::new(),
+            model: BTreeMap::new(),
+            expressions: Vec::new(),
+            framings: BTreeMap::new(),
+            stages: STAGES
+                .iter()
+                .map(|stage| {
+                    (
+                        (*stage).to_owned(),
+                        StageState {
+                            status: "complete".into(),
+                            message: "完了".into(),
+                            updated_at_iso: "now".into(),
+                        },
+                    )
+                })
+                .collect(),
+        };
+
+        invalidate_from_stage(&mut manifest, &directory, "rig").unwrap();
+
+        assert!(manifest.stages.contains_key("mesh"));
+        assert!(!manifest.stages.contains_key("rig"));
+        assert!(!manifest.stages.contains_key("facepatch"));
+        assert!(directory.join("model/mesh.glb").is_file());
+        assert!(!directory.join("model/rigged.vrm").exists());
+        assert!(!directory.join("facepatch").exists());
     }
 }

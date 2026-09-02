@@ -105,6 +105,10 @@ cargo xtask expression --input temp/input.png --output temp/expressions --identi
 
 `mesh` は入力原本を `source/input.png` に保存し、`foreground.png`、`reconstruction-input.png`、`texture.png`、`mesh.glb`、`metrics.json` を出力する。全身が画面高の68%未満、腕幅が画面幅の32%未満、中央ずれが12%超ならA/Tポーズ不適合として生成前に停止する。生成中はHugging Faceをオフライン固定し、初回セットアップ以外の外向き通信を許可しない。
 
+`pipeline-probe` も実アプリと同じ設定優先順位を使い、`LVS_PIPELINE_MESH_RESOLUTION` などの環境変数を反映する。工程を再実行すると、その工程以降の状態と依存成果物を無効化する。古いリグ・中立キャプチャ・表情・投影を新しい上流成果物へ混在させない。
+
+TripoSR経路はVRAM・工程接続の技術検証用であり、完成キャラクター用としては品質不適合である。現時点では3D化後の実画面を合格扱いせず、[TASKS.md](TASKS.md) T9の方式決定まで配布品質を主張しない。
+
 `rig` はUVテクスチャ付き単一GLBを読み、正面A/Tポーズでない入力を明示エラーにする。AポーズはVRMのTポーズへ正規化し、自前のグラフheat diffusionで各頂点の上位4ウェイトを決める。出力は `rigged.vrm` と `rig-metrics.json`。同じPython 3.12環境のNumPy・SciPy・trimeshだけを使い、Blenderや追加モデルは同梱しない。
 
 T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`tools/facepatch-view/` をリポジトリルートからローカルHTTP配信し、`model` と、外部テクスチャを確認する場合だけ `texture` のクエリへローカルパスを渡す。投影テクスチャはアンリットで、VRMのglTF UV規約に合わせて外部PNGも `flipY=false` とする。`true` にするとUVアイランドが上下反転し、全身へ別部位が貼られる。製品の描画実装も `ui/shared/vendor/three/` を共有し、CDNへ接続しない。追加モジュール内の `three` 参照も同梱ファイルへの相対参照へ固定し、キャンバスの寸法変更は `ResizeObserver` で投影行列へ反映する。
