@@ -14,6 +14,13 @@ const COMFY_TAG: &str = "v0.34.0";
 const COMFY_COMMIT: &str = "12d5279438bfefc058a269eae805ceab6047777f";
 const ANIMAGINE_SHA256: &str = "6327eca98bfb6538dd7a4edce22484a1bbc57a8cff6b11d075d40da1afb847ac";
 const CONTROLNET_SHA256: &str = "ea99040544a999f814fd854575a3aee069a005d026864c8d321b82576706a221";
+const TRIPOSR_COMMIT: &str = "107cefdc244c39106fa830359024f6a2f1c78871";
+const TRIPOSR_MODEL_SHA256: &str =
+    "429e2c6b22a0923967459de24d67f05962b235f79cde6b032aa7ed2ffcd970ee";
+const TRIPOSR_CONFIG_SHA256: &str =
+    "74ca708ce086bf68e97709ea6b3d91f14717921c04691e84043f0eb8fcc68e62";
+const ISNET_ANIME_SHA256: &str = "f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99";
+const DINO_CONFIG_SHA256: &str = "b87c0270b97db085fd82cf114a761fd0f62ae7914fbd407c752a2260646b689c";
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -25,6 +32,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("sidecar") => setup_sidecar(),
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
         "expression" => run_expression(&args[1..]),
+        "mesh" => run_mesh(&args[1..]),
         "facepatch" => run_facepatch(&args[1..]),
         "verify" => {
             run("cargo", &["fmt", "--all", "--", "--check"])?;
@@ -40,11 +48,11 @@ fn main() -> Result<()> {
                 ],
             )?;
             run("cargo", &["test", "--workspace"])?;
-            verify_expression()
+            verify_python_sidecars()
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|facepatch|setup comfy|setup sidecar|setup models>"
+                "usage: cargo xtask <dev|build|verify|expression|mesh|facepatch|setup comfy|setup sidecar|setup models>"
             );
             Ok(())
         }
@@ -130,7 +138,40 @@ fn setup_sidecar() -> Result<()> {
                 "import torch; assert torch.cuda.is_available(); print(torch.__version__, torch.cuda.get_device_name(0))",
             ),
         ],
-    )
+    )?;
+    setup_triposr_runtime(&root)
+}
+
+fn setup_triposr_runtime(root: &Path) -> Result<()> {
+    let runtime = root.join("sidecar/runtime/TripoSR");
+    if !runtime.exists() {
+        std::fs::create_dir_all(runtime.parent().context("TripoSR runtime parent missing")?)?;
+        run_at(
+            root,
+            "git",
+            [
+                OsStr::new("clone"),
+                OsStr::new("https://github.com/VAST-AI-Research/TripoSR.git"),
+                runtime.as_os_str(),
+            ],
+        )?;
+        run_at(
+            &runtime,
+            "git",
+            [OsStr::new("checkout"), OsStr::new(TRIPOSR_COMMIT)],
+        )?;
+    }
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&runtime)
+        .output()
+        .context("failed to inspect TripoSR revision")?;
+    let actual = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if !output.status.success() || actual != TRIPOSR_COMMIT {
+        bail!("TripoSR revision mismatch: expected {TRIPOSR_COMMIT}, got {actual}");
+    }
+    println!("TripoSR {TRIPOSR_COMMIT} is ready");
+    Ok(())
 }
 
 fn setup_models() -> Result<()> {
@@ -138,8 +179,14 @@ fn setup_models() -> Result<()> {
     check_cuda_gpu(&root)?;
     let checkpoints = root.join("ComfyUI/models/checkpoints");
     let controlnet = root.join("ComfyUI/models/controlnet");
+    let triposr = root.join("models/triposr");
+    let rembg = root.join("models/rembg");
+    let dino = root.join("models/dino-vitb16");
     std::fs::create_dir_all(&checkpoints)?;
     std::fs::create_dir_all(&controlnet)?;
+    std::fs::create_dir_all(&triposr)?;
+    std::fs::create_dir_all(&rembg)?;
+    std::fs::create_dir_all(&dino)?;
     download_verified(
         &root,
         "https://huggingface.co/cagliostrolab/animagine-xl-4.0/resolve/2b7c1b397761bf5bd3cc42e5b39ec99314a75a96/animagine-xl-4.0-opt.safetensors?download=true",
@@ -151,7 +198,48 @@ fn setup_models() -> Result<()> {
         "https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0/resolve/eb115a19a10d14909256db740ed109532ab1483c/diffusion_pytorch_model.safetensors?download=true",
         &controlnet.join("diffusion_pytorch_model.safetensors"),
         CONTROLNET_SHA256,
+    )?;
+    download_verified(
+        &root,
+        "https://huggingface.co/stabilityai/TripoSR/resolve/5b521936b01fbe1890f6f9baed0254ab6351c04a/model.ckpt?download=true",
+        &triposr.join("model.ckpt"),
+        TRIPOSR_MODEL_SHA256,
+    )?;
+    download_verified(
+        &root,
+        "https://huggingface.co/stabilityai/TripoSR/resolve/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml?download=true",
+        &triposr.join("config.yaml"),
+        TRIPOSR_CONFIG_SHA256,
+    )?;
+    download_verified(
+        &root,
+        "https://huggingface.co/skytnt/anime-seg/resolve/493cb60893f47441b26ec4fb9a306bce9e342982/isnetis.onnx?download=true",
+        &rembg.join("isnetis.onnx"),
+        ISNET_ANIME_SHA256,
+    )?;
+    download_verified(
+        &root,
+        "https://huggingface.co/facebook/dino-vitb16/resolve/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json?download=true",
+        &dino.join("config.json"),
+        DINO_CONFIG_SHA256,
     )
+}
+
+fn run_mesh(args: &[String]) -> Result<()> {
+    let root = root()?;
+    check_cuda_gpu(&root)?;
+    let python = root.join("sidecar/.venv/Scripts/python.exe");
+    let script = root.join("sidecar/mesh/generate.py");
+    let status = Command::new(&python)
+        .arg(script)
+        .args(args)
+        .current_dir(&root)
+        .status()
+        .context("failed to start mesh generator")?;
+    if !status.success() {
+        bail!("mesh generator failed with {status}");
+    }
+    Ok(())
 }
 
 fn run_expression(args: &[String]) -> Result<()> {
@@ -190,12 +278,25 @@ fn run_facepatch(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn verify_expression() -> Result<()> {
+fn verify_python_sidecars() -> Result<()> {
     let root = root()?;
     let python = root.join("sidecar/.venv/Scripts/python.exe");
     if !python.exists() {
         bail!("sidecar environment is missing; run `cargo xtask setup sidecar`");
     }
+    run_at(
+        &root,
+        &python,
+        [
+            OsStr::new("-m"),
+            OsStr::new("unittest"),
+            OsStr::new("discover"),
+            OsStr::new("-s"),
+            OsStr::new("sidecar/expression"),
+            OsStr::new("-p"),
+            OsStr::new("test_*.py"),
+        ],
+    )?;
     run_at(
         &root,
         python,
@@ -204,7 +305,7 @@ fn verify_expression() -> Result<()> {
             OsStr::new("unittest"),
             OsStr::new("discover"),
             OsStr::new("-s"),
-            OsStr::new("sidecar/expression"),
+            OsStr::new("sidecar/mesh"),
             OsStr::new("-p"),
             OsStr::new("test_*.py"),
         ],

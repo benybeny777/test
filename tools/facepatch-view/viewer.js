@@ -6,9 +6,9 @@ const modelUrl = parameters.get("model");
 const textureUrl = parameters.get("texture");
 const status = document.querySelector("#status");
 
-if (!modelUrl || !textureUrl) {
+if (!modelUrl) {
   status.dataset.state = "error";
-  status.textContent = "model と texture が必要です";
+  status.textContent = "model が必要です";
   throw new Error(status.textContent);
 }
 
@@ -21,29 +21,67 @@ document.body.append(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x171c27);
 const camera = new THREE.OrthographicCamera(-0.7, 0.7, 0.7, -0.7, 0.01, 10);
-camera.position.set(0, 0, 2);
+const cameraAxis = parameters.get("axis") ?? "z";
+const cameraSide = parameters.get("side") === "opposite" ? -2 : 2;
+if (cameraAxis === "x") {
+  camera.position.set(cameraSide, 0, 0);
+  camera.up.set(0, 0, 1);
+} else {
+  camera.position.set(0, 0, cameraSide);
+}
 camera.lookAt(0, 0, 0);
 
-const [gltf, texture] = await Promise.all([
-  new GLTFLoader().loadAsync(modelUrl),
-  new THREE.TextureLoader().loadAsync(textureUrl),
-]);
-texture.colorSpace = THREE.SRGBColorSpace;
-texture.flipY = true;
-texture.needsUpdate = true;
+const gltf = await new GLTFLoader().loadAsync(modelUrl);
+const texture = textureUrl
+  ? await new THREE.TextureLoader().loadAsync(textureUrl)
+  : null;
+if (texture) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.flipY = true;
+  texture.needsUpdate = true;
+}
 
 let meshCount = 0;
 gltf.scene.traverse((object) => {
   if (!object.isMesh) return;
-  object.material.dispose();
-  object.material = new THREE.MeshBasicMaterial({
-    map: texture,
-    side: THREE.DoubleSide,
-    toneMapped: false,
-  });
+  if (texture) {
+    object.material.dispose();
+    object.material = new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+  } else {
+    const map = object.material.map;
+    object.material.dispose();
+    object.material = new THREE.MeshBasicMaterial({
+      map,
+      vertexColors: !map,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+  }
   meshCount += 1;
 });
+gltf.scene.rotation.set(
+  THREE.MathUtils.degToRad(Number(parameters.get("rx") ?? 0)),
+  THREE.MathUtils.degToRad(Number(parameters.get("ry") ?? 0)),
+  THREE.MathUtils.degToRad(Number(parameters.get("rz") ?? 0)),
+);
+const bounds = new THREE.Box3().setFromObject(gltf.scene);
+const center = bounds.getCenter(new THREE.Vector3());
+const size = bounds.getSize(new THREE.Vector3());
+gltf.scene.position.sub(center);
+const half =
+  (cameraAxis === "x" ? Math.max(size.y, size.z) : Math.max(size.x, size.y)) *
+  0.58;
+camera.left = -half;
+camera.right = half;
+camera.top = half;
+camera.bottom = -half;
+camera.updateProjectionMatrix();
 scene.add(gltf.scene);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x303040, 2.2));
 
 renderer.render(scene, camera);
 status.dataset.state = "ready";
