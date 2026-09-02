@@ -21,11 +21,30 @@
 
 画像生成・編集のバックエンドは ComfyUI（[SPEC.md](../SPEC.md) 4.7.2）。開発時も**同梱版を使い、開発機の手元 ComfyUI に依存しない**。手元環境で動いて利用者環境で動かない、が最も起きやすい失敗。
 
-- `cargo xtask setup comfy` が本体・カスタムノード・ワークフローを用意する（予定）
-- カスタムノードは**固定版**で同梱する。自動更新しない。ノード更新でワークフローが壊れるため
+- ComfyUI は **v0.34.0** を固定する。GPL-3.0 の本文、著作権表示、対応ソースの提供方法を配布物へ含める
+- `cargo xtask setup comfy` が本体・ワークフローを用意する（予定）。初期構成は標準ノードだけを使う
+- カスタムノードは現時点では同梱しない。追加する場合は固定コミット、ライセンス、重み、直接・推移Python依存を監査し、自動更新しない
 - ワークフロー JSON はリポジトリで管理する
 - ポートは利用者の既存 ComfyUI（既定 8188）と衝突させない
 - **常駐 ComfyUI と単発の画像→3D生成を同時に走らせない。** VRAM を取り合う（[SPEC.md](../SPEC.md) 3.1）
+
+### T0 ライセンス監査で固定した取得元
+
+下表のリビジョンとSHA-256はライセンス監査時点の固定値。ファイル本体はリポジトリへ入れず、セットアップ実装時に取得してSHA-256を照合する。候補を更新する場合はライセンス監査もやり直す。
+
+| 対象 | 固定版・リビジョン | ファイルとSHA-256 |
+|---|---|---|
+| ComfyUI | `v0.34.0` | Gitタグを固定。Python 3.12/CUDA/PyTorchを含む全依存はT1/T2でlockfile化して別途ハッシュを固定 |
+| rembg | `v2.0.83` | パッケージのwheelハッシュはT5のlockfileで固定 |
+| isnet-anime | `skytnt/anime-seg@493cb60893f47441b26ec4fb9a306bce9e342982` | `isnetis.onnx`: `f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99` |
+| TripoSR | コード `107cefdc244c39106fa830359024f6a2f1c78871`、重み `stabilityai/TripoSR@5b521936b01fbe1890f6f9baed0254ab6351c04a` | `model.ckpt`: `429e2c6b22a0923967459de24d67f05962b235f79cde6b032aa7ed2ffcd970ee` |
+| TRELLIS（条件付き代替） | コード `442aa1e1afb9014e80681d3bf604e8d728a86ee7`、重み `microsoft/TRELLIS-image-large@25e0d31ffbebe4b5a97464dd851910efc3002d96` | 複数ファイル構成。採用時に全manifestを固定し、`diffoctreerast` は取得しない |
+| Animagine XL 4.0 Opt | `cagliostrolab/animagine-xl-4.0@2b7c1b397761bf5bd3cc42e5b39ec99314a75a96` | `animagine-xl-4.0-opt.safetensors`: `6327eca98bfb6538dd7a4edce22484a1bbc57a8cff6b11d075d40da1afb847ac` |
+| ControlNet Canny SDXL | `diffusers/controlnet-canny-sdxl-1.0@eb115a19a10d14909256db740ed109532ab1483c` | `diffusion_pytorch_model.safetensors`: `ea99040544a999f814fd854575a3aee069a005d026864c8d321b82576706a221` |
+| IP-Adapter SDXL Plus Face | `h94/IP-Adapter@018e402774aeeddd60609b4ecdb7e298259dc729` | adapter: `677ad8860204f7d0bfba12d29e6c31ded9beefdf3e4bbd102518357d31a292c1`、image encoder: `657723e09f46a7c3957df651601029f66b1748afb12b419816330f16ed45d64d` |
+| Qwen-Image-Edit | `Qwen/Qwen-Image-Edit@ac7f9318f633fc4b5778c59367c8128225f1e3de` | 複数ファイル構成。T2で採用する場合だけ全manifestを固定 |
+| llama.cpp + Qwen2.5 1.5B | llama.cpp `v0.3.0`、`Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51170dc346986eccefdc2dd33a9da36ead9` | `qwen2.5-1.5b-instruct-q4_k_m.gguf`: `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e` |
+| whisper.cpp + Whisper small | whisper.cpp `b4938`、`ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1` | `ggml-small.bin`: `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` |
 
 PowerShell を使う場合は **PowerShell 7 の `pwsh`** を既定にする。見つからなければ Windows PowerShell 5.1 へ黙って降格せず、導入が必要な理由を利用者へ伝える。
 
@@ -48,7 +67,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | コマンド | 用途 |
 |---|---|
 | `cargo xtask setup engines` | llama.cpp / whisper.cpp のバイナリを取得 |
-| `cargo xtask setup comfy` | 同梱 ComfyUI 本体・カスタムノード（固定版）・ワークフローを用意 |
+| `cargo xtask setup comfy` | 同梱 ComfyUI 本体・ワークフローと、監査済みの場合だけカスタムノード固定版を用意 |
 | `cargo xtask setup sidecar` | Python 3.12 ランタイムと依存を用意（**CUDA wheel は対応GPU検出時のみ**） |
 | `cargo xtask setup models` | モデルを取得 |
 | `cargo xtask dev` | 開発起動 |

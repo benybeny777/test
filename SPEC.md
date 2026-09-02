@@ -265,17 +265,38 @@ Rust: 127.0.0.1:<port>
 
 **すべて「このPC（RTX 5060 Laptop 8GB / RAM 32GB）で実際に回して検証してから採用する」。** 未検証のまま仕様へ固定しない。
 
-| 工程 | 第一候補 | 代替 | 判断が必要な点 |
-|---|---|---|---|
-| 背景除去 | `rembg` isnet-anime | u2net | CPUで十分。ほぼ確定 |
-| 画像→3D | **Hunyuan3D-2mini**（約0.6B、VRAM約6GB） | TRELLIS / Stable Fast 3D / TripoSR | **ライセンスが要確認**。下記 |
-| テクスチャ | Hunyuan3D-Paint、または自前のマルチビュー投影 | — | VRAM追加分の実測が必要 |
-| 表情・母音生成 | **アニメ系SDXL の顔インペイント**（低denoise + ControlNet で構造保持） | Flux Kontext GGUF Q4 | 品質比較が必要。下記4.7.1 |
-| 背景生成 | 同上 SDXL txt2img | — | ほぼ確定 |
-| STT | whisper.cpp。`small` 相当から始める | parakeet | 本家は `ggml-small.bin` 既定 |
-| 表情選択・会話LLM | llama.cpp。**1.5B 級の小型で足りる** | — | 下記4.9。本家は `qwen2.5-1.5b-instruct-q4_k_m` |
+2026-09-02 に T0 のライセンス監査を実施した。ここでいう「商用可」は、記載したライセンス本文の遵守を条件とする。著作権表示、ライセンス本文、NOTICE、変更表示、利用制限などの同梱義務は `THIRD_PARTY_NOTICES` と配布物で満たす。法令や入力素材に対する権利まで保証する意味ではない。
 
-> **ライセンスは採用前に必ず確認する。** 販売可能性のある製品なので、モデル重みの商用利用条項・地域制限・再配布可否を [docs/TASKS.md](docs/TASKS.md) の該当項目で調査し、結論を本ファイルへ追記してから実装へ入る。ライセンスが不適合なら第一候補を差し替える。
+| 工程 | 採用候補・固定対象 | ライセンス | 商用利用 | 地域制限 | 重み・本体の再配布 | 生成物 | 採否・理由 |
+|---|---|---|---|---|---|---|---|
+| 背景除去 | `rembg` v2.0.83 + `skytnt/anime-seg` の `isnetis.onnx` | MIT + Apache-2.0 | 可 | なし | 可。Apache-2.0 の表示を保持 | 固有条件なし | **採用。** `rembg` が再ホストする重みではなく、作者公式の [モデル](https://huggingface.co/skytnt/anime-seg) を固定する |
+| 背景除去の代替 | U-2-Net の上流重みを自前で ONNX 変換 | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | 条件付き候補。`rembg` 配布の `u2net.onnx` は変換元を追跡できないため使わない |
+| 画像→3D | `stabilityai/TripoSR` | MIT | 可 | なし | コード・学習済み重みとも可 | 固有条件なし | **第一候補へ昇格。** [モデルカード](https://huggingface.co/stabilityai/TripoSR) がコードと重みをMIT対象と明記。Hunyuan3Dより品質が落ちる可能性はT5で実測する |
+| 画像→3Dの代替 | `microsoft/TRELLIS-image-large` | MIT | 可 | なし | コード・学習済み重みとも可 | 固有条件なし | 条件付き候補。非商用の `diffoctreerast` はプレビュー用rendererだけが参照しており、同梱・使用しない。T5でこの依存なしに必要なmesh出力が完走する場合だけ採用可 |
+| テクスチャ | TripoSR の出力 + 自前のマルチビュー投影 | MIT + 本プロジェクト | 可 | なし | 可 | 固有条件なし | **採用。** 地域制限のある Hunyuan3D-Paint は使わない |
+| 表情・背景生成 | `cagliostrolab/animagine-xl-4.0` の `animagine-xl-4.0-opt.safetensors` | CreativeML Open RAIL++-M | 可 | 独自の除外国なし | 可。ライセンス・変更表示・利用制限を継承 | 出力はモデル派生物ではない。利用制限は適用 | **第一候補として採用。** [モデルカード](https://huggingface.co/cagliostrolab/animagine-xl-4.0) はSDXLと同一条項で追加制限なし |
+| 構造拘束 | `diffusers/controlnet-canny-sdxl-1.0` | CreativeML Open RAIL++-M | 可 | 独自の除外国なし | 可。ライセンス・変更表示・利用制限を継承 | 出力はモデル派生物ではない。利用制限は適用 | **採用候補。** [モデルカード](https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0)。depth/lineart/softedge は重みを特定して再監査するまで同梱禁止 |
+| 同一性保持 | `h94/IP-Adapter` の SDXL Plus Face | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | **採用候補。** アダプタと同梱image encoderを同じ[公式リポジトリ](https://huggingface.co/h94/IP-Adapter)から取得する |
+| 指示ベース編集の代替 | `Qwen/Qwen-Image-Edit` | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | ライセンス上は採用可。容量とVRAM 8GB適合はT2で判定する。[モデルカード](https://huggingface.co/Qwen/Qwen-Image-Edit) |
+| 画像生成基盤 | ComfyUI v0.34.0 | GPL-3.0 | 可 | なし | 可。対応ソース、GPL本文、著作権表示を提供 | 対象外 | **採用。** 本アプリとはローカルHTTP越しの別プロセスとして分離する。[ライセンス](https://github.com/Comfy-Org/ComfyUI/blob/v0.34.0/LICENSE) |
+| STT | whisper.cpp b4938 + `ggerganov/whisper.cpp` の `ggml-small.bin` | MIT | 可 | なし | 可。著作権表示・MIT本文を保持 | 固有条件なし | **採用。** [変換済み重み](https://huggingface.co/ggerganov/whisper.cpp)もMIT表記を確認 |
+| 表情選択・会話LLM | llama.cpp v0.3.0 + `Qwen/Qwen2.5-1.5B-Instruct-GGUF` の Q4_K_M | MIT + Apache-2.0 | 可 | なし | 可。各LICENSE/NOTICEを保持 | 固有条件なし | **採用候補。** [公式GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF)を使う。選択品質はT7で検証する |
+
+#### 4.7.0 ライセンス不適合で外した候補
+
+| 候補 | 結論 | 外した理由 |
+|---|---|---|
+| Hunyuan3D-2mini / Hunyuan3D-Paint | **不採用** | [Tencent Hunyuan 3D 2.0 Community License](https://github.com/Tencent-Hunyuan/Hunyuan3D-2/blob/main/LICENSE) は EU・英国・韓国を許諾地域から除外し、出力の利用も地域外で禁止する。全世界向けデスクトップ製品と両立しない。100万MAU超の場合は別途許諾も必要 |
+| Stable Fast 3D | **不採用** | [Stability AI Community License](https://huggingface.co/stabilityai/stable-fast-3d/blob/main/LICENSE.md) は商用利用者の登録、表示義務、全関連会社合算で年商100万米ドル到達時のライセンス終了と別契約を要求する。売上規模で製品が停止し得る条件を既定候補にしない |
+| FLUX.1 Kontext [dev] とそのGGUF量子化 | **不採用** | [FLUX.1 dev Non-Commercial License 1.1.1](https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev/blob/main/LICENSE.md) は重みの商用・本番利用を禁止する。量子化しても派生物として同じ制限を受ける。出力だけは商用利用可能だが、製品内推論は不可 |
+| InstantID | **不採用** | コードはApache-2.0だが、[公式README](https://github.com/instantX-research/InstantID#disclaimer) が公開チェックポイントを研究目的限定、必須のInsightFace顔モデルを非商用研究限定と明記する |
+| `rembg` が再ホストする `u2net.onnx` | **不採用** | `rembg` のMITはコードだけに適用され、配布者もONNXの変換元・変換者を追跡できないと[回答](https://github.com/danielgatis/rembg/issues/837#issuecomment-5172958667)している。上流重みから自前変換したものだけを代替候補にする |
+
+第一候補がすべて不適合という停止条件には該当しない。画像→3Dは TripoSR、表情生成は Animagine XL 4.0 Opt を第一候補として T2/T5 の実機検証へ進める。ただし、**Hunyuan3D-2miniからTripoSRへの変更で髪・小物・薄い面の品質がさらに下がる可能性がある。** ライセンス適合と品質適合は別であり、T5の結果が出るまで品質を確定扱いしない。
+
+ComfyUI v0.34.0 の初期ワークフローは**標準ノードだけ**で構成し、カスタムノードは現時点で1件も採用しない。追加が必要になった場合は、固定コミット、ライセンス、モデル重み、直接・推移Python依存を同じ基準で監査し終えるまで取得・同梱しない。ComfyUIのPython依存はPython 3.12/CUDA/PyTorchの組合せをT1/T2でロックし、配布前に全推移依存のライセンス一覧と対応ソースを生成する。
+
+TRELLISの `diffoctreerast` は[研究・評価限定ライセンス](https://github.com/JeffreyXiang/diffoctreerast/blob/master/LICENSE)のため、候補として残すのはこの依存を完全に外したmesh生成経路だけとする。将来プレビューやoctree rendererのために黙って戻さない。
 
 #### 4.7.1 表情生成の品質リスク（最大の技術リスク）
 
@@ -381,8 +402,8 @@ Rust: 127.0.0.1:<port>
 |---|---|---|
 | 1 | **ワークフロー調整** — denoise を下げる、マスク精度を上げる、ステップ数・サンプラー・CFGを詰める | まずここ。設定だけで済むことが多い |
 | 2 | **構造拘束を足す** — ControlNet（lineart / canny / softedge / depth）で輪郭と構図を固定する | 左右反転と位置ずれに直接効く |
-| 3 | **同一性保持の専用手段** — IP-Adapter（FaceID系）、InstantID など**まさにこの問題のために作られた仕組み**を入れる | 素性の差をかなり埋められる |
-| 4 | **モデルを替える** — アニメ特化のSDXL finetune、**Qwen-Image-Edit / Flux Kontext などの指示ベース編集モデル**を試す | 指示ベース編集モデルは `gpt-image-2` に最も近い性格のオープンモデル。**優先的に評価する** |
+| 3 | **同一性保持の専用手段** — ライセンス適合済みの IP-Adapter（FaceID系）を入れる | 素性の差をかなり埋められる。InstantIDは4.7の監査で不採用 |
+| 4 | **モデルを替える** — アニメ特化のSDXL finetune、**Qwen-Image-Edit などライセンス適合済みの指示ベース編集モデル**を試す | 指示ベース編集モデルは `gpt-image-2` に最も近い性格のオープンモデル。**優先的に評価する**。FLUX.1 Kontext [dev]は不採用 |
 | 5 | **表情LoRAを使う／自作する** — 既存の表情LoRA、または対象キャラで学習する | キャラ固定なら学習が最も効く。VRAM 8GB でも LoRA 学習は可能 |
 | 6 | **アルゴリズム側で吸収** — 差分マスクを厳しくする、投影前の位置合わせ・色味合わせを強化する（4.4.2） | 生成の粗を投影側で殺す。**最後の防波堤** |
 | 7 | **外部生成画像のインポート導線**（4.10 D） | **製品はクラウドを呼ばないまま品質を得られる。** 利用者がブラウザの Gemini 等で作って持ち込む。**サブスク範囲内なら追加費用ゼロ**。段階9より先に検討する |
@@ -428,7 +449,7 @@ Rust: 127.0.0.1:<port>
 | **動作要件** | CPUのみで動く（GPU用バイナリを一切同梱していない） | **CUDA対応NVIDIA GPU必須、VRAM 8GB以上。決定事項**（2026-09-02 利用者判断） | **高。明確な後退。** GPU非搭載機・AMD/Intel GPU機では動かない。**利用者了承済み** |
 | **表情画像の品質** | `gpt-image-2`。同一性・向き・画風の保持が非常に強い | ローカル拡散モデル。**同一性保持は劣る見込み**（4.7.1）。ComfyUI採用で緩和策の幅は最大化した | **高。最大の技術リスク** |
 | **配布サイズ・起動時間** | 約1.5GB、Unity単体 | ComfyUI＋Python＋モデルで**大きく増える**（4.7.2 の代償） | 中。**品質優先で受け入れ済み** |
-| **3Dメッシュ品質** | Tripo の商用モデル | Hunyuan3D-2mini 等の小型モデル。**髪・小物・薄い部分の再現が落ちる** | 中〜高 |
+| **3Dメッシュ品質** | Tripo の商用モデル | TripoSR。**Hunyuan3D-2miniは地域制限で不採用となり、髪・小物・薄い部分の再現がさらに落ちる可能性がある** | 中〜高 |
 | **リギング品質** | Meshy の学習ベース自動リグ | テンプレート適合。**非人型・複雑な体型で劣る**（4.3） | 中 |
 | **生成時間** | クラウドの強力なGPUで並列。1画像約50秒 | ローカル8GB。**1体あたり大幅に長くなる見込み** | 中。実測して記載する |
 | **動画生成** | あり（BytePlus） | **なし**（4.8。合成レイヤーのみ実装） | 中 |
@@ -574,10 +595,9 @@ characters/<characterId>/
 
 実装へ入る前、または実装中に決める必要があるもの。結論が出たらこのファイルへ書き、[docs/TASKS.md](docs/TASKS.md) から消す。
 
-1. 画像→3Dモデルの最終選定と**商用ライセンスの可否**（T0）
-2. 表情生成の ComfyUI ワークフロー構成と実測品質。4.7.3 の段階1〜7のどこで足りるか（T2）
-3. 自動スキニング（heat diffusion）の実装手段。Blender 同梱の要否（T6）
-4. 会話・表情選択LLMのモデル選定（1.5B級で足りる見込み）
-5. 動画生成機能を将来実装するか
+1. 表情生成の ComfyUI ワークフロー構成と実測品質。4.7.3 の段階1〜7のどこで足りるか（T2）
+2. 自動スキニング（heat diffusion）の実装手段。Blender 同梱の要否（T6）
+3. 会話・表情選択LLMの品質確定（ライセンス適合候補は4.7で選定済み。1.5B級で足りる見込み）
+4. 動画生成機能を将来実装するか
 
 **決定済み**（2026-09-02 利用者判断）: 製品名 `LocalVTuberStudio`、画像バックエンドは ComfyUI 同梱（品質優先）、動作要件は CUDA 必須。
