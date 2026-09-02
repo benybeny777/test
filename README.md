@@ -62,7 +62,6 @@ cargo xtask dev
 | [docs/TASKS.md](docs/TASKS.md) | 未完了作業と着手順 |
 | [docs/SETTINGS.md](docs/SETTINGS.md) | 全設定キー（正本） |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 開発・ビルド・配布 |
-| [docs/REVERSE.md](docs/REVERSE.md) | 先行製品の実測仕様。**実装完了後に削除する一時資料** |
 
 ## ライセンスと権利についての注意
 
