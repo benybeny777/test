@@ -46,12 +46,12 @@
 | `facepatch.diff_threshold` | f32 | 0.075 | 中立との差分がこれ以下の画素は書き込まない |
 | `facepatch.alpha_threshold` | f32 | 0.030 | これ未満のαは対象外 |
 | `facepatch.seam_padding` | u32 | 4 | UV継ぎ目の膨張画素数 |
-| `facepatch.head_weight_threshold` | f32 | 未定 | 三角形採用に必要な頭ボーンウェイト |
-| `facepatch.normal_threshold` | f32 | 未定 | 面法線がキャプチャ方向を向いている度合い |
+| `facepatch.head_weight_threshold` | f32 | 0.500 | 三角形採用に必要な頭ボーンウェイト |
+| `facepatch.normal_threshold` | f32 | 0.350 | 面法線がキャプチャ方向を向いている度合い |
 | `facepatch.max_ray_hits` | u32 | 3 | レイキャストの最大ヒット数 |
 | `facepatch.depth_window` | f32 | 0.050 | 最前面判定の深度窓 |
-| `facepatch.face_mask_center` | [f32;2] | 未定 | 顔マスク楕円の中心（正規化座標） |
-| `facepatch.face_mask_radius` | [f32;2] | 未定 | 顔マスク楕円の半径（正規化座標） |
+| `facepatch.face_mask_center` | [f32;2] | [0.500, 0.580] | 顔マスク楕円の中心（正規化座標） |
+| `facepatch.face_mask_radius` | [f32;2] | [0.240, 0.260] | 顔マスク楕円の半径（正規化座標） |
 | `facepatch.align_to_neutral` | bool | true | 投影前に中立へ位置合わせする |
 | `facepatch.color_match` | bool | true | 投影前に色味を合わせる |
 
