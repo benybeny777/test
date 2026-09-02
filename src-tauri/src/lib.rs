@@ -1,6 +1,8 @@
 pub mod config;
 pub mod facepatch;
+pub mod lipsync;
 pub mod store;
+pub mod stream;
 
 use tauri::Manager;
 

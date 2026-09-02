@@ -75,6 +75,8 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask build` | 配布ビルド |
 | `cargo xtask verify` | 書式・静的解析・テスト・文書同期をまとめて実行 |
 | `cargo xtask facepatch --model <vrm/glb> --neutral <png> --expression-dir <36枚のディレクトリ> --atlas <png> --frame <json> --output-dir <dir> --diagnostics <dir>` | 中立スキニング済みメッシュへ36表情を逆投影 |
+| `cargo run -p local-vtuber-studio --bin lipsync-probe` | 既定マイクを3秒だけ16kHzへ変換し、FFT判定窓を検査して停止 |
+| `cargo run -p local-vtuber-studio --bin stream-probe` | 透過OBSページを58090〜58099の空きポートで30秒配信し、女性3体の状態を切替 |
 
 T2 の表情生成を試す場合は、次の順で一度だけセットアップする。
 
