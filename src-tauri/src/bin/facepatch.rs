@@ -5,8 +5,8 @@ use std::{
 
 use image::RgbaImage;
 use local_vtuber_studio::facepatch::{
-    CaptureFrame, NeutralMeshSnapshot, ProjectionSettings, ProjectionStats, load_neutral_snapshot,
-    project_face_patch,
+    CaptureFrame, NeutralMeshSnapshot, ProjectionSettings, ProjectionStats,
+    compose_expression_layers, load_neutral_snapshot, project_face_patch,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +26,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let neutral = image::open(neutral_path)?.into_rgba8();
     let atlas = image::open(atlas_path)?.into_rgba8();
 
-    if let Some(expression_dir) = optional(&arguments, "--expression-dir")? {
+    if let Some(layered_dir) = optional(&arguments, "--layered-expression-dir")? {
+        let output_dir = required(&arguments, "--output-dir")?;
+        run_layered_batch(
+            &mesh,
+            &neutral,
+            &atlas,
+            &frame,
+            &settings,
+            &layered_dir,
+            &output_dir,
+            &diagnostics,
+        )?;
+    } else if let Some(expression_dir) = optional(&arguments, "--expression-dir")? {
         let output_dir = required(&arguments, "--output-dir")?;
         run_batch(
             &mesh,
@@ -64,6 +76,125 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_layered_batch(
+    mesh: &NeutralMeshSnapshot,
+    neutral: &RgbaImage,
+    atlas: &RgbaImage,
+    frame: &CaptureFrame,
+    settings: &ProjectionSettings,
+    layered_dir: &Path,
+    output_dir: &Path,
+    diagnostics_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let eyes = png_files(&layered_dir.join("eyes"))?;
+    let mouths = png_files(&layered_dir.join("mouth"))?;
+    if eyes.is_empty() || mouths.len() != 6 {
+        return Err(format!(
+            "直交レイヤーは1枚以上の目・眉PNGと6枚の口形PNGが必要です: eyes={}, mouth={}",
+            eyes.len(),
+            mouths.len()
+        )
+        .into());
+    }
+    let total = eyes.len() * mouths.len();
+    let mut metrics = Vec::with_capacity(total);
+    for eye_path in &eyes {
+        let expression_key = file_key(eye_path)?;
+        let eye = image::open(eye_path)?.into_rgba8();
+        for mouth_path in &mouths {
+            let mouth_key = file_key(mouth_path)?;
+            let mouth = image::open(mouth_path)?.into_rgba8();
+            let scale = mouth_scale(&expression_key);
+            let composite = compose_expression_layers(neutral, &eye, &mouth, scale)?;
+            let output = output_dir
+                .join(&expression_key)
+                .join(format!("{mouth_key}.png"));
+            let diagnostic = diagnostics_dir.join(&expression_key).join(&mouth_key);
+            let stats = run_one(
+                mesh,
+                neutral,
+                &composite,
+                atlas,
+                frame,
+                settings,
+                &output,
+                &diagnostic,
+            )?;
+            metrics.push(serde_json::json!({
+                "key": format!("{expression_key}/{mouth_key}"),
+                "mouth_scale": scale,
+                "written_pixels": stats.written_pixels,
+                "padded_pixels": stats.padded_pixels,
+                "selected_triangles": stats.selected_triangles,
+                "bounding_box": stats.bounding_box,
+            }));
+            println!(
+                "{}",
+                serde_json::json!({
+                    "event": "facepatch_generated",
+                    "index": metrics.len(),
+                    "total": total,
+                    "key": format!("{expression_key}/{mouth_key}"),
+                    "written_pixels": stats.written_pixels,
+                })
+            );
+        }
+    }
+    fs::create_dir_all(output_dir)?;
+    fs::write(
+        output_dir.join("metrics.json"),
+        serde_json::to_vec_pretty(&metrics)?,
+    )?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "event": "facepatch_batch_complete",
+            "count": metrics.len(),
+            "output": output_dir,
+        })
+    );
+    Ok(())
+}
+
+fn png_files(directory: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("png") {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn file_key(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let key = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or("レイヤーのファイル名を読めません")?;
+    if key.is_empty()
+        || !key.bytes().all(|value| {
+            value.is_ascii_lowercase() || value.is_ascii_digit() || b"_-".contains(&value)
+        })
+    {
+        return Err(
+            format!("レイヤーキーはASCII小文字・数字・_・-だけにしてください: {key}").into(),
+        );
+    }
+    Ok(key.to_owned())
+}
+
+fn mouth_scale(expression_key: &str) -> f32 {
+    match expression_key {
+        "sad" => 0.55,
+        "angry" => 0.72,
+        "blink" => 0.65,
+        _ => 1.0,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

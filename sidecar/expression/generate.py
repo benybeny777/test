@@ -13,14 +13,14 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-EXPRESSIONS = {
+EYE_EXPRESSIONS = {
     "smile": "smile, happy",
     "blink": "(closed eyes:1.5), both eyelids shut, calm",
     "angry": "angry, furrowed brow, frown",
     "sad": "sad, worried eyebrows, watery eyes, downturned mouth",
     "surprised": "surprised, (wide eyes:1.3), raised eyebrows",
-    "mouth_open": "neutral eyes and eyebrows",
 }
+EXPRESSIONS = {**EYE_EXPRESSIONS, "mouth_open": "neutral eyes and eyebrows"}
 VOWELS = {
     "a": "open mouth, vertical oval mouth, Japanese A phoneme",
     "i": "parted lips, wide narrow mouth, Japanese I phoneme",
@@ -135,6 +135,17 @@ def remove_run_directory(path: Path) -> None:
             time.sleep(0.5)
 
 
+def generation_plan(
+    expressions: list[str] | None = None,
+    vowels: list[str] | None = None,
+) -> list[tuple[str, str, str, str]]:
+    selected_expressions = expressions or list(EYE_EXPRESSIONS)
+    selected_vowels = vowels or list(VOWELS)
+    plan = [("eyes", key, key, "close") for key in selected_expressions]
+    plan.extend(("mouth", key, "mouth_open", key) for key in selected_vowels)
+    return plan
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
@@ -147,7 +158,7 @@ def main() -> int:
     parser.add_argument("--control-strength", type=float, default=0.0)
     parser.add_argument("--identity-tags", default="")
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--expression", choices=EXPRESSIONS, action="append")
+    parser.add_argument("--expression", choices=EYE_EXPRESSIONS, action="append")
     parser.add_argument("--vowel", choices=VOWELS, action="append")
     args = parser.parse_args()
     if not 0.0 <= args.denoise <= 1.0 or not 0.0 <= args.blink_denoise <= 1.0:
@@ -206,57 +217,22 @@ def main() -> int:
     try:
         wait_for_server(base_url, process, args.startup_timeout)
         print(json.dumps({"event": "comfy_ready", "port": args.port}), flush=True)
-        combinations = [
-            (expression, vowel) for expression in EXPRESSIONS for vowel in VOWELS
-        ]
-        if args.expression is not None:
-            combinations = [item for item in combinations if item[0] in args.expression]
-        if args.vowel is not None:
-            combinations = [item for item in combinations if item[1] in args.vowel]
+        combinations = generation_plan(args.expression, args.vowel)
         if args.limit is not None:
             combinations = combinations[: args.limit]
-        blink_source = None
-        if any(expression == "blink" for expression, _ in combinations):
-            make_mask(input_dir / "mask.png", "eyes")
-            blink_workflow = prepare_workflow(
-                template,
-                "blink",
-                "close",
-                1000,
-                args.blink_denoise,
-                args.control_strength,
-                args.identity_tags,
-            )
-            blink_workflow["10"]["inputs"]["filename_prefix"] = "_blink_base"
-            queued = request_json(f"{base_url}/prompt", {"prompt": blink_workflow})
-            result = wait_for_result(
-                base_url, queued["prompt_id"], args.generation_timeout
-            )
-            images = result["outputs"]["10"]["images"]
-            if len(images) != 1:
-                raise RuntimeError(f"expected one blink base, got {len(images)}")
-            item = images[0]
-            generated = comfy_output / item.get("subfolder", "") / item["filename"]
-            blink_source = input_dir / "blink.png"
-            shutil.copy2(generated, blink_source)
-            print(json.dumps({"event": "blink_base_ready"}), flush=True)
-        for index, (expression, vowel) in enumerate(combinations):
-            if expression == "mouth_open" or expression == "blink":
-                region = "mouth"
-            else:
-                region = "both"
+        for index, (kind, key, expression, vowel) in enumerate(combinations):
+            region = "eyes" if kind == "eyes" else "mouth"
             make_mask(input_dir / "mask.png", region)
             workflow = prepare_workflow(
                 template,
                 expression,
                 vowel,
                 1000 + index,
-                args.denoise,
+                args.blink_denoise if key == "blink" else args.denoise,
                 args.control_strength,
                 args.identity_tags,
             )
-            if expression == "blink":
-                workflow["1"]["inputs"]["image"] = blink_source.name
+            workflow["10"]["inputs"]["filename_prefix"] = f"{kind}/{key}"
             started = time.monotonic()
             queued = request_json(f"{base_url}/prompt", {"prompt": workflow})
             result = wait_for_result(
@@ -267,11 +243,13 @@ def main() -> int:
                 raise RuntimeError(f"expected one output, got {len(images)}")
             item = images[0]
             generated = comfy_output / item.get("subfolder", "") / item["filename"]
-            destination = args.output / expression / f"{vowel}.png"
+            destination = args.output / kind / f"{key}.png"
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(generated, destination)
             ratio = difference_ratio(args.input, destination)
             metric = {
+                "kind": kind,
+                "key": key,
                 "expression": expression,
                 "vowel": vowel,
                 "seconds": round(time.monotonic() - started, 2),

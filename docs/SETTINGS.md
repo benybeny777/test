@@ -13,6 +13,12 @@
 <!-- implemented-settings:start -->
 | キー | 型 | 既定値 | 環境変数 | 検証範囲 | 実行中反映 |
 |---|---|---|---|---|---|
+| `avatar.blink_duration_ms` | u32 | 140 | `LVS_AVATAR_BLINK_DURATION_MS` | 50〜2000 | 即時 |
+| `avatar.blink_max_ms` | u32 | 6500 | `LVS_AVATAR_BLINK_MAX_MS` | 最短以上 | 即時 |
+| `avatar.blink_min_ms` | u32 | 2800 | `LVS_AVATAR_BLINK_MIN_MS` | 500以上 | 即時 |
+| `avatar.crossfade_ms` | u32 | 160 | `LVS_AVATAR_CROSSFADE_MS` | 0〜5000 | 即時 |
+| `avatar.idle_sway_degrees` | f32 | 0.7 | `LVS_AVATAR_IDLE_SWAY_DEGREES` | 0〜10 | 即時 |
+| `avatar.idle_sway_period_ms` | u32 | 4200 | `LVS_AVATAR_IDLE_SWAY_PERIOD_MS` | 500〜60000 | 即時 |
 | `display.language` | string | `ja` | `LVS_DISPLAY_LANGUAGE` | 空文字不可 | 次回起動 |
 | `display.preview_fps` | u32 | 30 | `LVS_DISPLAY_PREVIEW_FPS` | 1〜240 | 次回起動 |
 | `display.preview_scale` | f32 | 0.5 | `LVS_DISPLAY_PREVIEW_SCALE` | 0.1〜2.0 | 次回起動 |

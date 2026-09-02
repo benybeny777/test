@@ -32,6 +32,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("sidecar") => setup_sidecar(),
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
         "expression" => run_expression(&args[1..]),
+        "expression-import" => run_expression_import(&args[1..]),
         "mesh" => run_mesh(&args[1..]),
         "rig" => run_rig(&args[1..]),
         "facepatch" => run_facepatch(&args[1..]),
@@ -53,7 +54,7 @@ fn main() -> Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|mesh|rig|facepatch|setup comfy|setup sidecar|setup models>"
+                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models>"
             );
             Ok(())
         }
@@ -254,6 +255,22 @@ fn run_expression(args: &[String]) -> Result<()> {
         .context("failed to start expression generator")?;
     if !status.success() {
         bail!("expression generator failed with {status}");
+    }
+    Ok(())
+}
+
+fn run_expression_import(args: &[String]) -> Result<()> {
+    let root = root()?;
+    let python = root.join("sidecar/.venv/Scripts/python.exe");
+    let script = root.join("sidecar/expression/import_image.py");
+    let status = Command::new(&python)
+        .arg(script)
+        .args(args)
+        .current_dir(&root)
+        .status()
+        .context("failed to start expression importer")?;
+    if !status.success() {
+        bail!("expression importer failed with {status}");
     }
     Ok(())
 }

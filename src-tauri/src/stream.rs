@@ -24,6 +24,13 @@ pub struct AvatarState {
     pub mouth_key: String,
     pub model_url: String,
     pub texture_url: String,
+    pub blink_texture_url: Option<String>,
+    pub crossfade_ms: u32,
+    pub blink_min_ms: u32,
+    pub blink_max_ms: u32,
+    pub blink_duration_ms: u32,
+    pub idle_sway_degrees: f32,
+    pub idle_sway_period_ms: u32,
     pub yaw: f32,
     pub pitch: f32,
     pub scale: f32,
@@ -38,12 +45,30 @@ impl Default for AvatarState {
             mouth_key: "close".into(),
             model_url: "/assets/model.vrm".into(),
             texture_url: "/assets/expressions/smile/close.png".into(),
+            blink_texture_url: Some("/assets/expressions/blink/close.png".into()),
+            crossfade_ms: 160,
+            blink_min_ms: 2_800,
+            blink_max_ms: 6_500,
+            blink_duration_ms: 140,
+            idle_sway_degrees: 0.7,
+            idle_sway_period_ms: 4_200,
             yaw: 0.0,
             pitch: 0.0,
             scale: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,
         }
+    }
+}
+
+impl AvatarState {
+    pub fn apply_animation_config(&mut self, config: &crate::config::AvatarConfig) {
+        self.crossfade_ms = config.crossfade_ms;
+        self.blink_min_ms = config.blink_min_ms;
+        self.blink_max_ms = config.blink_max_ms;
+        self.blink_duration_ms = config.blink_duration_ms;
+        self.idle_sway_degrees = config.idle_sway_degrees;
+        self.idle_sway_period_ms = config.idle_sway_period_ms;
     }
 }
 
@@ -209,5 +234,18 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
         drop(occupied);
+    }
+
+    #[test]
+    fn applies_animation_settings_to_stream_state() {
+        let mut state = AvatarState::default();
+        let config = crate::config::AvatarConfig {
+            crossfade_ms: 250,
+            idle_sway_degrees: 1.2,
+            ..crate::config::AvatarConfig::default()
+        };
+        state.apply_animation_config(&config);
+        assert_eq!(state.crossfade_ms, 250);
+        assert_eq!(state.idle_sway_degrees, 1.2);
     }
 }
