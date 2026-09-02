@@ -1,0 +1,13 @@
+# picovtuber-core - 非公開の内部共通コア。
+#
+# Tauri・OS・製品設定に依存しない処理（UTF-8安全な文字列操作、口形・表情の値域）だけを置く。
+# 外部公開は行わないため publish = false を保つ。製品固有の依存を持ち込んでいないことは
+# `guard_scan::guard` のメタガードが検査する。
+[package]
+name = "picovtuber-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[dependencies]

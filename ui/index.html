@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PicoVTuber</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-mode="studio">
+    <!-- 背景は透過。配信ソフトのウィンドウキャプチャでそのまま取り込めるようにする。 -->
+    <main id="stage" aria-label="配信ビュー">
+      <canvas id="viewport"></canvas>
+      <p id="stage-message" class="stage-message" role="status"></p>
+    </main>
+
+    <aside id="panel" aria-label="操作パネル">
+      <header class="panel-header">
+        <h1>PicoVTuber</h1>
+        <span id="state-badge" class="badge">モデル未読込</span>
+      </header>
+
+      <section class="panel-section">
+        <h2>モデル</h2>
+        <p id="model-path" class="hint">未選択</p>
+        <div class="row">
+          <button id="load-model" type="button">モデルを読み込む</button>
+          <button id="open-wizard" type="button">1枚絵から作る</button>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <h2>入力</h2>
+        <div class="row">
+          <button id="start-input" type="button">マイク入力を開始</button>
+          <button id="stop-all" type="button">停止</button>
+        </div>
+        <p class="hint">音声はこのPCの中だけで処理し、保存も送信もしません。</p>
+      </section>
+
+      <section class="panel-section">
+        <h2>表情</h2>
+        <div id="expression-buttons" class="row wrap"></div>
+        <p id="auto-expression" class="hint"></p>
+      </section>
+
+      <section class="panel-section">
+        <h2>配信出力</h2>
+        <ul id="output-list" class="output-list"></ul>
+      </section>
+
+      <footer class="panel-footer">
+        <button id="open-settings" type="button">設定…</button>
+      </footer>
+    </aside>
+
+    <script type="module" src="studio.js"></script>
+  </body>
+</html>

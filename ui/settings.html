@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PicoVTuber — 設定</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body data-mode="settings">
+    <main class="settings">
+      <header class="settings-header">
+        <h1>設定</h1>
+        <div class="row">
+          <span id="dirty" class="hint"></span>
+          <button id="save" type="button">保存</button>
+        </div>
+      </header>
+      <form id="fields" class="settings-fields"></form>
+      <p id="settings-message" class="hint" role="status"></p>
+    </main>
+
+    <script type="module" src="settings.js"></script>
+  </body>
+</html>

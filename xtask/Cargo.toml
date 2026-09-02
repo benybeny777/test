@@ -1,0 +1,19 @@
+# xtask - 開発・ビルド用のタスクランナー。
+#
+# Node を使わずに、同梱物の取得・UI ビルド・残存プロセス停止・一括検証を行う。
+# `cargo xtask <サブコマンド>` で実行する（エイリアスは リポジトリ直下の .cargo/config.toml）。
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+# rustls を使いつつ、ルート証明書は**システムの信頼ストア**から読む。
+# 社内プロキシなどで独自 CA を使う環境でも SSL_CERT_FILE / OS の設定がそのまま効く。
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+sha2 = "0.10"
+hex = "0.4"

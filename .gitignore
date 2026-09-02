@@ -1,0 +1,31 @@
+# ビルド生成物
+/target
+/src-tauri/target
+/xtask/target
+/crates/*/target
+
+# Tauri が配信するフロント（ui/ から生成。正本は ui/）
+/ui-dist/
+
+# 取得物（公式配布元から cargo xtask setup で取得する。リポジトリには含めない）
+/ui/vendor/
+/src-tauri/resources/bundled/
+/models/
+/python-runtime/
+
+# 一時作成物（AGENTS.md の規則によりリポジトリ直下の temp/ だけに置く）
+/temp/
+
+# 利用者の個人設定（app_config_dir 配下に保存されるが、開発時の取り違え防止で明示）
+config.json
+
+# 生成アイコンのうちデスクトップ3OSで参照しないもの
+/src-tauri/icons/ios/
+/src-tauri/icons/android/
+
+# OS・エディタ
+.DS_Store
+Thumbs.db
+
+# Tauri が生成する権限スキーマ（capabilities から毎回作られる）
+/src-tauri/gen/

@@ -1,0 +1,3 @@
+# `cargo xtask <サブコマンド>` で開発タスクを実行できるようにするエイリアス。
+[alias]
+xtask = "run --manifest-path xtask/Cargo.toml --"

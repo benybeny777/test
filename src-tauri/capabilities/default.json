@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "PicoVTuber のメイン／生成ウィザード／設定ウィンドウに付与する権限",
+  "windows": ["main", "wizard", "settings", "output"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:event:default",
+    "core:webview:allow-create-webview-window"
+  ]
+}

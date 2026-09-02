@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PicoVTuber — 1枚絵からモデルを作る</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body data-mode="wizard">
+    <main class="wizard">
+      <h1>1枚のイラストからモデルを作る</h1>
+
+      <section class="wizard-step">
+        <h2>1. イラストを選ぶ</h2>
+        <p class="hint">
+          全身が入った、正面向きに近い立ち絵。背景は透過（PNG）か単色。長辺 1024px 以上。
+        </p>
+        <div class="row">
+          <input id="input-path" type="text" placeholder="画像のパス" />
+          <button id="pick-image" type="button">選ぶ…</button>
+        </div>
+      </section>
+
+      <section class="wizard-step">
+        <h2>2. 権利の確認</h2>
+        <p class="notice">
+          自分が権利を持つ、または権利者から許諾を得た画像だけを使えます。
+          ここに書いた内容は、できあがるモデルの利用許諾として記録されます。
+        </p>
+        <label class="check">
+          <input id="rights-agreed" type="checkbox" />
+          この画像を使う権利があることを確認しました
+        </label>
+        <input
+          id="license-notice"
+          type="text"
+          placeholder="例: 自作イラスト / ○○さんから許諾済み"
+        />
+      </section>
+
+      <section class="wizard-step">
+        <h2>3. 生成する</h2>
+        <div class="row">
+          <button id="start-generate" type="button" disabled>生成を始める</button>
+          <button id="cancel-generate" type="button" disabled>中止</button>
+        </div>
+        <progress id="progress" value="0" max="1"></progress>
+        <p id="progress-message" class="hint" role="status">待機中</p>
+        <ol id="stage-list" class="stage-list"></ol>
+        <p id="error-message" class="error" role="alert"></p>
+      </section>
+    </main>
+
+    <script type="module" src="wizard.js"></script>
+  </body>
+</html>

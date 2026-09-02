@@ -1,0 +1,101 @@
+/* settings.css - ウィザードと設定画面。
+ *
+ * どちらも「読んで、入力して、押す」画面なので、配信ビューとは別の余白と背景にする。
+ */
+
+.wizard,
+.settings {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+}
+
+.wizard h1,
+.settings h1 {
+  font-size: 20px;
+  margin: 0 0 20px;
+}
+
+.wizard-step {
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+}
+
+.wizard-step h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+/* 権利の確認は、読み飛ばされない見た目にする。 */
+.notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: rgba(110, 168, 254, 0.08);
+  line-height: 1.6;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.check input {
+  flex: none;
+}
+
+progress {
+  width: 100%;
+  height: 8px;
+  margin: 12px 0 6px;
+}
+
+.stage-list {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  color: var(--hint);
+  line-height: 1.9;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.settings-fields {
+  display: grid;
+  gap: 16px;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+}
+
+.field-label {
+  font-weight: 600;
+}
+
+/* 設定キーを併記しておくと、docs/SETTINGS.md と引き比べられる。 */
+.field-key {
+  justify-self: start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hint);
+  font-size: 11px;
+}
+
+.field input[type="checkbox"] {
+  justify-self: start;
+}

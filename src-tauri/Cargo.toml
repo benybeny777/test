@@ -1,0 +1,65 @@
+[package]
+name = "picovtuber"
+version = "0.1.0"
+description = "PicoVTuber - 1枚のイラストからVTuberモデルを作って配信する（クラウド推論なし）"
+authors = ["PicoVTuber"]
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "picovtuber_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+picovtuber-core = { version = "0.1.0", path = "../crates/picovtuber-core" }
+# protocol-asset: 生成したモデル（app_data_dir 配下）を webview から読ませる asset プロトコル。
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
+# 生成ウィザードで「イラストを選ぶ」ためのネイティブダイアログ（Rust API のみ利用）。
+tauri-plugin-dialog = "2"
+# 多重起動の防止。2つ目の起動は既存ウィンドウを前面へ出して終了する
+# （設定・モデル一覧の破損と、マイク／配信出力の二重確保を防ぐ）。
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+# preserve_order: 利用者が作った JSON を再保存しても並べ替えで差分を出さない。
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util"] }
+# 生成モデルの重み取得だけに使う（推論のための外部APIは呼ばない。AGENTS.md 参照）。
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+futures = "0.3"
+async-trait = "0.1"
+inventory = "0.3"
+chrono = "0.4"
+dirs = "6"
+anyhow = "1"
+sha2 = "0.10"
+hex = "0.4"
+# 入力イラストの正規化（余白トリム・等倍以下リサイズ）と各工程の画像入出力。
+image = { version = "0.25", default-features = false, features = ["png"] }
+# マイク入力（リップシンク）。解析はPC内で完結し、音声は保存も送信もしない。
+cpal = "0.15"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# シークレット設定をログインキーチェーンへ預けるために使用する。
+security-framework = "3"
+
+[target.'cfg(windows)'.dependencies]
+# シークレット設定の DPAPI 暗号化に使用する。
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
+
+[profile.release]
+opt-level = "s"
+# Linux の実行ファイルと cdylib を fat LTO で同時に作るとリンクできない構成があるため、
+# 全OSで最適化を維持できる thin LTO を使う。
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+incremental = false
