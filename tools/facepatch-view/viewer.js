@@ -37,7 +37,7 @@ const texture = textureUrl
   : null;
 if (texture) {
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.flipY = true;
+  texture.flipY = false;
   texture.needsUpdate = true;
 }
 

@@ -58,7 +58,7 @@ PowerShell を使う場合は **PowerShell 7 の `pwsh`** を既定にする。�
 src-tauri/   Rust本体（設定・パイプライン・フェイスパッチ・リップシンク・配信・サイドカー制御）
 ui/          操作UI（webview）。ui/shared/ に three.js 描画コードを置く
 ui-stream/   OBSブラウザソース用ページ（UIなし・透過）。ui/shared/ を共有する
-sidecar/     Python 3.12（画像→3D、リギング）
+sidecar/     Python 3.12（背景・表情、画像→3D、リギング）
 docs/        ドキュメント
 xtask/       開発タスク
 temp/        一時作成物のみ。.gitignore 済み
@@ -68,7 +68,7 @@ temp/        一時作成物のみ。.gitignore 済み
 
 | コマンド | 用途 |
 |---|---|
-| `cargo xtask setup engines` | llama.cpp / whisper.cpp のバイナリを取得 |
+| `cargo xtask setup engines` | llama.cpp b10621 / whisper.cpp b4938 とQwen・Whisperモデルを取得・SHA-256検証。固定版が揃っていれば再取得しない |
 | `cargo xtask setup comfy` | 同梱 ComfyUI 本体・ワークフローと、監査済みの場合だけカスタムノード固定版を用意 |
 | `cargo xtask setup sidecar` | Python 3.12 ランタイムと依存を用意（**CUDA wheel は対応GPU検出時のみ**） |
 | `cargo xtask setup models` | モデルを取得 |
@@ -81,6 +81,10 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask rig --input <glb> --output <dir> --name <表示名>` | A/Tポーズを検査し、19ボーンとheat diffusionウェイトを持つVRMを単発生成 |
 | `cargo run -p local-vtuber-studio --bin lipsync-probe` | 既定マイクを3秒だけ16kHzへ変換し、FFT判定窓を検査して停止 |
 | `cargo run -p local-vtuber-studio --bin stream-probe` | 透過OBSページを58090〜58099の空きポートで30秒配信し、女性3体の状態を切替 |
+| `cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>` | 開発用にアプリと同じRustパイプラインをヘッドレス完走 |
+| `cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> <stage>` | 既存キャラの選択工程だけを再実行 |
+| `cargo run -p local-vtuber-studio --bin pipeline-probe -- --background <characterId> <backgroundId> "<prompt>"` | アプリと同じComfyUI管理経路でローカル背景を実生成 |
+| `cargo run -p local-vtuber-studio --bin engine-probe -- voice <16kHz.wav>` | whisper.cpp→llama.cpp→表情JSON選択を連結確認 |
 
 T2 の表情生成を試す場合は、次の順で一度だけセットアップする。
 
@@ -91,7 +95,9 @@ cargo xtask setup models
 cargo xtask expression --input temp/input.png --output temp/expressions --identity-tags "髪・瞳・衣装・アクセサリの英語タグ"
 ```
 
-`expression` の入力は 1024x1024 RGBA、出力は目・眉5 PNGと共通口形6 PNGの計11枚および `metrics.json`。ComfyUIは `127.0.0.1:58120` のみで起動し、処理後は必ず終了してハンドルを回収する。初回起動の実測が180秒を超えたため、起動待ちは600秒とする。画像生成は denoise 0.65、閉眼だけ0.85を用いる。目と口を重ならない限定マスクへ分離し、逆投影直前に組み合わせる。
+`expression` の入力は 1024x1024 RGBA、出力は目・眉5 PNG、任意表情N PNG、共通口形6 PNGおよび `metrics.json`。ComfyUIは `127.0.0.1:58120` のみで起動し、処理後は必ず終了してハンドルを回収する。初回起動の実測が180秒を超えたため、起動待ちは600秒とする。画像生成は denoise 0.65、閉眼だけ0.85を用いる。目と口を重ならない限定マスクへ分離し、逆投影直前に組み合わせる。
+
+背景生成は `workflows/background-txt2img-api.json` の標準ノードだけを使い、1344x756を直接生成する。補間拡大しない。人物を負のプロンプトで除外し、出力は `characters/<id>/backgrounds/<bgId>.png` へ原子的に置換する。
 
 外部画像は1024x1024で、中立キャプチャと同じ画角・向き・背景にする。`expression-import` は中立画像も `neutral.png` として書き出し、位置ずれ12px超、左右反転の可能性、平均色差0.08超を警告する。警告は拒否ではないが、確認せず投影すると破綻し得る。投入画素はSHA-256キャッシュ署名へ含まれる。
 
@@ -101,7 +107,7 @@ cargo xtask expression --input temp/input.png --output temp/expressions --identi
 
 `rig` はUVテクスチャ付き単一GLBを読み、正面A/Tポーズでない入力を明示エラーにする。AポーズはVRMのTポーズへ正規化し、自前のグラフheat diffusionで各頂点の上位4ウェイトを決める。出力は `rigged.vrm` と `rig-metrics.json`。同じPython 3.12環境のNumPy・SciPy・trimeshだけを使い、Blenderや追加モデルは同梱しない。
 
-T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`tools/facepatch-view/` をリポジトリルートからローカルHTTP配信し、`model` と、外部テクスチャを確認する場合だけ `texture` のクエリへローカルパスを渡す。投影テクスチャはアンリットで、PNGの上下方向をThree.jsのUVへ合わせるため `flipY=true` とする。製品の描画実装も `ui/shared/vendor/three/` を共有し、CDNへ接続しない。
+T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`tools/facepatch-view/` をリポジトリルートからローカルHTTP配信し、`model` と、外部テクスチャを確認する場合だけ `texture` のクエリへローカルパスを渡す。投影テクスチャはアンリットで、VRMのglTF UV規約に合わせて外部PNGも `flipY=false` とする。`true` にするとUVアイランドが上下反転し、全身へ別部位が貼られる。製品の描画実装も `ui/shared/vendor/three/` を共有し、CDNへ接続しない。追加モジュール内の `three` 参照も同梱ファイルへの相対参照へ固定し、キャンバスの寸法変更は `ResizeObserver` で投影行列へ反映する。
 
 固定環境は Python 3.12.13、PyTorch 2.11.0+cu128、torchvision 0.26.0+cu128、torchaudio 2.11.0+cu128、Transformers 4.57.6、xatlas 0.0.11。`sidecar/requirements-comfy.lock` はWindows x64向け全推移依存を版とwheelハッシュで固定している。依存を変える場合は `requirements-comfy.in` からlockfileを再生成し、同じGPU実走までやり直す。
 
@@ -128,8 +134,8 @@ T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`to
 
 Windows での確認例:
 
-```bash
-powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Select-Object ProcessId,ParentProcessId,CommandLine"
+```powershell
+pwsh -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Select-Object ProcessId,ParentProcessId,CommandLine"
 ```
 
 ## 依存の更新

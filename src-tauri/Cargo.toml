@@ -5,6 +5,7 @@ description = "A fully local VTuber character maker"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+default-run = "local-vtuber-studio"
 
 [lib]
 name = "local_vtuber_studio"
@@ -30,6 +31,7 @@ sha2 = "0.10.9"
 tauri = { version = "2.11.5", features = [] }
 thiserror = "2.0.16"
 tempfile = "3.23.0"
+time = { version = "0.3.44", features = ["formatting"] }
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tower-http = { version = "0.7.1", features = ["fs"] }
 

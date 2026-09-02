@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import time
+import re
 import urllib.error
 import urllib.request
 import uuid
@@ -20,7 +21,6 @@ EYE_EXPRESSIONS = {
     "sad": "sad, worried eyebrows, watery eyes, downturned mouth",
     "surprised": "surprised, (wide eyes:1.3), raised eyebrows",
 }
-EXPRESSIONS = {**EYE_EXPRESSIONS, "mouth_open": "neutral eyes and eyebrows"}
 VOWELS = {
     "a": "open mouth, vertical oval mouth, Japanese A phoneme",
     "i": "parted lips, wide narrow mouth, Japanese I phoneme",
@@ -72,7 +72,7 @@ def make_mask(path: Path, region: str) -> None:
 
 def prepare_workflow(
     template: dict,
-    expression: str,
+    expression_prompt: str,
     vowel: str,
     seed: int,
     denoise: float,
@@ -84,7 +84,7 @@ def prepare_workflow(
         "masterpiece, best quality, anime portrait, same character, same identity, "
         "exact same frontal camera, exact same head position, preserve hairstyle, hair color, "
         "eye color, clothing, accessory, lighting and drawing style, "
-        f"{identity_tags}, {EXPRESSIONS[expression]}, {VOWELS[vowel]}"
+        f"{identity_tags}, {expression_prompt}, {VOWELS[vowel]}"
     )
     workflow["4"]["inputs"]["text"] = positive
     workflow["5"]["inputs"]["text"] = NEGATIVE
@@ -97,7 +97,7 @@ def prepare_workflow(
             workflow.pop(node)
     else:
         workflow["14"]["inputs"]["strength"] = control_strength
-    workflow["10"]["inputs"]["filename_prefix"] = f"{expression}/{vowel}"
+    workflow["10"]["inputs"]["filename_prefix"] = f"generated/{vowel}"
     return workflow
 
 
@@ -136,14 +136,26 @@ def remove_run_directory(path: Path) -> None:
 
 
 def generation_plan(
+    expression_prompts: dict[str, str] | None = None,
     expressions: list[str] | None = None,
     vowels: list[str] | None = None,
 ) -> list[tuple[str, str, str, str]]:
-    selected_expressions = expressions or list(EYE_EXPRESSIONS)
+    prompts = expression_prompts or EYE_EXPRESSIONS
+    selected_expressions = expressions or list(prompts)
     selected_vowels = vowels or list(VOWELS)
-    plan = [("eyes", key, key, "close") for key in selected_expressions]
-    plan.extend(("mouth", key, "mouth_open", key) for key in selected_vowels)
+    plan = [("eyes", key, prompts[key], "close") for key in selected_expressions]
+    plan.extend(("mouth", key, "neutral eyes and eyebrows", key) for key in selected_vowels)
     return plan
+
+
+def parse_custom_expressions(values: list[str] | None) -> dict[str, str]:
+    parsed = {}
+    for value in values or []:
+        key, separator, prompt = value.partition("=")
+        if not separator or not re.fullmatch(r"e_[0-9a-f]{8}", key) or not prompt.strip():
+            raise ValueError("custom expression must be e_<8 lowercase hex>=<prompt>")
+        parsed[key] = prompt.strip()
+    return parsed
 
 
 def main() -> int:
@@ -157,8 +169,10 @@ def main() -> int:
     parser.add_argument("--blink-denoise", type=float, default=0.85)
     parser.add_argument("--control-strength", type=float, default=0.0)
     parser.add_argument("--identity-tags", default="")
+    parser.add_argument("--workflow", type=Path)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--expression", choices=EYE_EXPRESSIONS, action="append")
+    parser.add_argument("--custom-expression", action="append")
     parser.add_argument("--vowel", choices=VOWELS, action="append")
     args = parser.parse_args()
     if not 0.0 <= args.denoise <= 1.0 or not 0.0 <= args.blink_denoise <= 1.0:
@@ -171,7 +185,7 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[2]
     comfy = repo / "ComfyUI"
     python = repo / "sidecar" / ".venv" / "Scripts" / "python.exe"
-    workflow_path = repo / "workflows" / "expression-inpaint-api.json"
+    workflow_path = args.workflow or repo / "workflows" / "expression-inpaint-api.json"
     if not comfy.joinpath("main.py").is_file() or not python.is_file():
         raise FileNotFoundError("Run the T2 setup before expression generation")
 
@@ -217,15 +231,21 @@ def main() -> int:
     try:
         wait_for_server(base_url, process, args.startup_timeout)
         print(json.dumps({"event": "comfy_ready", "port": args.port}), flush=True)
-        combinations = generation_plan(args.expression, args.vowel)
+        expression_prompts = {**EYE_EXPRESSIONS, **parse_custom_expressions(args.custom_expression)}
+        selected_expressions = args.expression
+        if selected_expressions is None:
+            selected_expressions = list(expression_prompts)
+        else:
+            selected_expressions.extend(parse_custom_expressions(args.custom_expression))
+        combinations = generation_plan(expression_prompts, selected_expressions, args.vowel)
         if args.limit is not None:
             combinations = combinations[: args.limit]
-        for index, (kind, key, expression, vowel) in enumerate(combinations):
+        for index, (kind, key, expression_prompt, vowel) in enumerate(combinations):
             region = "eyes" if kind == "eyes" else "mouth"
             make_mask(input_dir / "mask.png", region)
             workflow = prepare_workflow(
                 template,
-                expression,
+                expression_prompt,
                 vowel,
                 1000 + index,
                 args.blink_denoise if key == "blink" else args.denoise,
@@ -250,7 +270,7 @@ def main() -> int:
             metric = {
                 "kind": kind,
                 "key": key,
-                "expression": expression,
+                "expression_prompt": expression_prompt,
                 "vowel": vowel,
                 "seconds": round(time.monotonic() - started, 2),
                 "difference_ratio": round(ratio, 6),

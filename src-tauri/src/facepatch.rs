@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use glam::{Mat4, Vec2, Vec3};
-use image::{GrayImage, ImageBuffer, Luma, RgbaImage};
+use image::{GrayImage, ImageBuffer, Luma, Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -122,6 +122,90 @@ pub fn compose_expression_layers(
     Ok(output)
 }
 
+pub fn create_capture_frame(
+    mesh: &NeutralMeshSnapshot,
+    capture_resolution: u32,
+) -> Result<CaptureFrame, FacePatchError> {
+    if capture_resolution == 0 {
+        return Err(FacePatchError::InvalidInput(
+            "キャプチャ解像度は1以上が必要です".into(),
+        ));
+    }
+    let head: Vec<Vec3> = mesh
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.head_weight >= 0.5)
+        .map(|vertex| Vec3::from_array(vertex.position))
+        .collect();
+    if head.len() < 3 {
+        return Err(FacePatchError::InvalidInput(
+            "中立顔キャプチャに必要な頭部頂点がありません".into(),
+        ));
+    }
+    let minimum = head
+        .iter()
+        .copied()
+        .fold(Vec3::splat(f32::INFINITY), Vec3::min);
+    let maximum = head
+        .iter()
+        .copied()
+        .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+    let size = maximum - minimum;
+    let extent = size.x.max(size.y) * 1.42;
+    let mut center = (minimum + maximum) * 0.5;
+    center.y -= size.y * 0.55;
+    Ok(CaptureFrame {
+        version: "projection_frame_v1".into(),
+        capture_resolution,
+        center: center.to_array(),
+        forward: [0.0, 0.0, 1.0],
+        up: [0.0, 1.0, 0.0],
+        patch_size: [extent, extent],
+        front_z: size.z * 0.75 + 0.02,
+        back_z: size.z * 0.75 + 0.02,
+    })
+}
+
+pub fn render_neutral_capture(
+    mesh: &NeutralMeshSnapshot,
+    atlas: &RgbaImage,
+    frame: &CaptureFrame,
+) -> Result<RgbaImage, FacePatchError> {
+    let basis = camera_basis(frame)?;
+    let size = frame.capture_resolution;
+    let mut output = RgbaImage::from_pixel(size, size, Rgba([255, 255, 255, 0]));
+    let mut depths = vec![f32::NEG_INFINITY; (size * size) as usize];
+    for triangle in &mesh.triangles {
+        let vertices = triangle_vertices(mesh, *triangle)?;
+        let projected =
+            vertices.map(|vertex| project_point(basis, Vec3::from_array(vertex.position), size));
+        rasterize_screen(projected, size, |x, y, barycentric| {
+            let depth = projected[0].depth * barycentric[0]
+                + projected[1].depth * barycentric[1]
+                + projected[2].depth * barycentric[2];
+            let target = index(size, x, y);
+            if depth <= depths[target] {
+                return;
+            }
+            let uv = Vec2::from_array(vertices[0].uv) * barycentric[0]
+                + Vec2::from_array(vertices[1].uv) * barycentric[1]
+                + Vec2::from_array(vertices[2].uv) * barycentric[2];
+            let atlas_x = (uv.x.clamp(0.0, 1.0) * (atlas.width() - 1) as f32).round() as u32;
+            let atlas_y = (uv.y.clamp(0.0, 1.0) * (atlas.height() - 1) as f32).round() as u32;
+            let mut pixel = *atlas.get_pixel(atlas_x, atlas_y);
+            pixel.0[3] = 255;
+            output.put_pixel(x, y, pixel);
+            depths[target] = depth;
+        });
+    }
+    if output.pixels().all(|pixel| pixel.0[3] == 0) {
+        return Err(FacePatchError::InvalidInput(
+            "中立顔キャプチャに書き込める正面画素がありません".into(),
+        ));
+    }
+    Ok(output)
+}
+
 #[derive(Debug, Error)]
 pub enum FacePatchError {
     #[error("GLB/VRMの読み込みに失敗しました: {0}")]
@@ -137,7 +221,14 @@ pub enum FacePatchError {
 }
 
 pub fn load_neutral_snapshot(path: &Path) -> Result<NeutralMeshSnapshot, FacePatchError> {
-    let (document, buffers, _) = gltf::import(path)?;
+    let bytes = std::fs::read(path)?;
+    let gltf = gltf::Gltf::from_slice_without_validation(&bytes)?;
+    let blob = gltf.blob;
+    let mut json = gltf.document.into_json();
+    json.extensions_required
+        .retain(|extension| extension != "VRMC_vrm");
+    let document = gltf::Document::from_json(json)?;
+    let buffers = gltf::import_buffers(&document, path.parent(), blob)?;
     let mut world_transforms = vec![None; document.nodes().count()];
     for scene in document.scenes() {
         for node in scene.nodes() {
@@ -826,6 +917,16 @@ mod tests {
                 .iter()
                 .all(|vertex| (vertex.head_weight - 1.0).abs() < 1.0e-6)
         );
+    }
+
+    #[test]
+    fn renders_neutral_capture_and_reuses_its_frame() {
+        let (mesh, _, _) = fixture();
+        let atlas = RgbaImage::from_fn(64, 64, |x, y| image::Rgba([x as u8, y as u8, 120, 255]));
+        let frame = create_capture_frame(&mesh, 64).unwrap();
+        let capture = render_neutral_capture(&mesh, &atlas, &frame).unwrap();
+        assert_eq!(capture.dimensions(), (64, 64));
+        assert!(capture.pixels().any(|pixel| pixel.0[3] == 255));
     }
 
     #[test]

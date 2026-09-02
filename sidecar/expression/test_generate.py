@@ -46,12 +46,19 @@ class ExpressionWorkflowTests(unittest.TestCase):
 
     def test_controlnet_can_be_disabled_without_custom_nodes(self):
         workflow = generate.prepare_workflow(
-            self.template, "smile", "a", 1, 0.65, 0.0, "blue hair"
+            self.template, "smile, happy", "a", 1, 0.65, 0.0, "blue hair"
         )
         self.assertFalse({"12", "13", "14"} & workflow.keys())
         self.assertEqual(workflow["7"]["inputs"]["positive"], ["4", 0])
         self.assertIn("same identity", workflow["4"]["inputs"]["text"])
         self.assertIn("mirrored", workflow["5"]["inputs"]["text"])
+
+    def test_custom_expression_extends_eye_layers_with_stable_ascii_key(self):
+        custom = generate.parse_custom_expressions(["e_1234abcd=half-lidded eyes"])
+        plan = generate.generation_plan({**generate.EYE_EXPRESSIONS, **custom})
+        self.assertIn(("eyes", "e_1234abcd", "half-lidded eyes", "close"), plan)
+        with self.assertRaises(ValueError):
+            generate.parse_custom_expressions(["日本語=invalid"])
 
     def test_eye_and_mouth_masks_do_not_overlap(self):
         with tempfile.TemporaryDirectory() as directory:

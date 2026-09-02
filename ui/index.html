@@ -8,12 +8,80 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <header>
+      <div><p class="eyebrow">LOCAL · PRIVATE · CREATIVE</p><h1>LocalVTuberStudio</h1></div>
+      <p id="connection" class="badge">ローカル起動</p>
+    </header>
     <main>
-      <p class="eyebrow">LOCAL · PRIVATE · CREATIVE</p>
-      <h1>LocalVTuberStudio</h1>
-      <p>ローカル完結型 VTuber キャラクターメーカー</p>
-      <span>準備ができました</span>
+      <aside>
+        <section>
+          <h2>新しい女性キャラクター</h2>
+          <label>表示名<input id="display-name" value="新しいキャラクター" /></label>
+          <label>全身A/Tポーズ画像のパス<input id="source-path" placeholder="C:\images\character.png" /></label>
+          <label>外見タグ<input id="identity-tags" placeholder="navy bob hair, amber eyes..." /></label>
+          <label>人格<textarea id="persona" rows="3" placeholder="明るく親しみやすい案内役"></textarea></label>
+          <button id="create">キャラクターを登録</button>
+        </section>
+        <section>
+          <div class="section-title"><h2>キャラクター</h2><button id="refresh" class="quiet">更新</button></div>
+          <div id="characters" class="character-list"></div>
+        </section>
+      </aside>
+      <div class="workspace">
+        <section class="preview-panel">
+          <div class="stage" id="stage"><canvas id="avatar"></canvas><p id="empty-preview">完成キャラクターを選ぶと3Dプレビューを表示します</p></div>
+          <div class="preview-controls">
+            <label>表情<select id="preview-expression"></select></label>
+            <label>口形<select id="preview-mouth"><option>close</option><option>a</option><option>i</option><option>u</option><option>e</option><option>o</option></select></label>
+            <button id="load-preview" class="quiet">プレビュー更新</button>
+          </div>
+        </section>
+        <section>
+          <h2>生成パイプライン</h2>
+          <div id="pipeline" class="pipeline"></div>
+          <div class="actions"><button id="run-all">全工程を実行</button><button id="retry-stage" class="quiet">選択工程だけ実行</button></div>
+          <pre id="log">キャラクターを選択してください</pre>
+        </section>
+        <div class="two-columns">
+          <section>
+            <h2>構図と背景</h2>
+            <div class="sliders">
+              <label>Yaw <output id="yaw-value">0</output><input id="yaw" type="range" min="-45" max="45" value="0" /></label>
+              <label>Pitch <output id="pitch-value">0</output><input id="pitch" type="range" min="-30" max="30" value="0" /></label>
+              <label>スケール <output id="scale-value">1</output><input id="scale" type="range" min="0.4" max="2" value="1" step="0.05" /></label>
+              <label>左上腕 <output id="left-arm-value">0</output><input id="left-arm" type="range" min="-80" max="80" value="0" /></label>
+              <label>右上腕 <output id="right-arm-value">0</output><input id="right-arm" type="range" min="-80" max="80" value="0" /></label>
+            </div>
+            <button id="save-framing" class="quiet">構図を保存</button>
+            <div class="background-row"><input id="background-id" value="studio" aria-label="背景ID" /><input id="background-prompt" value="moonlit cozy streaming studio, purple neon lights" aria-label="背景プロンプト" /><button id="generate-background" class="quiet">ローカル背景生成</button></div>
+          </section>
+          <section>
+            <h2>表情の追加・削除</h2>
+            <label>表示名<input id="expression-label" placeholder="ジト目" /></label>
+            <label>生成指示<input id="expression-prompt" placeholder="half closed eyes" /></label>
+            <button id="add-expression" class="quiet">定義を追加</button>
+            <div class="import-row"><input id="import-path" placeholder="1024px表情画像のパス" /><select id="import-kind"><option value="eyes">目・眉</option><option value="mouth">口</option></select><input id="import-key" placeholder="ASCIIキー" /><button id="import-expression" class="quiet">検査して取込</button></div>
+            <div id="expressions" class="chips"></div>
+          </section>
+        </div>
+        <div class="two-columns">
+          <section>
+            <h2>AITuber会話</h2>
+            <label>入力<textarea id="chat-input" rows="3" placeholder="こんにちは"></textarea></label>
+            <button id="chat">ローカルLLMで応答</button>
+            <p id="chat-output" class="result">llama.cpp の応答をここへ表示します</p>
+          </section>
+          <section>
+            <h2>音声認識とOBS</h2>
+            <label>16kHz WAVのパス<input id="wav-path" placeholder="C:\audio\speech.wav" /></label>
+            <div class="actions"><button id="transcribe" class="quiet">whisper.cppで文字起こし</button><button id="voice-chat">認識して会話</button></div>
+            <div class="actions"><button id="start-obs">OBS出力を開始</button><button id="stop-obs" class="quiet">停止</button></div>
+            <p id="obs-url" class="result">未起動</p>
+          </section>
+        </div>
+      </div>
     </main>
+    <script type="module" src="app.js"></script>
   </body>
 </html>
 

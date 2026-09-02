@@ -39,6 +39,8 @@ def inspect_import(
     imported: Image.Image,
     alignment_tolerance: float = 12.0,
     color_tolerance: float = 0.08,
+    check_alignment: bool = True,
+    check_mirrored: bool = True,
 ) -> dict:
     neutral_small = np.asarray(neutral.convert("L").resize((256, 256)), dtype=np.float32)
     imported_small = np.asarray(imported.convert("L").resize((256, 256)), dtype=np.float32)
@@ -55,9 +57,9 @@ def inspect_import(
         / 255.0
     )
     warnings = []
-    if max(abs(value) for value in shift_pixels) > alignment_tolerance:
+    if check_alignment and max(abs(value) for value in shift_pixels) > alignment_tolerance:
         warnings.append("中立キャプチャからの位置ずれを検出しました")
-    if mirrored_score > normal_score + 0.03:
+    if check_mirrored and mirrored_score > normal_score + 0.03:
         warnings.append("左右反転の可能性を検出しました")
     if color_delta > color_tolerance:
         warnings.append("中立キャプチャとの色差が大きすぎます")
@@ -106,6 +108,8 @@ def main() -> int:
     parser.add_argument("--key", required=True)
     parser.add_argument("--alignment-tolerance", type=float, default=12.0)
     parser.add_argument("--color-tolerance", type=float, default=0.08)
+    parser.add_argument("--skip-alignment-check", action="store_true")
+    parser.add_argument("--skip-mirror-check", action="store_true")
     args = parser.parse_args()
     if not ASCII_KEY.fullmatch(args.key):
         raise ValueError("keyはASCII小文字・数字・ハイフン・アンダースコアだけにしてください")
@@ -114,6 +118,8 @@ def main() -> int:
     settings = {
         "alignment_tolerance": args.alignment_tolerance,
         "color_tolerance": args.color_tolerance,
+        "check_alignment": not args.skip_alignment_check,
+        "check_mirrored": not args.skip_mirror_check,
     }
     result = inspect_import(neutral, imported, **settings)
     result.update(

@@ -13,15 +13,39 @@
 <!-- implemented-settings:start -->
 | キー | 型 | 既定値 | 環境変数 | 検証範囲 | 実行中反映 |
 |---|---|---|---|---|---|
+| `ai.blink_denoise` | f32 | 0.85 | `LVS_AI_BLINK_DENOISE` | 0〜1 | 次回生成 |
+| `ai.image_denoise` | f32 | 0.65 | `LVS_AI_IMAGE_DENOISE` | 0〜1 | 次回生成 |
+| `ai.llm_model` | string | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | `LVS_AI_LLM_MODEL` | 空文字不可 | 次回会話 |
+| `ai.mesh_model` | string | `triposr` | `LVS_AI_MESH_MODEL` | 空文字不可 | 次回生成 |
+| `ai.models_dir` | path | `models` | `LVS_AI_MODELS_DIR` | 相対または絶対 | 次回実行 |
+| `ai.stt_model` | string | `ggml-small.bin` | `LVS_AI_STT_MODEL` | 空文字不可 | 次回認識 |
 | `avatar.blink_duration_ms` | u32 | 140 | `LVS_AVATAR_BLINK_DURATION_MS` | 50〜2000 | 即時 |
 | `avatar.blink_max_ms` | u32 | 6500 | `LVS_AVATAR_BLINK_MAX_MS` | 最短以上 | 即時 |
 | `avatar.blink_min_ms` | u32 | 2800 | `LVS_AVATAR_BLINK_MIN_MS` | 500以上 | 即時 |
 | `avatar.crossfade_ms` | u32 | 160 | `LVS_AVATAR_CROSSFADE_MS` | 0〜5000 | 即時 |
 | `avatar.idle_sway_degrees` | f32 | 0.7 | `LVS_AVATAR_IDLE_SWAY_DEGREES` | 0〜10 | 即時 |
 | `avatar.idle_sway_period_ms` | u32 | 4200 | `LVS_AVATAR_IDLE_SWAY_PERIOD_MS` | 500〜60000 | 即時 |
+| `comfy.port` | u16 | 58120 | `LVS_COMFY_PORT` | 1〜65535、8188以外 | 次回生成 |
+| `comfy.startup_timeout_seconds` | u32 | 600 | `LVS_COMFY_STARTUP_TIMEOUT_SECONDS` | 1以上 | 次回生成 |
+| `comfy.unload_before_mesh` | bool | true | `LVS_COMFY_UNLOAD_BEFORE_MESH` | true固定 | 次回生成 |
+| `comfy.workflow_dir` | path | `workflows` | `LVS_COMFY_WORKFLOW_DIR` | 相対または絶対 | 次回生成 |
 | `display.language` | string | `ja` | `LVS_DISPLAY_LANGUAGE` | 空文字不可 | 次回起動 |
 | `display.preview_fps` | u32 | 30 | `LVS_DISPLAY_PREVIEW_FPS` | 1〜240 | 次回起動 |
 | `display.preview_scale` | f32 | 0.5 | `LVS_DISPLAY_PREVIEW_SCALE` | 0.1〜2.0 | 次回起動 |
+| `facepatch.alpha_threshold` | f32 | 0.030 | — | 0〜1 | 次回投影 |
+| `facepatch.depth_window` | f32 | 0.050 | — | 正数 | 次回投影 |
+| `facepatch.diff_threshold` | f32 | 0.075 | — | 0〜1 | 次回投影 |
+| `facepatch.face_mask_center` | [f32;2] | [0.500, 0.580] | — | 正規化座標 | 次回投影 |
+| `facepatch.face_mask_radius` | [f32;2] | [0.240, 0.260] | — | 正数 | 次回投影 |
+| `facepatch.head_weight_threshold` | f32 | 0.500 | — | 0〜1 | 次回投影 |
+| `facepatch.max_ray_hits` | usize | 3 | — | 1以上 | 次回投影 |
+| `facepatch.normal_threshold` | f32 | 0.350 | — | -1〜1 | 次回投影 |
+| `facepatch.pipeline_version` | u32 | 2 | — | 1以上 | 次回投影 |
+| `facepatch.seam_padding` | u32 | 4 | — | 0〜64 | 次回投影 |
+| `import.alignment_tolerance` | f32 | 12.0 | `LVS_IMPORT_ALIGNMENT_TOLERANCE` | 0以上 | 次回取込 |
+| `import.check_alignment` | bool | true | `LVS_IMPORT_CHECK_ALIGNMENT` | true / false | 次回取込 |
+| `import.check_mirrored` | bool | true | `LVS_IMPORT_CHECK_MIRRORED` | true / false | 次回取込 |
+| `import.color_tolerance` | f32 | 0.08 | `LVS_IMPORT_COLOR_TOLERANCE` | 0〜1 | 次回取込 |
 | `lipsync.a_shape_bias` | f32 | 0.9 | `LVS_LIPSYNC_A_SHAPE_BIAS` | 0.1〜2.0 | 即時 |
 | `lipsync.device_name` | string | `""` | `LVS_LIPSYNC_DEVICE_NAME` | 空なら既定マイク | 再接続時 |
 | `lipsync.formants` | [table;5] | A/I/U/E/O | — | F1/F2が正数 | 即時 |
@@ -34,6 +58,11 @@
 | `obs.enabled` | bool | false | `LVS_OBS_ENABLED` | true / false | 即時 |
 | `obs.port_range_end` | u16 | 58099 | `LVS_OBS_PORT_RANGE_END` | 開始以上 | 再起動時 |
 | `obs.port_range_start` | u16 | 58090 | `LVS_OBS_PORT_RANGE_START` | 終了以下 | 再起動時 |
+| `pipeline.atlas_resolution` | u32 | 2048 | `LVS_PIPELINE_ATLAS_RESOLUTION` | 64〜8192 | 次回生成 |
+| `pipeline.capture_resolution` | u32 | 1024 | `LVS_PIPELINE_CAPTURE_RESOLUTION` | 64〜4096 | 次回生成 |
+| `pipeline.keep_intermediates` | bool | true | `LVS_PIPELINE_KEEP_INTERMEDIATES` | true固定 | 次回生成 |
+| `pipeline.mesh_resolution` | u32 | 192 | `LVS_PIPELINE_MESH_RESOLUTION` | 32〜512 | 次回生成 |
+| `pipeline.output_dir` | path | 空（`app_data_dir/characters`） | `LVS_PIPELINE_OUTPUT_DIR` | 相対または絶対 | 次回起動 |
 | `vad.enabled` | bool | true | `LVS_VAD_ENABLED` | true / false | 即時 |
 | `vad.end_silence_seconds` | f32 | 0.9 | `LVS_VAD_END_SILENCE_SECONDS` | 正数 | 即時 |
 | `vad.max_seconds` | f32 | 6.0 | `LVS_VAD_MAX_SECONDS` | 最短以上 | 即時 |
@@ -44,67 +73,11 @@
 
 ## 予定設定
 
+中立画像への幾何位置合わせと色補正は未実装で、`facepatch.align_to_neutral` と `facepatch.color_match` はまだ設定として公開しない。現行の外部画像取り込みは位置・反転・色差を検査して警告するところまでとする。
+
+`gpu_backend` の設定は持たない。CUDA 必須が決定事項であり、CPU フォールバックを実装しないため選択肢が存在しない。
+
 ## 命名規則
 
-- 環境変数名は `LVS_` を接頭辞とする（製品名確定時に一括変更する）
+- 環境変数名は `LVS_` を接頭辞とする
 - 秘密値を持つキーは作らない。本実装はクラウドAPIを使わないため。将来必要になった場合の規則は [AGENTS.md](../AGENTS.md) の「設定値・シークレット」を参照
-
-## 生成パイプライン
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `pipeline.capture_resolution` | u32 | 1024 | 顔キャプチャの解像度（正方形） |
-| `pipeline.atlas_resolution` | u32 | 2048 | 投影先UVアトラスの解像度 |
-| `pipeline.output_dir` | path | `app_data_dir/characters` | キャラクター保存先 |
-| `pipeline.keep_intermediates` | bool | true | 各工程の中間成果物を残すか。途中再開に必要 |
-
-## フェイスパッチ投影
-
-パラメータの意味は [SPEC.md](../SPEC.md) 4.4 を参照。**すべて設定から都度読み、ソースへ散らさない**（[AGENTS.md](../AGENTS.md)）。
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `facepatch.pipeline_version` | u32 | 1 | 署名に含める版番号。**署名対象を増やしたら上げる** |
-| `facepatch.diff_threshold` | f32 | 0.075 | 中立との差分がこれ以下の画素は書き込まない |
-| `facepatch.alpha_threshold` | f32 | 0.030 | これ未満のαは対象外 |
-| `facepatch.seam_padding` | u32 | 4 | UV継ぎ目の膨張画素数 |
-| `facepatch.head_weight_threshold` | f32 | 0.500 | 三角形採用に必要な頭ボーンウェイト |
-| `facepatch.normal_threshold` | f32 | 0.350 | 面法線がキャプチャ方向を向いている度合い |
-| `facepatch.max_ray_hits` | u32 | 3 | レイキャストの最大ヒット数 |
-| `facepatch.depth_window` | f32 | 0.050 | 最前面判定の深度窓 |
-| `facepatch.face_mask_center` | [f32;2] | [0.500, 0.580] | 顔マスク楕円の中心（正規化座標） |
-| `facepatch.face_mask_radius` | [f32;2] | [0.240, 0.260] | 顔マスク楕円の半径（正規化座標） |
-| `facepatch.align_to_neutral` | bool | true | 投影前に中立へ位置合わせする |
-| `facepatch.color_match` | bool | true | 投影前に色味を合わせる |
-
-## ローカルAIエンジン
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `ai.models_dir` | path | `app_data_dir/models` | モデルの保存先 |
-| `ai.llm_model` | string | 未定 | 会話・表情選択LLMの GGUF 名（1.5B級で足りる見込み） |
-| `ai.stt_model` | string | 未定 | whisper.cpp のモデル名 |
-| `ai.image_denoise` | f32 | 0.65 | 表情・口形インペイントの実測採用値（[SPEC.md](../SPEC.md) 4.7.1） |
-| `ai.blink_denoise` | f32 | 0.85 | 閉眼の基準画像だけに使う実測採用値 |
-| `ai.mesh_model` | string | 未定 | 画像→3D モデル名 |
-
-**`gpu_backend` の設定は持たない。** CUDA 必須が決定事項であり、CPU フォールバックを実装しないため、選択肢が存在しない（[SPEC.md](../SPEC.md) 8）。
-
-## ComfyUI（同梱）
-
-[SPEC.md](../SPEC.md) 3.1 の「ComfyUI 固有の規則」を参照。**利用者の既存 ComfyUI 環境を読まない・書かない・ポートを奪わない。**
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `comfy.port` | u16 | 58120 | 同梱ComfyUIの待受ポート。既定8188を避ける |
-| `comfy.startup_timeout_seconds` | u32 | 600 | 初回起動が180秒を超えた実測に基づく上限 |
-| `comfy.workflow_dir` | path | 同梱 `workflows` | ワークフローJSONの置き場 |
-| `comfy.unload_before_mesh` | bool | true | 画像→3D生成の前にComfyUIのモデルをアンロードしてVRAMを空ける（[SPEC.md](../SPEC.md) 3.1） |
-
-## 外部生成画像のインポート（[SPEC.md](../SPEC.md) 4.10 D）
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `import.check_alignment` | bool | true | 投入画像の位置ずれを中立と照合して警告する |
-| `import.check_mirrored` | bool | true | 左右反転を検出して警告する |
-| `import.alignment_tolerance` | f32 | 未定 | 許容するずれ量。超えたら警告 |

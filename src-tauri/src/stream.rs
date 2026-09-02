@@ -1,4 +1,4 @@
-use std::{io, path::PathBuf};
+use std::{collections::BTreeMap, io, path::PathBuf};
 
 use axum::{
     Router,
@@ -36,6 +36,7 @@ pub struct AvatarState {
     pub scale: f32,
     pub offset_x: f32,
     pub offset_y: f32,
+    pub arm_pose: BTreeMap<String, [f32; 3]>,
 }
 
 impl Default for AvatarState {
@@ -57,6 +58,7 @@ impl Default for AvatarState {
             scale: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,
+            arm_pose: BTreeMap::new(),
         }
     }
 }
