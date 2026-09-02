@@ -16,10 +16,13 @@ class ExpressionWorkflowTests(unittest.TestCase):
             )
         )
 
-    def test_contract_has_six_expressions_and_six_vowels(self):
-        self.assertEqual(len(generate.EXPRESSIONS), 6)
+    def test_contract_generates_n_plus_six_layers(self):
+        self.assertEqual(len(generate.EYE_EXPRESSIONS), 5)
         self.assertEqual(len(generate.VOWELS), 6)
-        self.assertEqual(len(generate.EXPRESSIONS) * len(generate.VOWELS), 36)
+        plan = generate.generation_plan()
+        self.assertEqual(len(plan), 11)
+        self.assertEqual(sum(kind == "eyes" for kind, *_ in plan), 5)
+        self.assertEqual(sum(kind == "mouth" for kind, *_ in plan), 6)
 
     def test_workflow_uses_only_bundled_standard_nodes(self):
         allowed = {

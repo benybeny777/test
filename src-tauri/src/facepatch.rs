@@ -90,6 +90,38 @@ pub fn projection_signature(
     Ok(format!("{:x}", Sha256::digest(payload)))
 }
 
+pub fn compose_expression_layers(
+    neutral: &RgbaImage,
+    eyes: &RgbaImage,
+    mouth: &RgbaImage,
+    mouth_scale: f32,
+) -> Result<RgbaImage, FacePatchError> {
+    if neutral.dimensions() != eyes.dimensions() || neutral.dimensions() != mouth.dimensions() {
+        return Err(FacePatchError::InvalidInput(
+            "表情・口形レイヤーと中立画像の寸法が一致しません".into(),
+        ));
+    }
+    if !(0.0..=1.0).contains(&mouth_scale) {
+        return Err(FacePatchError::InvalidInput(
+            "口の開き係数は0〜1の範囲が必要です".into(),
+        ));
+    }
+    let mut output = neutral.clone();
+    for (x, y, pixel) in output.enumerate_pixels_mut() {
+        let base = neutral.get_pixel(x, y).0;
+        let eye = eyes.get_pixel(x, y).0;
+        let mouth_pixel = mouth.get_pixel(x, y).0;
+        for channel in 0..4 {
+            let eye_delta = eye[channel] as f32 - base[channel] as f32;
+            let mouth_delta = (mouth_pixel[channel] as f32 - base[channel] as f32) * mouth_scale;
+            pixel.0[channel] = (base[channel] as f32 + eye_delta + mouth_delta)
+                .round()
+                .clamp(0.0, 255.0) as u8;
+        }
+    }
+    Ok(output)
+}
+
 #[derive(Debug, Error)]
 pub enum FacePatchError {
     #[error("GLB/VRMの読み込みに失敗しました: {0}")]
@@ -859,6 +891,19 @@ mod tests {
         assert_eq!(baseline.len(), 64);
         assert_ne!(baseline, changed_prompt);
         assert_ne!(baseline, changed_setting);
+    }
+
+    #[test]
+    fn expression_and_mouth_layers_are_composed_with_limit() {
+        let neutral = RgbaImage::from_pixel(2, 1, image::Rgba([100, 100, 100, 255]));
+        let mut eyes = neutral.clone();
+        eyes.put_pixel(0, 0, image::Rgba([140, 100, 100, 255]));
+        let mut mouth = neutral.clone();
+        mouth.put_pixel(1, 0, image::Rgba([100, 180, 100, 255]));
+        let result = compose_expression_layers(&neutral, &eyes, &mouth, 0.5).unwrap();
+        assert_eq!(result.get_pixel(0, 0).0, [140, 100, 100, 255]);
+        assert_eq!(result.get_pixel(1, 0).0, [100, 140, 100, 255]);
+        assert!(compose_expression_layers(&neutral, &eyes, &mouth, 1.1).is_err());
     }
 
     #[test]

@@ -75,7 +75,8 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask dev` | 開発起動 |
 | `cargo xtask build` | 配布ビルド |
 | `cargo xtask verify` | 書式・静的解析・テスト・文書同期をまとめて実行 |
-| `cargo xtask facepatch --model <vrm/glb> --neutral <png> --expression-dir <36枚のディレクトリ> --atlas <png> --frame <json> --output-dir <dir> --diagnostics <dir>` | 中立スキニング済みメッシュへ36表情を逆投影 |
+| `cargo xtask facepatch --model <vrm/glb> --neutral <png> --layered-expression-dir <11枚のディレクトリ> --atlas <png> --frame <json> --output-dir <dir> --diagnostics <dir>` | 目・眉N枚と共通口形6枚を合成し、中立スキニング済みメッシュへ逆投影 |
+| `cargo xtask expression-import --neutral <png> --input <png> --output <dir> --kind <eyes/mouth> --key <ASCIIキー>` | 外部表情画像の位置・反転・色差を検査し、中立画像と署名を保存 |
 | `cargo xtask mesh --input <png> --output <dir>` | anime-segで背景除去し、TripoSRで2048² UVアトラス付きGLBを単発生成 |
 | `cargo xtask rig --input <glb> --output <dir> --name <表示名>` | A/Tポーズを検査し、19ボーンとheat diffusionウェイトを持つVRMを単発生成 |
 | `cargo run -p local-vtuber-studio --bin lipsync-probe` | 既定マイクを3秒だけ16kHzへ変換し、FFT判定窓を検査して停止 |
@@ -90,7 +91,9 @@ cargo xtask setup models
 cargo xtask expression --input temp/input.png --output temp/expressions --identity-tags "髪・瞳・衣装・アクセサリの英語タグ"
 ```
 
-`expression` の入力は 1024x1024 RGBA、出力は6表情×6口形の36 PNGと `metrics.json`。ComfyUIは `127.0.0.1:58120` のみで起動し、処理後は必ず終了してハンドルを回収する。初回起動の実測が180秒を超えたため、起動待ちは600秒とする。画像生成は denoise 0.65、閉眼の基準生成だけ0.85を用いる。顔全体ではなく左右の目と口の限定マスクを使い、最後に元画像へマスク合成するため、マスク外は画素単位で不変になる。
+`expression` の入力は 1024x1024 RGBA、出力は目・眉5 PNGと共通口形6 PNGの計11枚および `metrics.json`。ComfyUIは `127.0.0.1:58120` のみで起動し、処理後は必ず終了してハンドルを回収する。初回起動の実測が180秒を超えたため、起動待ちは600秒とする。画像生成は denoise 0.65、閉眼だけ0.85を用いる。目と口を重ならない限定マスクへ分離し、逆投影直前に組み合わせる。
+
+外部画像は1024x1024で、中立キャプチャと同じ画角・向き・背景にする。`expression-import` は中立画像も `neutral.png` として書き出し、位置ずれ12px超、左右反転の可能性、平均色差0.08超を警告する。警告は拒否ではないが、確認せず投影すると破綻し得る。投入画素はSHA-256キャッシュ署名へ含まれる。
 
 `setup sidecar` は `nvidia-smi` でCUDA対応GPUを確認してから、Python 3.12.13とハッシュ固定済み依存を単一環境へ同期する。`setup models` はT0で固定したリビジョンから取得し、SHA-256不一致なら採用せず中間ファイルを削除する。CPUフォールバックはない。
 

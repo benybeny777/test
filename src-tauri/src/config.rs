@@ -6,6 +6,12 @@ use thiserror::Error;
 use crate::store;
 
 pub const SETTING_KEYS: &[&str] = &[
+    "avatar.blink_duration_ms",
+    "avatar.blink_max_ms",
+    "avatar.blink_min_ms",
+    "avatar.crossfade_ms",
+    "avatar.idle_sway_degrees",
+    "avatar.idle_sway_period_ms",
     "display.language",
     "display.preview_fps",
     "display.preview_scale",
@@ -30,10 +36,22 @@ pub const SETTING_KEYS: &[&str] = &[
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub avatar: AvatarConfig,
     pub display: DisplayConfig,
     pub lipsync: LipSyncConfig,
     pub vad: VadConfig,
     pub obs: ObsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct AvatarConfig {
+    pub crossfade_ms: u32,
+    pub blink_min_ms: u32,
+    pub blink_max_ms: u32,
+    pub blink_duration_ms: u32,
+    pub idle_sway_degrees: f32,
+    pub idle_sway_period_ms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -47,10 +65,22 @@ pub struct DisplayConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ConfigFile {
+    avatar: Option<AvatarConfigFile>,
     display: Option<DisplayConfigFile>,
     lipsync: Option<LipSyncConfigFile>,
     vad: Option<VadConfigFile>,
     obs: Option<ObsConfigFile>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct AvatarConfigFile {
+    crossfade_ms: Option<u32>,
+    blink_min_ms: Option<u32>,
+    blink_max_ms: Option<u32>,
+    blink_duration_ms: Option<u32>,
+    idle_sway_degrees: Option<f32>,
+    idle_sway_period_ms: Option<u32>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -129,6 +159,19 @@ impl Default for DisplayConfig {
             preview_fps: 30,
             preview_scale: 0.5,
             language: "ja".to_owned(),
+        }
+    }
+}
+
+impl Default for AvatarConfig {
+    fn default() -> Self {
+        Self {
+            crossfade_ms: 160,
+            blink_min_ms: 2_800,
+            blink_max_ms: 6_500,
+            blink_duration_ms: 140,
+            idle_sway_degrees: 0.7,
+            idle_sway_period_ms: 4_200,
         }
     }
 }
@@ -267,6 +310,24 @@ impl AppConfig {
                 }
             };
         }
+        parse_environment!("LVS_AVATAR_CROSSFADE_MS", self.avatar.crossfade_ms, u32);
+        parse_environment!("LVS_AVATAR_BLINK_MIN_MS", self.avatar.blink_min_ms, u32);
+        parse_environment!("LVS_AVATAR_BLINK_MAX_MS", self.avatar.blink_max_ms, u32);
+        parse_environment!(
+            "LVS_AVATAR_BLINK_DURATION_MS",
+            self.avatar.blink_duration_ms,
+            u32
+        );
+        parse_environment!(
+            "LVS_AVATAR_IDLE_SWAY_DEGREES",
+            self.avatar.idle_sway_degrees,
+            f32
+        );
+        parse_environment!(
+            "LVS_AVATAR_IDLE_SWAY_PERIOD_MS",
+            self.avatar.idle_sway_period_ms,
+            u32
+        );
         if let Some(value) = environment("LVS_LIPSYNC_DEVICE_NAME") {
             self.lipsync.device_name = value.to_string_lossy().into_owned();
         }
@@ -312,6 +373,17 @@ impl AppConfig {
     }
 
     fn apply_file(&mut self, file: ConfigFile) {
+        if let Some(avatar) = file.avatar {
+            apply_optional(&mut self.avatar.crossfade_ms, avatar.crossfade_ms);
+            apply_optional(&mut self.avatar.blink_min_ms, avatar.blink_min_ms);
+            apply_optional(&mut self.avatar.blink_max_ms, avatar.blink_max_ms);
+            apply_optional(&mut self.avatar.blink_duration_ms, avatar.blink_duration_ms);
+            apply_optional(&mut self.avatar.idle_sway_degrees, avatar.idle_sway_degrees);
+            apply_optional(
+                &mut self.avatar.idle_sway_period_ms,
+                avatar.idle_sway_period_ms,
+            );
+        }
         if let Some(display) = file.display {
             if let Some(value) = display.preview_fps {
                 self.display.preview_fps = value;
@@ -351,6 +423,15 @@ impl AppConfig {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        if self.avatar.crossfade_ms > 5_000
+            || self.avatar.blink_min_ms < 500
+            || self.avatar.blink_max_ms < self.avatar.blink_min_ms
+            || !(50..=2_000).contains(&self.avatar.blink_duration_ms)
+            || !(0.0..=10.0).contains(&self.avatar.idle_sway_degrees)
+            || !(500..=60_000).contains(&self.avatar.idle_sway_period_ms)
+        {
+            return Err(ConfigError::Validation("avatar設定が範囲外です".into()));
+        }
         if !(1..=240).contains(&self.display.preview_fps) {
             return Err(ConfigError::Validation(
                 "display.preview_fps は 1〜240 の範囲で指定してください".into(),
@@ -503,15 +584,17 @@ mod tests {
     }
 
     #[test]
-    fn persists_lipsync_vad_and_obs_settings() {
+    fn persists_avatar_lipsync_vad_and_obs_settings() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.json");
         let mut config = AppConfig::default();
+        config.avatar.crossfade_ms = 240;
         config.lipsync.smoothing_frames = 6;
         config.vad.max_seconds = 8.0;
         config.obs.enabled = true;
         config.save(&path).unwrap();
         let loaded = AppConfig::load_with_environment(&path, |_| None).unwrap();
+        assert_eq!(loaded.avatar.crossfade_ms, 240);
         assert_eq!(loaded.lipsync.smoothing_frames, 6);
         assert_eq!(loaded.vad.max_seconds, 8.0);
         assert!(loaded.obs.enabled);
