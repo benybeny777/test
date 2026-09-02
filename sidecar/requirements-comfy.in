@@ -12,7 +12,7 @@ comfyui-embedded-docs==0.5.10
 torchsde
 numpy>=1.25.0
 einops
-transformers>=4.50.3
+transformers>=4.50.3,<5
 tokenizers>=0.13.3
 sentencepiece
 safetensors>=0.4.2
@@ -38,3 +38,11 @@ pydantic~=2.0
 pydantic-settings~=2.0
 pyopengl>=3.1.8
 comfy-angle
+
+# TripoSR と背景除去。画像→3Dも同じPython環境を共有する。
+omegaconf==2.3.0
+trimesh==4.8.3
+rembg[cpu]==2.0.83
+scikit-image==0.26.0
+imageio==2.37.0
+xatlas==0.0.11

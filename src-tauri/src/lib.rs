@@ -1,6 +1,7 @@
 pub mod config;
 pub mod facepatch;
 pub mod lipsync;
+pub mod sidecar;
 pub mod store;
 pub mod stream;
 

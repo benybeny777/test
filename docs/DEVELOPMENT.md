@@ -39,6 +39,7 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 | rembg | `v2.0.83` | パッケージのwheelハッシュはT5のlockfileで固定 |
 | isnet-anime | `skytnt/anime-seg@493cb60893f47441b26ec4fb9a306bce9e342982` | `isnetis.onnx`: `f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99` |
 | TripoSR | コード `107cefdc244c39106fa830359024f6a2f1c78871`、重み `stabilityai/TripoSR@5b521936b01fbe1890f6f9baed0254ab6351c04a` | `model.ckpt`: `429e2c6b22a0923967459de24d67f05962b235f79cde6b032aa7ed2ffcd970ee` |
+| DINO ViT-B/16設定 | `facebook/dino-vitb16@f205d5d8e640a89a2b8ef0369670dfc37cc07fc2` | `config.json`: `b87c0270b97db085fd82cf114a761fd0f62ae7914fbd407c752a2260646b689c`。重みはTripoSR checkpoint内 |
 | TRELLIS（条件付き代替） | コード `442aa1e1afb9014e80681d3bf604e8d728a86ee7`、重み `microsoft/TRELLIS-image-large@25e0d31ffbebe4b5a97464dd851910efc3002d96` | 複数ファイル構成。採用時に全manifestを固定し、`diffoctreerast` は取得しない |
 | Animagine XL 4.0 Opt | `cagliostrolab/animagine-xl-4.0@2b7c1b397761bf5bd3cc42e5b39ec99314a75a96` | `animagine-xl-4.0-opt.safetensors`: `6327eca98bfb6538dd7a4edce22484a1bbc57a8cff6b11d075d40da1afb847ac` |
 | ControlNet Canny SDXL | `diffusers/controlnet-canny-sdxl-1.0@eb115a19a10d14909256db740ed109532ab1483c` | `diffusion_pytorch_model.safetensors`: `ea99040544a999f814fd854575a3aee069a005d026864c8d321b82576706a221` |
@@ -75,6 +76,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask build` | 配布ビルド |
 | `cargo xtask verify` | 書式・静的解析・テスト・文書同期をまとめて実行 |
 | `cargo xtask facepatch --model <vrm/glb> --neutral <png> --expression-dir <36枚のディレクトリ> --atlas <png> --frame <json> --output-dir <dir> --diagnostics <dir>` | 中立スキニング済みメッシュへ36表情を逆投影 |
+| `cargo xtask mesh --input <png> --output <dir>` | anime-segで背景除去し、TripoSRで2048² UVアトラス付きGLBを単発生成 |
 | `cargo run -p local-vtuber-studio --bin lipsync-probe` | 既定マイクを3秒だけ16kHzへ変換し、FFT判定窓を検査して停止 |
 | `cargo run -p local-vtuber-studio --bin stream-probe` | 透過OBSページを58090〜58099の空きポートで30秒配信し、女性3体の状態を切替 |
 
@@ -91,9 +93,11 @@ cargo xtask expression --input temp/input.png --output temp/expressions --identi
 
 `setup sidecar` は `nvidia-smi` でCUDA対応GPUを確認してから、Python 3.12.13とハッシュ固定済み依存を単一環境へ同期する。`setup models` はT0で固定したリビジョンから取得し、SHA-256不一致なら採用せず中間ファイルを削除する。CPUフォールバックはない。
 
-T3 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`tools/facepatch-view/` をリポジトリルートからローカルHTTP配信し、`model` と `texture` のクエリへローカルパスを渡す。投影テクスチャはアンリットで、PNGの上下方向をThree.jsのUVへ合わせるため `flipY=true` とする。製品の描画実装も `ui/shared/vendor/three/` を共有し、CDNへ接続しない。
+`mesh` は入力原本を `source/input.png` に保存し、`foreground.png`、`reconstruction-input.png`、`texture.png`、`mesh.glb`、`metrics.json` を出力する。全身が画面高の68%未満、腕幅が画面幅の32%未満、中央ずれが12%超ならA/Tポーズ不適合として生成前に停止する。生成中はHugging Faceをオフライン固定し、初回セットアップ以外の外向き通信を許可しない。
 
-T2時点の固定環境は Python 3.12.13、PyTorch 2.11.0+cu128、torchvision 0.26.0+cu128、torchaudio 2.11.0+cu128。`sidecar/requirements-comfy.lock` はWindows x64向け全推移依存を版とwheelハッシュで固定している。依存を変える場合は `requirements-comfy.in` からlockfileを再生成し、同じGPU実走までやり直す。
+T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`tools/facepatch-view/` をリポジトリルートからローカルHTTP配信し、`model` と、外部テクスチャを確認する場合だけ `texture` のクエリへローカルパスを渡す。投影テクスチャはアンリットで、PNGの上下方向をThree.jsのUVへ合わせるため `flipY=true` とする。製品の描画実装も `ui/shared/vendor/three/` を共有し、CDNへ接続しない。
+
+固定環境は Python 3.12.13、PyTorch 2.11.0+cu128、torchvision 0.26.0+cu128、torchaudio 2.11.0+cu128、Transformers 4.57.6、xatlas 0.0.11。`sidecar/requirements-comfy.lock` はWindows x64向け全推移依存を版とwheelハッシュで固定している。依存を変える場合は `requirements-comfy.in` からlockfileを再生成し、同じGPU実走までやり直す。
 
 `cargo xtask build` は Windows NSIS インストーラを `target/release/bundle/nsis/` へ出力する。署名と自動更新は販売方針決定後の後続タスクとする。
 
