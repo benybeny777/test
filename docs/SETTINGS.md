@@ -16,6 +16,22 @@
 | `display.language` | string | `ja` | `LVS_DISPLAY_LANGUAGE` | 空文字不可 | 次回起動 |
 | `display.preview_fps` | u32 | 30 | `LVS_DISPLAY_PREVIEW_FPS` | 1〜240 | 次回起動 |
 | `display.preview_scale` | f32 | 0.5 | `LVS_DISPLAY_PREVIEW_SCALE` | 0.1〜2.0 | 次回起動 |
+| `lipsync.a_shape_bias` | f32 | 0.9 | `LVS_LIPSYNC_A_SHAPE_BIAS` | 0.1〜2.0 | 即時 |
+| `lipsync.device_name` | string | `""` | `LVS_LIPSYNC_DEVICE_NAME` | 空なら既定マイク | 再接続時 |
+| `lipsync.formants` | [table;5] | A/I/U/E/O | — | F1/F2が正数 | 即時 |
+| `lipsync.interval_seconds` | f32 | 0.08 | `LVS_LIPSYNC_INTERVAL_SECONDS` | 0.01〜1.0 | 再接続時 |
+| `lipsync.sample_rate` | u32 | 16000 | `LVS_LIPSYNC_SAMPLE_RATE` | 8000以上 | 再接続時 |
+| `lipsync.silence_hold_seconds` | f32 | 0.16 | `LVS_LIPSYNC_SILENCE_HOLD_SECONDS` | 0.01〜2.0 | 即時 |
+| `lipsync.smoothing_frames` | u32 | 4 | `LVS_LIPSYNC_SMOOTHING_FRAMES` | 1〜30 | 即時 |
+| `lipsync.volume_gate_db` | f32 | -40.0 | `LVS_LIPSYNC_VOLUME_GATE_DB` | -100〜0 | 即時 |
+| `lipsync.window_samples` | u32 | 512 | `LVS_LIPSYNC_WINDOW_SAMPLES` | 64以上の2の累乗 | 再接続時 |
+| `obs.enabled` | bool | false | `LVS_OBS_ENABLED` | true / false | 即時 |
+| `obs.port_range_end` | u16 | 58099 | `LVS_OBS_PORT_RANGE_END` | 開始以上 | 再起動時 |
+| `obs.port_range_start` | u16 | 58090 | `LVS_OBS_PORT_RANGE_START` | 終了以下 | 再起動時 |
+| `vad.enabled` | bool | true | `LVS_VAD_ENABLED` | true / false | 即時 |
+| `vad.end_silence_seconds` | f32 | 0.9 | `LVS_VAD_END_SILENCE_SECONDS` | 正数 | 即時 |
+| `vad.max_seconds` | f32 | 6.0 | `LVS_VAD_MAX_SECONDS` | 最短以上 | 即時 |
+| `vad.min_seconds` | f32 | 0.5 | `LVS_VAD_MIN_SECONDS` | 正数 | 即時 |
 <!-- implemented-settings:end -->
 
 保存先は `app_config_dir/config.json`。優先順位は永続ファイル、環境変数、既定値の順。未知キーや不正値を含むファイルは `.corrupt` へ退避し、標準エラーへ理由を出して既定値で起動する。
@@ -54,49 +70,6 @@
 | `facepatch.face_mask_radius` | [f32;2] | [0.240, 0.260] | 顔マスク楕円の半径（正規化座標） |
 | `facepatch.align_to_neutral` | bool | true | 投影前に中立へ位置合わせする |
 | `facepatch.color_match` | bool | true | 投影前に色味を合わせる |
-
-## リップシンク
-
-パラメータの意味は [SPEC.md](../SPEC.md) 4.5 を参照。
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `lipsync.device_name` | string | "" | マイクデバイス名。空なら既定デバイス |
-| `lipsync.sample_rate` | u32 | 16000 | 解析サンプリングレート |
-| `lipsync.window_samples` | u32 | 512 | FFT 窓長 |
-| `lipsync.interval_seconds` | f32 | 0.08 | 解析間隔 |
-| `lipsync.volume_gate_db` | f32 | -40.0 | この音量未満は無音扱い |
-| `lipsync.smoothing_frames` | u32 | 4 | 多数決に使う直近フレーム数 |
-| `lipsync.silence_hold_seconds` | f32 | 0.16 | 無音がこれだけ続いたら口を閉じる |
-| `lipsync.a_shape_bias` | f32 | 0.9 | 「あ」への寄せ。1未満ほど「あ」になりやすい |
-| `lipsync.formants` | table | 下記 | 母音ごとの F1 / F2（Hz）。日本語話者向け初期値 |
-
-`lipsync.formants` の初期値（[SPEC.md](../SPEC.md) 4.5）:
-
-| 母音 | F1 | F2 |
-|---|---|---|
-| a | 775 | 1175 |
-| i | 300 | 2400 |
-| u | 350 | 1150 |
-| e | 475 | 1950 |
-| o | 450 | 800 |
-
-## 発話区間検出（VAD）
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `vad.enabled` | bool | true | 発話区間の切り出しを行うか |
-| `vad.end_silence_seconds` | f32 | 0.9 | 終端無音がこれだけ続いたら発話終了 |
-| `vad.min_seconds` | f32 | 0.5 | これ未満の区間はノイズとして捨てる |
-| `vad.max_seconds` | f32 | 6.0 | これを超えたら強制的に区切る |
-
-## OBS 出力
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `obs.enabled` | bool | false | 起動時に出力を開始するか。**次回起動へ永続化する** |
-| `obs.port_range_start` | u16 | 58090 | バインドを試すポートの開始 |
-| `obs.port_range_end` | u16 | 58099 | 同終了。全滅したら明示エラー |
 
 ## ローカルAIエンジン
 
