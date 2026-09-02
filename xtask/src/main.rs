@@ -25,6 +25,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("sidecar") => setup_sidecar(),
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
         "expression" => run_expression(&args[1..]),
+        "facepatch" => run_facepatch(&args[1..]),
         "verify" => {
             run("cargo", &["fmt", "--all", "--", "--check"])?;
             run(
@@ -43,7 +44,7 @@ fn main() -> Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|setup comfy|setup sidecar|setup models>"
+                "usage: cargo xtask <dev|build|verify|expression|facepatch|setup comfy|setup sidecar|setup models>"
             );
             Ok(())
         }
@@ -164,6 +165,27 @@ fn run_expression(args: &[String]) -> Result<()> {
         .context("failed to start expression generator")?;
     if !status.success() {
         bail!("expression generator failed with {status}");
+    }
+    Ok(())
+}
+
+fn run_facepatch(args: &[String]) -> Result<()> {
+    let root = root()?;
+    let status = Command::new("cargo")
+        .args([
+            "run",
+            "-p",
+            "local-vtuber-studio",
+            "--bin",
+            "facepatch",
+            "--",
+        ])
+        .args(args)
+        .current_dir(root)
+        .status()
+        .context("failed to start facepatch projector")?;
+    if !status.success() {
+        bail!("facepatch projector failed with {status}");
     }
     Ok(())
 }

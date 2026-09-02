@@ -74,6 +74,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask dev` | 開発起動 |
 | `cargo xtask build` | 配布ビルド |
 | `cargo xtask verify` | 書式・静的解析・テスト・文書同期をまとめて実行 |
+| `cargo xtask facepatch --model <vrm/glb> --neutral <png> --expression-dir <36枚のディレクトリ> --atlas <png> --frame <json> --output-dir <dir> --diagnostics <dir>` | 中立スキニング済みメッシュへ36表情を逆投影 |
 
 T2 の表情生成を試す場合は、次の順で一度だけセットアップする。
 
@@ -87,6 +88,8 @@ cargo xtask expression --input temp/input.png --output temp/expressions --identi
 `expression` の入力は 1024x1024 RGBA、出力は6表情×6口形の36 PNGと `metrics.json`。ComfyUIは `127.0.0.1:58120` のみで起動し、処理後は必ず終了してハンドルを回収する。初回起動の実測が180秒を超えたため、起動待ちは600秒とする。画像生成は denoise 0.65、閉眼の基準生成だけ0.85を用いる。顔全体ではなく左右の目と口の限定マスクを使い、最後に元画像へマスク合成するため、マスク外は画素単位で不変になる。
 
 `setup sidecar` は `nvidia-smi` でCUDA対応GPUを確認してから、Python 3.12.13とハッシュ固定済み依存を単一環境へ同期する。`setup models` はT0で固定したリビジョンから取得し、SHA-256不一致なら採用せず中間ファイルを削除する。CPUフォールバックはない。
+
+T3 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`tools/facepatch-view/` をリポジトリルートからローカルHTTP配信し、`model` と `texture` のクエリへローカルパスを渡す。投影テクスチャはアンリットで、PNGの上下方向をThree.jsのUVへ合わせるため `flipY=true` とする。製品の描画実装も `ui/shared/vendor/three/` を共有し、CDNへ接続しない。
 
 T2時点の固定環境は Python 3.12.13、PyTorch 2.11.0+cu128、torchvision 0.26.0+cu128、torchaudio 2.11.0+cu128。`sidecar/requirements-comfy.lock` はWindows x64向け全推移依存を版とwheelハッシュで固定している。依存を変える場合は `requirements-comfy.in` からlockfileを再生成し、同じGPU実走までやり直す。
 

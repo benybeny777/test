@@ -1,4 +1,5 @@
 pub mod config;
+pub mod facepatch;
 pub mod store;
 
 use tauri::Manager;
