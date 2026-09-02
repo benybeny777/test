@@ -19,20 +19,6 @@
 
 ---
 
-## T1. リポジトリ骨格と最小起動
-
-Tauri アプリが起動し、空のウィンドウが出るところまで。
-
-- `src-tauri/`（Rust）、`ui/`（webview）、`xtask/` を作る。構成は [SPEC.md](../SPEC.md) 4.1 に従う
-- `cargo xtask dev` で起動、`cargo xtask build` で配布ビルドができる
-- `config.rs` と `docs/SETTINGS.md` の双方向同期テストを置く（設定キーの記載漏れ・削除漏れを検出する）
-- `.gitignore` に、モデル・推論エンジンバイナリ・`temp/`・解析対象バイナリを入れる
-- **`Node.js` をアプリとビルドの依存にしない**（[AGENTS.md](../AGENTS.md)）
-
-**完了条件**: `cargo xtask dev` でウィンドウが出る。`cargo test --lib` が通る。
-
----
-
 ## T2. 表情のローカル生成（技術リスク最大。最優先で検証する）
 
 **目的**: 顔画像1枚から、同一性を保ったまま表情差分と母音口形を作れるかを確かめる。

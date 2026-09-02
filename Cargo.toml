@@ -1,0 +1,10 @@
+[workspace]
+members = ["src-tauri", "xtask"]
+default-members = ["src-tauri"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+

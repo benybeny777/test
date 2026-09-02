@@ -35,6 +35,8 @@ Python のインストールは不要です（必要なランタイムを同梱�
 
 ## 開発
 
+Rust、Tauri CLI、WebView2 を用意し、`cargo xtask dev` で起動する。テスト一式は `cargo xtask verify`、Windows向けNSIS配布ビルドは `cargo xtask build`。Node.js は不要。
+
 開発環境の準備、ビルド、実行の手順は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) を参照してください。
 
 ## ドキュメント

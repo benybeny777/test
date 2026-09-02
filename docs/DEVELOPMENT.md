@@ -1,6 +1,6 @@
 # DEVELOPMENT.md — 開発・ビルド・配布
 
-> **現在は設計段階です。** 下記のコマンドは T1（[TASKS.md](TASKS.md)）で実装します。実装した時点で「予定」の記述を消し、実際に動く手順へ更新してください。
+Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを行う。Node.js は不要。
 
 ## 必要なもの
 
@@ -62,7 +62,7 @@ xtask/       開発タスク
 temp/        一時作成物のみ。.gitignore 済み
 ```
 
-## コマンド（予定）
+## コマンド
 
 | コマンド | 用途 |
 |---|---|
@@ -73,6 +73,10 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask dev` | 開発起動 |
 | `cargo xtask build` | 配布ビルド |
 | `cargo xtask verify` | 書式・静的解析・テスト・文書同期をまとめて実行 |
+
+現在実装済みなのは `dev`、`build`、`verify`。`setup` 系は対象機能の実装タスクで追加する。
+
+`cargo xtask build` は Windows NSIS インストーラを `target/release/bundle/nsis/` へ出力する。署名と自動更新は販売方針決定後の後続タスクとする。
 
 推論エンジン本体とモデルファイルはリポジトリに含めない（`.gitignore` 済み）。初回セットアップとモデル取得は時間がかかり、ネットワークが必要。
 
@@ -106,8 +110,8 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='py
 - `Cargo.toml` / `Cargo.lock` を変更したら `cargo audit` で既知脆弱性を確認する
 - **モデル重みの商用利用条項・地域制限・再配布可否を採用前に確認し、結論を [SPEC.md](../SPEC.md) へ書く**（[AGENTS.md](../AGENTS.md)）
 
-## 配布（予定）
+## 配布
 
-Windows 先行。バンドル形式・署名・自動更新の要否は販売方針が決まってから判断する（[TASKS.md](TASKS.md) の「後続」）。
+Windows 先行で、現時点の配布形式は NSIS。署名・自動更新の要否は販売方針が決まってから判断する（[TASKS.md](TASKS.md) の「後続」）。
 
 配布容量は十進の MB / GB で書く。バイト数の単独表示や併記をしない。
