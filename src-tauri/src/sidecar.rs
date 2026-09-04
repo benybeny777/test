@@ -42,6 +42,9 @@ impl SidecarProcess {
         let child = Command::new(program)
             .args(arguments)
             .current_dir(working_directory)
+            // JSON Lines はOSのコードページに依存させず、常にUTF-8で受け渡す。
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
