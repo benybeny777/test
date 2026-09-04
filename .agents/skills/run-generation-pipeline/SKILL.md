@@ -13,18 +13,17 @@ description: イラスト1枚から2D/2.5Dキャラクターを生成する工�
 
 生成は必ずアプリのパイプライン経由で行う。個別スクリプトや別リポジトリの一時ファイルを製品成果物にしない。
 
-**現在は実行しない。** See-throughの必須Marigold重みとSAM Body Parsing重みにライセンス表示がない。`SPEC.md` 4.7と`docs/TASKS.md` T9の条件が解消するまで、動作済みPOCを製品経路へ移植・同梱してはならない。
-
-権利確認後の既定工程は次とする。
+既定工程は次とする。
 
 ```
 ① isolate     source/input.png → source/isolated.png
-② decompose   isolated.png     → layers/source.psd
+② decompose   isolated.png     → layers/source.psd + manifest.json + parts/*.png
 ③ rig2d       source.psd       → rig2d/rig.json + rig2d/parts/*.png
 ```
 
 - `source/input.png` は上書き・削除しない
-- ②は固定版See-throughを品質優先設定で実行し、低解像度・量子化経路へ無言で降格しない
+- ②は固定版SAM 2.1 Hiera Tinyで候補マスクを生成し、製品内の決定的処理で意味付けする
+- SAM 2を意味分類器として扱わず、位置・包含・接続・入力シルエットとの関係をmanifestへ記録する
 - ③は本製品固有の `lvs-anime25d-v1` を出力し、PicoAgentやLive2D/Cubismの形式を正本にしない
 - 閉口、開口、左右の目、顔、前後髪、胴体の必須パーツが欠けたら明示エラーにする
 - 原画とパーツを補間で引き伸ばさない

@@ -132,15 +132,17 @@ temp/               一時作成物のみ。.gitignore 済み
 [source/input.png]
    ↓ ① 背景除去
 [source/isolated.png]
-   ↓ ② 意味レイヤー分解（See-through候補）
-[layers/source.psd]
-   ↓ ③ 2.5D自動リグ（Anime2.5DRig候補）
+   ↓ ② 候補マスク生成（SAM 2.1 Hiera Tiny）＋決定的な意味付け
+[layers/source.psd + layers/manifest.json + layers/parts/*.png]
+   ↓ ③ 製品内2.5D自動リグ
 [rig2d/rig.json + rig2d/parts/*.png]
 ```
 
 実行時形式は本製品固有の `lvs-anime25d-v1` とし、Live2D/Cubism形式やPicoAgentの既存形式を正本にしない。PicoAgent統合時はPicoAgent側がこの形式へ対応する。正面から大きく外れる回転は対象外で、`MouthOpenY`、`MouthForm`、左右の目開閉、小角度の顔・体・腕・髪の動きを扱う。
 
-ただし、②の必須重みの権利表示が不足しているため、現時点では採用を確定せず実装を停止している（4.7、`docs/TASKS.md`）。以下の3D工程は採用理由ではなく、廃止理由を再検討しないための失敗記録である。
+2026-09-04に利用者が、権利表示のないSee-through必須重みを避け、別候補へ変更することを承認した。候補マスクにはコードと公式チェックポイントの双方がApache-2.0で公開されている `facebook/sam2.1-hiera-tiny` を使う。SAM 2は意味分類器ではないため、マスクの部位名、前後関係、必須パーツ判定をモデルへ推測させず、位置・包含・接続・入力シルエットとの関係にもとづく製品内の決定的処理で確定する。今回の制作・検証は非商用のローカル実験だが、公開リポジトリへ権利不明の重みは同梱しない。
+
+以下の3D工程は採用理由ではなく、廃止理由を再検討しないための失敗記録である。
 
 #### 4.2.1 旧3D試作の工程
 
@@ -305,6 +307,7 @@ Rust: 127.0.0.1:<port>
 |---|---|---|---|---|---|---|---|
 | 背景除去 | `rembg` v2.0.83 + `skytnt/anime-seg` の `isnetis.onnx` | MIT + Apache-2.0 | 可 | なし | 可。Apache-2.0 の表示を保持 | 固有条件なし | **採用。** `rembg` が再ホストする重みではなく、作者公式の [モデル](https://huggingface.co/skytnt/anime-seg) を固定する |
 | 背景除去の代替 | U-2-Net の上流重みを自前で ONNX 変換 | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | 条件付き候補。`rembg` 配布の `u2net.onnx` は変換元を追跡できないため使わない |
+| 2.5D候補マスク | [`facebook/sam2.1-hiera-tiny`](https://huggingface.co/facebook/sam2.1-hiera-tiny) | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | **採用。** Meta公式はコード、学習済みチェックポイント、デモ、学習コードをApache-2.0と明記する。8GB GPU向けに最小のHiera Tinyを固定し、意味分類は製品側で決定的に行う |
 | 2.5D意味レイヤー分解コード | [`shitagaki-lab/see-through`](https://github.com/shitagaki-lab/see-through) `7f139bb25c46a0c8ac720d95ddab185fcda5451c` | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEと変更表示を保持 | 固有条件なし | **コードだけ適合。重み監査未完了のため採用保留。** 1280解像度BF16 Block SwapはRTX 5060 Laptopで完走済みだが、コードのライセンスを別配布の重みへ推定適用しない |
 | See-through LayerDiff重み | [`layerdifforg/seethroughv0.0.2_layerdiff3d`](https://huggingface.co/layerdifforg/seethroughv0.0.2_layerdiff3d) `966721bb4ef2ddc3af3696862fa10b3f78d9785d` | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | **重みまで適合。** 公式モデルカードのライセンス表示を確認 |
 | See-through Marigold重み | [`layerdifforg/seethroughv0.0.1_marigold`](https://huggingface.co/layerdifforg/seethroughv0.0.1_marigold) `aa7a892f83ff68d7b09186a405ba08d5d33f770f` | **表示なし** | **未確認** | **未確認** | **未確認** | **未確認** | **採用保留。** 公式モデルリポジトリにモデルカードとLICENSEがなく、コード側Apache-2.0の適用対象だと確定できない |
@@ -332,7 +335,7 @@ Rust: 127.0.0.1:<port>
 | InstantID | **不採用** | コードはApache-2.0だが、[公式README](https://github.com/instantX-research/InstantID#disclaimer) が公開チェックポイントを研究目的限定、必須のInsightFace顔モデルを非商用研究限定と明記する |
 | `rembg` が再ホストする `u2net.onnx` | **不採用** | `rembg` のMITはコードだけに適用され、配布者もONNXの変換元・変換者を追跡できないと[回答](https://github.com/danielgatis/rembg/issues/837#issuecomment-5172958667)している。上流重みから自前変換したものだけを代替候補にする |
 
-旧3D候補については当時の監査停止条件には該当しなかったが、その後の実機品質検証で不採用になった。新しい2.5D第一候補は、Anime2.5DRig本体とLayerDiff重みは適合する一方、**必須のMarigold重みとSAM Body Parsing重みの商用利用・地域制限・再配布条件を確定できない。** この2件について権利者の明示を得るか、利用者が別候補への変更を判断するまで、製品実装へ進めない。
+旧3D候補については当時の監査停止条件には該当しなかったが、その後の実機品質検証で不採用になった。See-through方式はコードと一部重みだけが適合し、必須のMarigold重みとSAM Body Parsing重みに許諾表示がないため採用しない。新しい2.5D方式は、Apache-2.0がチェックポイントまで明記されたSAM 2.1と製品内の決定的処理で構成し、未ライセンス重みを必要としない。
 
 ComfyUI v0.34.0 の初期ワークフローは**標準ノードだけ**で構成し、カスタムノードは現時点で1件も採用しない。追加が必要になった場合は、固定コミット、ライセンス、モデル重み、直接・推移Python依存を同じ基準で監査し終えるまで取得・同梱しない。ComfyUIのPython依存はPython 3.12/CUDA/PyTorchの組合せをT1/T2でロックし、配布前に全推移依存のライセンス一覧と対応ソースを生成する。
 
