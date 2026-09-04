@@ -21,6 +21,13 @@ const TRIPOSR_CONFIG_SHA256: &str =
     "74ca708ce086bf68e97709ea6b3d91f14717921c04691e84043f0eb8fcc68e62";
 const ISNET_ANIME_SHA256: &str = "f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99";
 const DINO_CONFIG_SHA256: &str = "b87c0270b97db085fd82cf114a761fd0f62ae7914fbd407c752a2260646b689c";
+const SAM2_REVISION: &str = "de431c4043854a71d8101e17995dfe596bf101a5";
+const SAM2_MODEL_SHA256: &str = "48c14467e5cf9e51870511feb72c89688e82dd74523142c0538b663e193ac2a7";
+const SAM2_CONFIG_SHA256: &str = "860aff9751b139d83a4ad7df1e5535416fded533e0ead02625edbefcb9953cce";
+const SAM2_PREPROCESSOR_SHA256: &str =
+    "6ebf229ee259368ce4a8d4f2fe893a72b053023710853e257253939e601f583d";
+const SAM2_PROCESSOR_SHA256: &str =
+    "f8a68e865cfad115c1c2763f3d93eca7b1c622da06da2a9273eb437fb2389b6d";
 const LLAMA_ZIP_SHA256: &str = "81c2ff62e14b549cd5c766ccdd5c61f09e821a171655c3047bdccfddc2d1a1e2";
 const LLAMA_CUDART_SHA256: &str =
     "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6";
@@ -38,6 +45,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("comfy") => setup_comfy(),
         "setup" if args.get(1).map(String::as_str) == Some("sidecar") => setup_sidecar(),
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
+        "setup" if args.get(1).map(String::as_str) == Some("sam2") => setup_sam2(),
         "setup" if args.get(1).map(String::as_str) == Some("engines") => setup_engines(),
         "expression" => run_expression(&args[1..]),
         "expression-import" => run_expression_import(&args[1..]),
@@ -62,7 +70,7 @@ fn main() -> Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup engines>"
+                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup sam2|setup engines>"
             );
             Ok(())
         }
@@ -232,7 +240,31 @@ fn setup_models() -> Result<()> {
         "https://huggingface.co/facebook/dino-vitb16/resolve/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json?download=true",
         &dino.join("config.json"),
         DINO_CONFIG_SHA256,
-    )
+    )?;
+    setup_sam2()
+}
+
+fn setup_sam2() -> Result<()> {
+    let root = root()?;
+    check_cuda_gpu(&root)?;
+    let sam2 = root.join("models/sam2.1-hiera-tiny");
+    std::fs::create_dir_all(&sam2)?;
+    let sam2_base =
+        format!("https://huggingface.co/facebook/sam2.1-hiera-tiny/resolve/{SAM2_REVISION}");
+    for (name, hash) in [
+        ("config.json", SAM2_CONFIG_SHA256),
+        ("preprocessor_config.json", SAM2_PREPROCESSOR_SHA256),
+        ("processor_config.json", SAM2_PROCESSOR_SHA256),
+        ("model.safetensors", SAM2_MODEL_SHA256),
+    ] {
+        download_verified(
+            &root,
+            &format!("{sam2_base}/{name}?download=true"),
+            &sam2.join(name),
+            hash,
+        )?;
+    }
+    Ok(())
 }
 
 fn setup_engines() -> Result<()> {
@@ -489,6 +521,45 @@ fn verify_python_sidecars() -> Result<()> {
             OsStr::new("discover"),
             OsStr::new("-s"),
             OsStr::new("sidecar/expression"),
+            OsStr::new("-p"),
+            OsStr::new("test_*.py"),
+        ],
+    )?;
+    run_at(
+        &root,
+        &python,
+        [
+            OsStr::new("-m"),
+            OsStr::new("unittest"),
+            OsStr::new("discover"),
+            OsStr::new("-s"),
+            OsStr::new("sidecar/isolate"),
+            OsStr::new("-p"),
+            OsStr::new("test_*.py"),
+        ],
+    )?;
+    run_at(
+        &root,
+        &python,
+        [
+            OsStr::new("-m"),
+            OsStr::new("unittest"),
+            OsStr::new("discover"),
+            OsStr::new("-s"),
+            OsStr::new("sidecar/rig2d"),
+            OsStr::new("-p"),
+            OsStr::new("test_*.py"),
+        ],
+    )?;
+    run_at(
+        &root,
+        &python,
+        [
+            OsStr::new("-m"),
+            OsStr::new("unittest"),
+            OsStr::new("discover"),
+            OsStr::new("-s"),
+            OsStr::new("sidecar/decompose"),
             OsStr::new("-p"),
             OsStr::new("test_*.py"),
         ],

@@ -4,7 +4,7 @@
 
 イラスト1枚から、原画の見た目を保った2D/2.5D VTuberキャラクターを作るデスクトップアプリ。**クラウドAPIを一切使わず、すべてローカルで完結する。**
 
-> **現在のアプリコードは旧3D試作で、廃止対象です。** 女性3体で工程の完走までは確認しましたが、顔・髪・衣装の見た目が不合格でした。2026-09-04に2D/2.5Dへ変更し、候補マスクをApache-2.0のSAM 2.1 Hiera Tiny、意味付けとリグを製品内の決定的処理で実装する方針へ確定しました（[docs/TASKS.md](docs/TASKS.md)）。旧3Dコードと失敗生成物は新経路へ引き継ぎません。
+> **現在は2D/2.5D経路への移行中です。** `isolate → decompose → rig2d` の工程接続、SAM 2.1候補マスク、目・口開閉元を含む10意味レイヤーのPNG・manifest・確認用PSD、`lvs-anime25d-v1`リグ骨格まで実装しています。実アクションと共通レンダラー、全テストキャラの再生成は [docs/TASKS.md](docs/TASKS.md) T11/T12で続けます。旧3D試作は品質不合格の記録として残しますが、新しい既定UIでは実行しません。
 
 ## できること
 
@@ -55,19 +55,16 @@ cargo xtask dev
 
 ## キャラクター生成の処理フロー
 
-キャラクターは次の6工程で作ります。各工程の成果物を `characters/<characterId>/` 以下へ保存してから次へ進むため、失敗した工程だけを再実行できます。現在の操作画面では、①と②をまとめて `mesh` として扱い、以降を `rig`、`capture`、`expression`、`facepatch` と表示します。
+キャラクターは次の3工程で作ります。各工程の成果物を `characters/<characterId>/` 以下へ保存してから次へ進むため、失敗した工程だけを再実行できます。
 
 | 工程 | 処理 | 主な成果物 | 次工程での用途 |
 |---|---|---|---|
 | 入力登録 | PNG/JPEGを取り込み、表示名・人物設定・同一性タグを記録 | `source/input.png`、`character.json` | すべての再生成の起点。入力原本は上書きしない |
-| ① 背景除去 | 人物を切り出し、透過画像へ変換 | `source/isolated.png`、`model/foreground.png` | 3D生成へ背景を混入させないための入力 |
-| ② 画像→3D | 透過人物を正方形へ配置し、メッシュ・UV・テクスチャを生成 | `model/reconstruction-input.png`、`model/mesh.glb`、`model/texture.png`、`model/metrics.json` | リギング対象の3D形状と基準テクスチャ |
-| ③ リギング | ヒューマノイド骨格を配置し、頂点へスキニングウェイトを設定 | `model/rigged.vrm`、`model/rig-metrics.json` | 表示・アニメーション・顔領域判定に使うリグ付きモデル |
-| ④ 中立キャプチャ | リグ付きモデルの正面顔を決定した画角でレンダリング | `facepatch/neutral.png`、`facepatch/capture_frame.json`、`model/thumbnail.png` | 表情生成の基準画像と、逆投影で再利用するカメラ情報 |
-| ⑤ 表情生成 | 中立顔の目・眉または口だけをローカルで編集 | `facepatch/expr/eyes/<表情>.png`、`facepatch/expr/mouth/{a,i,u,e,o,close}.png`、`facepatch/expr/metrics.json` | 標準5表情・任意表情と、日本語母音5種＋閉口の直交レイヤー |
-| ⑥ 逆投影 | 目・眉レイヤーと口形を組み合わせ、変化部分だけをUVへ焼き戻す | `facepatch/projected/<表情>/<口形>.png`、`facepatch/diagnostics/`、`facepatch/signature.txt` | 実行時に `rigged.vrm` へ差し替えて表示する表情別テクスチャ |
+| ① `isolate` | 人物を切り出し、元キャンバスの透過画像へ変換 | `source/isolated.png` | レイヤー分解の入力 |
+| ② `decompose` | SAM 2.1候補マスクを位置・左右・包含関係で意味部位へ割り当て | `layers/manifest.json`、`layers/parts/*.png`、`layers/source.psd` | 2.5Dリグの描画部品と確認用PSD |
+| ③ `rig2d` | 部位と重なり順を検証し、製品内2.5Dリグへ変換 | `rig2d/rig.json` | T11で実装する本体・OBS共通レンダラーの入力 |
 
-完成時に使う中心資産は `model/rigged.vrm` と `facepatch/projected/` 以下の表情テクスチャです。音声から母音を判定して口形を切り替え、会話状態から表情を選びます。`character.json` で各工程の状態を管理し、未着手は `pending` として扱い、実行後は `running / complete / failed` と理由を保存します。
+中心資産は `layers/manifest.json`、`layers/parts/`、`rig2d/rig.json` です。`character.json` で各工程の状態を管理し、未着手は `pending`、実行後は `running / complete / failed` と理由を保存します。
 
 ```text
 characters/<characterId>/
@@ -75,28 +72,15 @@ characters/<characterId>/
 ├─ source/
 │  ├─ input.png
 │  └─ isolated.png
-├─ model/
-│  ├─ foreground.png
-│  ├─ reconstruction-input.png
-│  ├─ mesh.glb
-│  ├─ texture.png
-│  ├─ metrics.json
-│  ├─ rigged.vrm
-│  ├─ rig-metrics.json
-│  └─ thumbnail.png
-└─ facepatch/
-   ├─ neutral.png
-   ├─ capture_frame.json
-   ├─ expr/
-   │  ├─ eyes/<表情>.png
-   │  ├─ mouth/{a,i,u,e,o,close}.png
-   │  └─ metrics.json
-   ├─ projected/<表情>/<口形>.png
-   ├─ diagnostics/
-   └─ signature.txt
+├─ layers/
+│  ├─ source.psd
+│  ├─ manifest.json
+│  └─ parts/*.png
+└─ rig2d/
+   └─ rig.json
 ```
 
-上流工程を再実行すると、古い成果物を混ぜないようにその工程以降だけを無効化します。たとえば③をやり直すと、旧VRM、キャプチャ、表情、逆投影結果を破棄して③から作り直します。生成に失敗した場合は `character.json` を `failed` にし、壊れた成果物へ黙って進みません。
+上流工程を再実行すると、その工程以降だけを無効化します。たとえば②をやり直すと、以前のレイヤーと2.5Dリグを破棄して②から作り直します。生成に失敗した場合は `character.json` を `failed` にし、壊れた成果物へ黙って進みません。
 
 顔をAIで細かく立体化せず、滑らかな共通頭部へ原画の顔を投影する方式の初回試作は、[顔テンプレート投影の試作結果](docs/TEMPLATE_FACE_PROTOTYPE.md)で正面・斜め・横の実レンダーを確認できます。この試作は方式比較用であり、採用決定や完成品質を示すものではありません。
 

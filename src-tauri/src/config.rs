@@ -11,6 +11,7 @@ pub const SETTING_KEYS: &[&str] = &[
     "ai.llm_model",
     "ai.mesh_model",
     "ai.models_dir",
+    "ai.sam2_model",
     "ai.stt_model",
     "avatar.blink_duration_ms",
     "avatar.blink_max_ms",
@@ -111,6 +112,7 @@ pub struct AiConfig {
     pub image_denoise: f32,
     pub blink_denoise: f32,
     pub mesh_model: String,
+    pub sam2_model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -295,6 +297,7 @@ impl Default for AiConfig {
             image_denoise: 0.65,
             blink_denoise: 0.85,
             mesh_model: "triposr".into(),
+            sam2_model: "sam2.1-hiera-tiny".into(),
         }
     }
 }
@@ -529,6 +532,7 @@ impl AppConfig {
         string_environment!("LVS_AI_LLM_MODEL", self.ai.llm_model);
         string_environment!("LVS_AI_STT_MODEL", self.ai.stt_model);
         string_environment!("LVS_AI_MESH_MODEL", self.ai.mesh_model);
+        string_environment!("LVS_AI_SAM2_MODEL", self.ai.sam2_model);
         string_environment!("LVS_COMFY_WORKFLOW_DIR", self.comfy.workflow_dir);
         parse_environment!("LVS_AI_IMAGE_DENOISE", self.ai.image_denoise, f32);
         parse_environment!("LVS_AI_BLINK_DENOISE", self.ai.blink_denoise, f32);
@@ -695,6 +699,7 @@ impl AppConfig {
             || self.ai.llm_model.trim().is_empty()
             || self.ai.stt_model.trim().is_empty()
             || self.ai.mesh_model.trim().is_empty()
+            || self.ai.sam2_model.trim().is_empty()
             || self.comfy.workflow_dir.trim().is_empty()
         {
             return Err(ConfigError::Validation(

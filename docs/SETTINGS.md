@@ -17,6 +17,7 @@
 | `ai.image_denoise` | f32 | 0.65 | `LVS_AI_IMAGE_DENOISE` | 0〜1 | 次回生成 |
 | `ai.llm_model` | string | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | `LVS_AI_LLM_MODEL` | 空文字不可 | 次回会話 |
 | `ai.mesh_model` | string | `triposr` | `LVS_AI_MESH_MODEL` | 空文字不可 | 次回生成 |
+| `ai.sam2_model` | string | `sam2.1-hiera-tiny` | `LVS_AI_SAM2_MODEL` | 空文字不可 | 次回レイヤー分解 |
 | `ai.models_dir` | path | `models` | `LVS_AI_MODELS_DIR` | 相対または絶対 | 次回実行 |
 | `ai.stt_model` | string | `ggml-small.bin` | `LVS_AI_STT_MODEL` | 空文字不可 | 次回認識 |
 | `avatar.blink_duration_ms` | u32 | 140 | `LVS_AVATAR_BLINK_DURATION_MS` | 50〜2000 | 即時 |

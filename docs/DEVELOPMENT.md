@@ -38,6 +38,7 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 | ComfyUI | `v0.34.0` | Gitタグを固定。Python 3.12/CUDA/PyTorchを含む全依存はT1/T2でlockfile化して別途ハッシュを固定 |
 | rembg | `v2.0.83` | パッケージのwheelハッシュはT5のlockfileで固定 |
 | isnet-anime | `skytnt/anime-seg@493cb60893f47441b26ec4fb9a306bce9e342982` | `isnetis.onnx`: `f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99` |
+| SAM 2.1 Hiera Tiny | `facebook/sam2.1-hiera-tiny@de431c4043854a71d8101e17995dfe596bf101a5` | `model.safetensors`: `48c14467e5cf9e51870511feb72c89688e82dd74523142c0538b663e193ac2a7`。設定3ファイルも個別にSHA-256固定 |
 | TripoSR | コード `107cefdc244c39106fa830359024f6a2f1c78871`、重み `stabilityai/TripoSR@5b521936b01fbe1890f6f9baed0254ab6351c04a` | `model.ckpt`: `429e2c6b22a0923967459de24d67f05962b235f79cde6b032aa7ed2ffcd970ee` |
 | DINO ViT-B/16設定 | `facebook/dino-vitb16@f205d5d8e640a89a2b8ef0369670dfc37cc07fc2` | `config.json`: `b87c0270b97db085fd82cf114a761fd0f62ae7914fbd407c752a2260646b689c`。重みはTripoSR checkpoint内 |
 | TRELLIS（条件付き代替） | コード `442aa1e1afb9014e80681d3bf604e8d728a86ee7`、重み `microsoft/TRELLIS-image-large@25e0d31ffbebe4b5a97464dd851910efc3002d96` | 複数ファイル構成。採用時に全manifestを固定し、`diffoctreerast` は取得しない |
@@ -72,6 +73,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask setup comfy` | 同梱 ComfyUI 本体・ワークフローと、監査済みの場合だけカスタムノード固定版を用意 |
 | `cargo xtask setup sidecar` | Python 3.12 ランタイムと依存を用意（**CUDA wheel は対応GPU検出時のみ**） |
 | `cargo xtask setup models` | モデルを取得 |
+| `cargo xtask setup sam2` | SAM 2.1 Hiera Tinyだけを固定リビジョンから取得し、全4ファイルのSHA-256を検証 |
 | `cargo xtask dev` | 開発起動 |
 | `cargo xtask build` | 配布ビルド |
 | `cargo xtask verify` | 書式・静的解析・テスト・文書同期をまとめて実行 |
