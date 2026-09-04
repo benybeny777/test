@@ -20,6 +20,7 @@ aiohttp>=3.11.8
 yarl>=1.18.0
 pyyaml
 pillow
+psd-tools>=1.17,<2
 scipy
 tqdm
 psutil

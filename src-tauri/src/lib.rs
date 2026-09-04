@@ -476,6 +476,9 @@ mod network_tests {
             "src-tauri/src",
             "sidecar/mesh",
             "sidecar/rigging",
+            "sidecar/isolate",
+            "sidecar/decompose",
+            "sidecar/rig2d",
             "ui",
             "ui-stream",
         ];

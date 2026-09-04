@@ -4,15 +4,13 @@ const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
 const $ = (selector) => document.querySelector(selector);
 const stages = [
-  ["mesh", "1 背景除去・3D"],
-  ["rig", "2 リギング"],
-  ["capture", "3 中立キャプチャ"],
-  ["expression", "4 表情生成"],
-  ["facepatch", "5 逆投影"],
+  ["isolate", "1 背景除去"],
+  ["decompose", "2 SAM 2.1レイヤー分解"],
+  ["rig2d", "3 2.5Dリグ"],
 ];
 let characters = [];
 let selected;
-let selectedStage = "mesh";
+let selectedStage = "isolate";
 let busy = false;
 let previewUrls = [];
 let backgroundUrl;

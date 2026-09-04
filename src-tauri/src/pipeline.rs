@@ -25,7 +25,7 @@ use crate::{
     store,
 };
 
-pub const STAGES: &[&str] = &["mesh", "rig", "capture", "expression", "facepatch"];
+pub const STAGES: &[&str] = &["isolate", "decompose", "rig2d"];
 const BUILT_IN_EXPRESSIONS: &[(&str, &str, &str)] = &[
     ("smile", "笑顔", "smile, happy"),
     ("blink", "閉眼", "both eyelids shut"),
@@ -198,6 +198,8 @@ impl PipelineContext {
                 ("mesh".into(), "model/mesh.glb".into()),
                 ("rigged".into(), "model/rigged.vrm".into()),
                 ("thumbnail".into(), "model/thumbnail.png".into()),
+                ("layers".into(), "layers/manifest.json".into()),
+                ("rig2d".into(), "rig2d/rig.json".into()),
             ]),
             expressions,
             framings,
@@ -443,7 +445,10 @@ impl PipelineContext {
         set_stage(&mut manifest, stage, "running", "実行中");
         self.save_character(&manifest)?;
         let result = match stage {
+            "isolate" => self.run_isolate(app, config, &manifest),
             "mesh" => self.run_mesh(app, config, &manifest),
+            "decompose" => self.run_decompose(app, config, &manifest),
+            "rig2d" => self.run_rig2d(app, &manifest),
             "rig" => self.run_rig(app, &manifest),
             "capture" => self.run_capture(config, &manifest),
             "expression" => self.run_expression(app, config, &manifest),
@@ -521,6 +526,83 @@ impl PipelineContext {
             }
         })?;
         Ok("自動リギングとVRM出力が完了しました".into())
+    }
+
+    fn run_isolate(
+        &self,
+        app: Option<&tauri::AppHandle>,
+        config: &AppConfig,
+        manifest: &CharacterManifest,
+    ) -> Result<String, PipelineError> {
+        let directory = self.character_dir(&manifest.character_id)?;
+        let args = vec![
+            OsString::from(self.repository_root.join("sidecar/isolate/generate.py")),
+            "--input".into(),
+            OsString::from(directory.join("source/input.png")),
+            "--output".into(),
+            OsString::from(directory.join("source/isolated.png")),
+            "--model".into(),
+            OsString::from(
+                self.repository_root
+                    .join(&config.ai.models_dir)
+                    .join("rembg/isnetis.onnx"),
+            ),
+        ];
+        self.run_sidecar(args, |value| {
+            if let Some(app) = app {
+                let _ = app.emit("pipeline-progress", value);
+            }
+        })?;
+        Ok("元キャンバスを保った背景除去が完了しました".into())
+    }
+
+    fn run_decompose(
+        &self,
+        app: Option<&tauri::AppHandle>,
+        config: &AppConfig,
+        manifest: &CharacterManifest,
+    ) -> Result<String, PipelineError> {
+        let directory = self.character_dir(&manifest.character_id)?;
+        let args = vec![
+            OsString::from(self.repository_root.join("sidecar/decompose/generate.py")),
+            "--input".into(),
+            OsString::from(directory.join("source/isolated.png")),
+            "--output".into(),
+            OsString::from(directory.join("layers")),
+            "--model".into(),
+            OsString::from(
+                self.repository_root
+                    .join(&config.ai.models_dir)
+                    .join(&config.ai.sam2_model),
+            ),
+        ];
+        self.run_sidecar(args, |value| {
+            if let Some(app) = app {
+                let _ = app.emit("pipeline-progress", value);
+            }
+        })?;
+        Ok("SAM 2.1候補マスクから10個の意味レイヤーを生成しました".into())
+    }
+
+    fn run_rig2d(
+        &self,
+        app: Option<&tauri::AppHandle>,
+        manifest: &CharacterManifest,
+    ) -> Result<String, PipelineError> {
+        let directory = self.character_dir(&manifest.character_id)?;
+        let args = vec![
+            OsString::from(self.repository_root.join("sidecar/rig2d/generate.py")),
+            "--manifest".into(),
+            OsString::from(directory.join("layers/manifest.json")),
+            "--output".into(),
+            OsString::from(directory.join("rig2d/rig.json")),
+        ];
+        self.run_sidecar(args, |value| {
+            if let Some(app) = app {
+                let _ = app.emit("pipeline-progress", value);
+            }
+        })?;
+        Ok("lvs-anime25d-v1リグの骨格を生成しました".into())
     }
 
     fn run_capture(
@@ -725,6 +807,18 @@ fn invalidate_from_stage(
     let model = directory.join("model");
     let facepatch = directory.join("facepatch");
     match stage {
+        "isolate" => {
+            remove_file_if_present(&directory.join("source/isolated.png"))?;
+            remove_dir_if_present(&directory.join("layers"))?;
+            remove_dir_if_present(&directory.join("rig2d"))?;
+        }
+        "decompose" => {
+            remove_dir_if_present(&directory.join("layers"))?;
+            remove_dir_if_present(&directory.join("rig2d"))?;
+        }
+        "rig2d" => {
+            remove_dir_if_present(&directory.join("rig2d"))?;
+        }
         "mesh" => {
             for name in [
                 "foreground.png",
@@ -905,15 +999,12 @@ mod tests {
     fn upstream_rerun_invalidates_statuses_and_dependent_artifacts() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().join("c_test");
-        fs::create_dir_all(directory.join("model")).unwrap();
-        fs::create_dir_all(directory.join("facepatch/projected")).unwrap();
-        fs::write(directory.join("model/mesh.glb"), b"old mesh").unwrap();
-        fs::write(directory.join("model/rigged.vrm"), b"old rig").unwrap();
-        fs::write(
-            directory.join("facepatch/projected/smile.png"),
-            b"old patch",
-        )
-        .unwrap();
+        fs::create_dir_all(directory.join("source")).unwrap();
+        fs::create_dir_all(directory.join("layers/parts")).unwrap();
+        fs::create_dir_all(directory.join("rig2d")).unwrap();
+        fs::write(directory.join("source/isolated.png"), b"old isolate").unwrap();
+        fs::write(directory.join("layers/manifest.json"), b"old layers").unwrap();
+        fs::write(directory.join("rig2d/rig.json"), b"old rig").unwrap();
         let mut manifest = CharacterManifest {
             schema_version: 1,
             character_id: "c_test".into(),
@@ -940,13 +1031,13 @@ mod tests {
                 .collect(),
         };
 
-        invalidate_from_stage(&mut manifest, &directory, "rig").unwrap();
+        invalidate_from_stage(&mut manifest, &directory, "decompose").unwrap();
 
-        assert!(manifest.stages.contains_key("mesh"));
-        assert!(!manifest.stages.contains_key("rig"));
-        assert!(!manifest.stages.contains_key("facepatch"));
-        assert!(directory.join("model/mesh.glb").is_file());
-        assert!(!directory.join("model/rigged.vrm").exists());
-        assert!(!directory.join("facepatch").exists());
+        assert!(manifest.stages.contains_key("isolate"));
+        assert!(!manifest.stages.contains_key("decompose"));
+        assert!(!manifest.stages.contains_key("rig2d"));
+        assert!(directory.join("source/isolated.png").is_file());
+        assert!(!directory.join("layers").exists());
+        assert!(!directory.join("rig2d").exists());
     }
 }
