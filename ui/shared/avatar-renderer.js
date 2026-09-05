@@ -75,7 +75,7 @@ export function createAvatarRenderer(canvas) {
     drawBlink(ctx,images,rig,'right',1-right);
     if(!state.preserveOriginalMouth || open>0 || form!==0) {
       // 下地は変形させず、元の口を消した同じ座標へ合成する。
-      // 中立の閉口では原画の唇を消さず、口の合わせ目だけを明瞭にする。
+      // 中立の閉口では原画の唇をそのまま保持する。
       if(open>0 || form!==0)drawLayer("mouth_open");
       const layer=rig.layers.mouth_open;
       const box=layer.feature_box;

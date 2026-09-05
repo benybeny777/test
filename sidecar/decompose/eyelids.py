@@ -47,7 +47,7 @@ def close_eyelid(rgba, clean, bounds, feature, target=None, protected=None, with
     rows=ndimage.gaussian_filter1d(measured,max(.85,width*.025))
     baseline=float(np.median(rows[columns]))+height*.45
     thickness=np.array([sum(alpha for _,alpha in band) for band in bands])
-    thickness=ndimage.gaussian_filter1d(thickness,.85)
+    thickness=ndimage.gaussian_filter1d(thickness,max(.85,width*.025))
     accumulated=np.zeros((*clean.shape[:2],3),float)
     coverage=np.zeros(clean.shape[:2],float)
     aperture=[]

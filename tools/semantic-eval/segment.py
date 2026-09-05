@@ -12,6 +12,8 @@ root=Path(__file__).resolve().parents[2]
 parser=argparse.ArgumentParser()
 parser.add_argument('--backend',choices=['grounding-dino-base','Florence-2-large-ft'],default='grounding-dino-base')
 parser.add_argument('--characters',nargs='+',default=['c_2700e1166676','c_190454c86edb','c_828ead7c98ab'])
+parser.add_argument('--run-name',default='')
+parser.add_argument('--roles',nargs='+',default=['face','eyes','mouth','neck','collar'])
 args=parser.parse_args()
 path=root/'models/sam2.1-hiera-tiny'
 processor=Sam2Processor.from_pretrained(path,local_files_only=True)
@@ -20,27 +22,41 @@ if any(info[key] for key in ('missing_keys','unexpected_keys','mismatched_keys',
 model=model.to('cuda').eval()
 print('SAM2動画クラスで重み不一致なし',flush=True)
 for cid in args.characters:
-    report=json.loads((root/'temp/semantic-evaluation'/args.backend/f'{cid}-head.json').read_text(encoding='utf-8'))
+    report=json.loads((root/'temp/semantic-evaluation'/args.backend/args.run_name/f'{cid}-head.json').read_text(encoding='utf-8'))
     rgba=Image.open(root/'temp/t7-characters'/cid/'source/isolated.png').convert('RGBA').crop(report['crop'])
     rgb=Image.alpha_composite(Image.new('RGBA',rgba.size,(128,128,128,255)),rgba).convert('RGB')
-    face_record=next(item for item in report['records'] if item['query']=='face')
-    face=face_record['boxes'][int(np.argmax(face_record.get('scores',[1.0]*len(face_record['boxes']))))]
+    face_record=next((item for item in report['records'] if item['query']=='face'),None)
+    if face_record is not None:
+        face=face_record['boxes'][int(np.argmax(face_record.get('scores',[1.0]*len(face_record['boxes']))))]
+    else:
+        saved=json.loads((root/'temp/t7-characters'/cid/'analysis/analysis.json').read_text(encoding='utf-8'))
+        face=saved['analysis']['selected']['face']['box']
+        face=[value-report['crop'][index%2] for index,value in enumerate(face)]
     fl,ft,fr,fb=face;fw=fr-fl;fh=fb-ft
-    dest=root/'temp/grounded-masks-v2'/args.backend/cid;dest.mkdir(parents=True,exist_ok=True)
+    dest=(root/'temp/grounded-masks-v2'/args.backend/args.run_name/cid).resolve()
+    if not dest.is_relative_to((root/'temp/grounded-masks-v2').resolve()):raise ValueError('診断出力がtemp外です')
+    dest.mkdir(parents=True,exist_ok=True)
     result=[]
     for item in report['records']:
         role=item['query']
-        if role not in ['face','eyes','mouth','neck','collar']:continue
+        if role not in args.roles:continue
+        if not all(letter.isalnum() or letter in ' _-' for letter in role):raise ValueError('部位名が不正です')
         boxes=[]
         for box,score in zip(item['boxes'],item.get('scores',[None]*len(item['boxes']))):
             l,t,r,b=box;cx=(l+r)/2;cy=(t+b)/2
-            if role in ['eyes','mouth'] and not (fl<=cx<=fr and ft<=cy<=fb and r-l<fw*.7 and b-t<fh*.45):continue
+            if role in ['eyes','mouth','eyebrow','eye pupil'] and not (fl<=cx<=fr and ft<=cy<=fb and r-l<fw*.7 and b-t<fh*.45):continue
             if role=='neck' and not (fl<=cx<=fr and cy>ft+fh*.6 and r-l<fw*1.1 and b-t<fh):continue
             if role=='collar' and not (fl<=cx<=fr and t>ft+fh*.7 and fw*.5<r-l<fw*2.5):continue
             boxes.append((score,box))
         # 比較時は両モデルで同じ選別を使い、返却順・片方だけのスコアに依存しない。
         # 口の部分線だけを採らないよう、顔内の口候補は包含する大きい方を使う。
-        boxes=sorted(boxes,key=lambda entry:(entry[1][2]-entry[1][0])*(entry[1][3]-entry[1][1]),reverse=role=='mouth')[:2 if role=='eyes' else 1]
+        boxes=sorted(boxes,key=lambda entry:(entry[1][2]-entry[1][0])*(entry[1][3]-entry[1][1]),reverse=role=='mouth')
+        if role in ['eyebrow','eye pupil']:
+            # 左右で最小の包含候補を選ぶ。両眼全体や全顔を細部として渡さない。
+            groups=[[entry for entry in boxes if ((entry[1][0]+entry[1][2])/2<(fl+fr)/2)==left] for left in (True,False)]
+            boxes=[group[0] for group in groups if group]
+            if len(boxes)!=2:raise ValueError(f'{cid}: 左右の{role}を識別できません')
+        else:boxes=boxes[:2 if role=='eyes' else 1]
         if role=='eyes':boxes.sort(key=lambda entry:entry[1][0])
         for index,(score,box) in enumerate(boxes):
             inputs=processor(images=rgb,input_boxes=[[box]],return_tensors='pt').to('cuda')

@@ -12,10 +12,16 @@ parser=argparse.ArgumentParser()
 parser.add_argument('backend',choices=['florence','dino'])
 parser.add_argument('--run-name',default='')
 parser.add_argument('--characters',nargs='+',default=['c_2700e1166676','c_190454c86edb','c_828ead7c98ab'])
+parser.add_argument('--labels',nargs='+',default=['face','eyes','mouth','neck','collar','hair','shirt','arms'])
+parser.add_argument('--model-path',type=Path)
+parser.add_argument('--view',choices=['both','full','head'],default='both')
+parser.add_argument('--measured-head',action='store_true')
 args=parser.parse_args()
 name='Florence-2-large-ft' if args.backend=='florence' else 'grounding-dino-base'
-path=root/'models/semantic-evaluation'/name
-dest=root/'temp/semantic-evaluation'/name/args.run_name;dest.mkdir(parents=True,exist_ok=True)
+path=args.model_path or root/'models/semantic-evaluation'/name
+dest=(root/'temp/semantic-evaluation'/name/args.run_name).resolve()
+if not dest.is_relative_to((root/'temp/semantic-evaluation').resolve()):raise ValueError('診断出力がtemp外です')
+dest.mkdir(parents=True,exist_ok=True)
 stop=threading.Event();gpu_samples=[]
 def observe_gpu():
     while not stop.is_set():
@@ -37,14 +43,21 @@ else:
 if info['missing_keys'] or info['mismatched_keys']:raise ValueError(f'重み未読込: {info}')
 model=model.to('cuda').eval()
 print(json.dumps({'loaded_seconds':time.monotonic()-start,'loading_info':info}),flush=True)
-labels=['face','eyes','mouth','neck','collar','hair','shirt','arms']
+labels=args.labels
 for cid in args.characters:
     source=root/'temp/t7-characters'/cid/'source/isolated.png'
     rgba=Image.open(source).convert('RGBA')
     rgb=Image.alpha_composite(Image.new('RGBA',rgba.size,(128,128,128,255)),rgba).convert('RGB')
     subject=rgba.getchannel('A').point(lambda x:255 if x>=128 else 0).getbbox()
     l,t,r,b=subject
-    for view,box in [('full',(0,0,rgba.width,rgba.height)),('head',(l,t,r,round(t+(b-t)*.30)))]:
+    head=(l,t,r,round(t+(b-t)*.30))
+    if args.measured_head:
+        analysis=json.loads((source.parents[1]/'analysis/analysis.json').read_text(encoding='utf-8'))
+        face=analysis['analysis']['selected']['face']['box']
+        fl,ft,fr,fb=face;fw=fr-fl;fh=fb-ft
+        head=(max(0,int(fl-fw*.3)),max(0,int(ft-fh*.3)),min(rgba.width,int(fr+fw*.3)),min(rgba.height,int(fb+fh*.3)))
+    for view,box in [('full',(0,0,rgba.width,rgba.height)),('head',head)]:
+        if args.view!='both' and args.view!=view:continue
         im=rgb.crop(box);records=[]
         torch.cuda.reset_peak_memory_stats();begin=time.monotonic()
         for label in labels:
@@ -68,7 +81,7 @@ for cid in args.characters:
         drawn=im.copy();draw=ImageDraw.Draw(drawn)
         for i,record in enumerate(records):
             for bb in record['boxes']:
-                draw.rectangle(bb,outline=['red','lime','cyan','orange','magenta','blue','yellow','white'][i],width=max(1,im.width//300))
+                draw.rectangle(bb,outline=['red','lime','cyan','orange','magenta','blue','yellow','white'][i%8],width=max(1,im.width//300))
                 draw.text((bb[0],bb[1]),record['query'],fill='red')
         drawn.thumbnail((1100,1100));drawn.save(dest/f'{cid}-{view}.png')
         print(json.dumps({key:report[key] for key in ['character','view','seconds','peak_allocated_gb']},ensure_ascii=False),flush=True)
