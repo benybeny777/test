@@ -61,7 +61,7 @@ def select_boxes(records, role, face=None):
         fl,ft,fr,fb=face;fw=fr-fl;fh=fb-ft
         def valid(candidate):
             l,t,r,b=candidate['box'];cx=(l+r)/2;cy=(t+b)/2
-            if role in ('eyes','mouth'):
+            if role in ('eyes','mouth','pupils'):
                 return fl<=cx<=fr and ft<=cy<=fb and r-l<fw*.7 and b-t<fh*.45
             if role=='neck':
                 return fl<=cx<=fr and cy>ft+fh*.6 and r-l<fw*1.1 and b-t<fh
@@ -73,7 +73,7 @@ def select_boxes(records, role, face=None):
     if role in ('face','hair','clothes'):
         return [max(candidates,key=lambda item:item['score'])]
     candidates=sorted(candidates,key=lambda item:(item['box'][2]-item['box'][0])*(item['box'][3]-item['box'][1]),reverse=role=='mouth')
-    if role in ('eyes','arms') and face is not None:
+    if role in ('eyes','arms','pupils') and face is not None:
         center=(face[0]+face[2])/2
         groups=[[item for item in candidates if ((item['box'][0]+item['box'][2])/2<center)==left]
                 for left in (True,False)]
@@ -81,6 +81,30 @@ def select_boxes(records, role, face=None):
     chosen=candidates[:2 if role in ('eyes','arms') else 1]
     if role in ('eyes','arms'):chosen.sort(key=lambda item:item['box'][0])
     return chosen
+
+
+def iris_white_points(rgba, eye):
+    """検出された目の左右端から白目候補を測る。原画の固定座標は使わない。"""
+    ys,xs=np.nonzero(eye)
+    if not len(xs):raise ValueError('白目の参照領域が空です')
+    left,right=xs.min(),xs.max();top,bottom=ys.min(),ys.max()
+    yy,xx=np.indices(eye.shape)
+    middle=(yy>=top+(bottom-top)*.35)&(yy<=top+(bottom-top)*.75)
+    rgb=rgba[:,:,:3].astype(float)
+    whiteness=rgb.mean(axis=2)-(rgb.max(axis=2)-rgb.min(axis=2))
+    points=[]
+    for region in (xx<=left+(right-left)*.25,xx>=right-(right-left)*.25):
+        selected=eye & middle & region
+        if not selected.any():raise ValueError('左右の白目参照点を測定できません')
+        y,x=np.unravel_index(np.where(selected,whiteness,-np.inf).argmax(),eye.shape)
+        points.append([float(x),float(y)])
+    return points
+
+
+def coarse_pupil_box(pupil, eye):
+    """虹彩候補が目全体の大部分を占める場合だけ追加の絞り込み対象にする。"""
+    def area(box):return max(0,box[2]-box[0])*max(0,box[3]-box[1])
+    return area(pupil)>=area(eye)*.8
 
 
 def analyse(image, detector_path, sam_path, threshold, emit):
@@ -100,10 +124,10 @@ def analyse(image, detector_path, sam_path, threshold, emit):
     processor=AutoProcessor.from_pretrained(detector_path,local_files_only=True)
     detector=AutoModelForZeroShotObjectDetection.from_pretrained(detector_path,local_files_only=True).to('cuda').eval()
     try:
-        for index,role in enumerate(('face','eyes','mouth','neck','collar','hair','clothes','arms')):
-            crop=crops['full' if role in ('face','clothes','arms') else 'head']
+        for index,role in enumerate(('face','eyes','mouth','neck','collar','hair','clothes','arms','pupils')):
+            crop=crops['detail' if role=='pupils' else 'full' if role in ('face','clothes','arms') else 'head']
             im=rgb.crop(crop)
-            inputs=processor(images=im,text=role+'.',return_tensors='pt').to('cuda')
+            inputs=processor(images=im,text=('eye pupil' if role=='pupils' else role)+'.',return_tensors='pt').to('cuda')
             with torch.inference_mode():prediction=detector(**inputs)
             found=processor.post_process_grounded_object_detection(prediction,inputs.input_ids,threshold=threshold,text_threshold=threshold,target_sizes=[(im.height,im.width)])[0]
             records[role]=[{'box':[bb[0]+crop[0],bb[1]+crop[1],bb[2]+crop[0],bb[3]+crop[1]],'score':float(score)} for bb,score in zip(found['boxes'].cpu().tolist(),found['scores'].cpu().tolist())]
@@ -114,7 +138,9 @@ def analyse(image, detector_path, sam_path, threshold, emit):
                 # 全身比率ではなく、最初に検出した顔を基準に細部の解析範囲を取る。
                 crops['head']=(max(0,int(fl-fw)),max(0,int(ft-fh)),
                                min(image.width,int(np.ceil(fr+fw))),min(image.height,int(np.ceil(fb+fh))))
-            emit('progress',stage='grounding',progress=.1+.3*(index+1)/8)
+                crops['detail']=(max(0,int(fl-fw*.3)),max(0,int(ft-fh*.3)),
+                                 min(image.width,int(fr+fw*.3)),min(image.height,int(fb+fh*.3)))
+            emit('progress',stage='grounding',progress=.1+.3*(index+1)/9)
     finally:
         del detector,processor
         gc.collect();torch.cuda.empty_cache()
@@ -123,10 +149,11 @@ def analyse(image, detector_path, sam_path, threshold, emit):
     face=faces[0]['box'];chosen={}
     for role in records:
         boxes=select_boxes(records,role,face)
-        if role in ('face','eyes','mouth','neck','hair') and len(boxes)!=(2 if role=='eyes' else 1):
+        if role in ('face','eyes','mouth','neck','hair','pupils') and len(boxes)!=(2 if role in ('eyes','pupils') else 1):
             raise ValueError(f'必須の意味領域を確定できません: {role}')
         for index,item in enumerate(boxes):
             key=('left_' if index==0 else 'right_')+('eye' if role=='eyes' else 'arm') if role in ('eyes','arms') else role
+            if role=='pupils':key=('left_' if index==0 else 'right_')+'eye_iris'
             chosen[key]=item
     processor=Sam2Processor.from_pretrained(sam_path,local_files_only=True)
     model,info=Sam2VideoModel.from_pretrained(sam_path,local_files_only=True,output_loading_info=True)
@@ -134,7 +161,7 @@ def analyse(image, detector_path, sam_path, threshold, emit):
     model=model.to('cuda').eval();masks={}
     try:
         for index,(role,item) in enumerate(chosen.items()):
-            crop=crops['full' if role in ('clothes','left_arm','right_arm') else 'head']
+            crop=crops['detail' if role.endswith('_iris') else 'full' if role in ('clothes','left_arm','right_arm') else 'head']
             im=rgb.crop(crop);box=item['box'];local=[box[0]-crop[0],box[1]-crop[1],box[2]-crop[0],box[3]-crop[1]]
             prompts={'input_boxes':[[local]]}
             if role=='hair':
@@ -147,6 +174,15 @@ def analyse(image, detector_path, sam_path, threshold, emit):
                     points.append([(fl+fr)/2-crop[0],(ft+fb)/2-crop[1]])
                 prompts={'input_points':[[points]],'input_labels':[[[2,3]+[0]*(len(points)-2)]]}
                 item['negative_features']=['left_eye','right_eye','mouth']
+            if role.endswith('_iris') and coarse_pupil_box(box,chosen[role.replace('_iris','')]['box']):
+                # 細かく検出済みの虹彩へ白い点の除外を追加するとハイライトを消す。
+                # 目全体に近い粗い候補だけを対象にし、キャラ名では分岐しない。
+                eye=masks[role.replace('_iris','')]
+                white=iris_white_points(rgba,eye)
+                points=[local[:2],local[2:],[(local[0]+local[2])/2,(local[1]+local[3])/2]]
+                points.extend([[x-crop[0],y-crop[1]] for x,y in white])
+                prompts={'input_points':[[points]],'input_labels':[[[2,3,1,0,0]]]}
+                item['white_exclusion_points']=white
             inputs=processor(images=im,return_tensors='pt',**prompts).to('cuda')
             with torch.inference_mode():prediction=model._single_frame_forward(**inputs)
             small=processor.post_process_masks(prediction.pred_masks.cpu().unsqueeze(0),inputs['original_sizes'].cpu())[0].reshape(-1,im.height,im.width)[0].numpy().astype(bool)

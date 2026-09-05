@@ -32,6 +32,7 @@ REQUIRED_PARTS = {
     "mouth_closed",
     "mouth_open",
     "left_eye_base", "right_eye_base", "left_eyelid_upper", "right_eyelid_upper",
+    "left_eye_iris", "right_eye_iris", "left_eye_remainder", "right_eye_remainder",
 }
 
 
@@ -141,7 +142,7 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
     rig = {
         "schema_version": 3,
         "lip_rig_version": 1,
-        "eye_rig_version": 1,
+        "eye_rig_version": 2,
         "profile": "lvs-anime25d-v1",
         "material_readiness": manifest.get("material_readiness", {
             "status": "incomplete", "note": "素材分割の充足が未検証です"}),

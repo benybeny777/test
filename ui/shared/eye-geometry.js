@@ -15,7 +15,7 @@ export function eyeAperture(layer, openness) {
 
 export function drawBlink(ctx, images, rig, side, openness) {
   if(openness>=1)return;
-  const base=rig.layers[side+'_eye_base'],upper=rig.layers[side+'_eyelid_upper'],original=rig.layers[side+'_eye_open'];
+  const base=rig.layers[side+'_eye_base'],upper=rig.layers[side+'_eyelid_upper'];
   const points=eyeAperture(base,openness);
   const draw=(name,layer)=>ctx.drawImage(images.get(name),layer.texture_box[0],layer.texture_box[1]);
   ctx.save();draw(side+'_eye_base',base);
@@ -27,7 +27,8 @@ export function drawBlink(ctx, images, rig, side, openness) {
     ctx.lineTo(points.at(-1)[0]+.5,points.at(-1)[2]);
     for(const [x,,y] of [...points].reverse())ctx.lineTo(x,y);
     ctx.lineTo(points[0][0]-.5,points[0][2]);ctx.closePath();ctx.clip();
-    draw(side+'_eye_open',original);ctx.restore();
+    for(const suffix of ['eye_remainder','eye_iris'])draw(side+'_'+suffix,rig.layers[side+'_'+suffix]);
+    ctx.restore();
   }
   const image=images.get(side+'_eyelid_upper'),[left,top]=upper.texture_box;
   for(const [x,y,,closed] of points) {

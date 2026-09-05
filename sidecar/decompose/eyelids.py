@@ -4,6 +4,17 @@ import numpy as np
 from scipy import ndimage
 
 
+def partition_eye(eye, iris):
+    """虹彩と相補領域を重複なしに分ける。隠れた白目の補完とは区別する。"""
+    if eye.shape != iris.shape or eye.dtype != bool or iris.dtype != bool:
+        raise ValueError('目と虹彩のマスク形式が一致しません')
+    measured=eye & iris
+    remainder=eye & ~measured
+    if not measured.any() or not remainder.any():
+        raise ValueError('虹彩と目の残りの領域を分離できません')
+    return measured,remainder
+
+
 def close_eyelid(rgba, clean, bounds, feature, target=None, protected=None, with_parts=False):
     """上まつげの画素を閉眼曲線へ移し、補完肌に合成する。"""
     left,top,right,bottom=feature
@@ -43,8 +54,11 @@ def close_eyelid(rgba, clean, bounds, feature, target=None, protected=None, with
         raise ValueError("原画から上まつげを測定できません")
     first,last=int(columns[0]),int(columns[-1])
     # 抽出列ごとの局所ピークの揺れをならす。素材画像の拡大ではなく、実測輪郭の平滑化。
-    measured=np.interp(np.arange(width),columns,rows[columns])
-    rows=ndimage.gaussian_filter1d(measured,max(.85,width*.025))
+    # 黒目やまつげの局所ピークをそのまま動かすと半閉眼が波打つ。
+    # 原画内で測定した点列へ低次曲線を当て、まぶた全体の弧を保持する。
+    coordinates=(np.arange(width)-first)/max(1,last-first)
+    coefficients=np.polynomial.polynomial.polyfit(coordinates[columns],rows[columns],min(2,len(columns)-1))
+    rows=np.polynomial.polynomial.polyval(coordinates,coefficients)
     baseline=float(np.median(rows[columns]))+height*.45
     thickness=np.array([sum(alpha for _,alpha in band) for band in bands])
     thickness=ndimage.gaussian_filter1d(thickness,max(.85,width*.025))

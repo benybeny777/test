@@ -37,9 +37,9 @@ export function createAvatarRenderer(canvas) {
       if(incoming.schema_version!==3) throw new Error("旧リグです。リグ工程から再生成してください");
       if(incoming.lip_rig_version!==1)throw new Error('唇の分割がない旧リグです。分解工程から再生成してください');
       lipMesh(incoming.layers?.mouth_closed,0,0);
-      if(incoming.eye_rig_version!==1)throw new Error('まぶたの分割がない旧リグです。分解から再生成してください');
+      if(incoming.eye_rig_version!==2)throw new Error('虹彩の分割がない旧リグです。分解から再生成してください');
       for(const side of ['left','right'])eyeAperture(incoming.layers?.[side+'_eye_base'],1);
-      const names=['neutral','mouth_open','mouth_closed',...['left','right'].flatMap(side=>[side+'_eye_open',side+'_eye_base',side+'_eyelid_upper'])];
+      const names=['neutral','mouth_open','mouth_closed',...['left','right'].flatMap(side=>[side+'_eye_iris',side+'_eye_remainder',side+'_eye_base',side+'_eyelid_upper'])];
       const loaded=await Promise.all(names.map(async name=>{
         const layer=incoming.layers[name];
         if(!layer) throw new Error(`必須レイヤーがありません: ${name}`);

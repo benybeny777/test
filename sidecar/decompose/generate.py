@@ -442,12 +442,21 @@ def _decompose_image(
             eye_materials[name]=(material,list(bounds),color,aperture,feature)
         if grounded_result is not None:
             parts[feature+'_open']=masks[feature] & ~masks['hair'] & subject
+            from eyelids import partition_eye
+            iris,remainder=partition_eye(parts[feature+'_open'],masks[feature+'_iris'])
+            parts[feature+'_iris']=iris
+            parts[feature+'_remainder']=remainder
+            scores[feature+'_iris']=analysis['selected'][feature+'_iris']['score']
+            scores[feature+'_remainder']=scores[feature+'_iris']
     parts_dir = output_dir / "parts"
     parts_dir.mkdir(parents=True, exist_ok=True)
     layer_paths: list[tuple[str, Path]] = []
     manifest_parts: list[dict[str, object]] = []
     specs = list(PART_SPECS)
     specs.extend(PartSpec(name,z,(.5,.5)) for name,z in [('neck',35),('collar',36)] if name in parts)
+    if grounded_result is not None:
+        specs.extend(PartSpec(side+'_eye_'+kind,z,(.5,.5)) for side in ('left','right')
+                     for kind,z in [('remainder',60),('iris',61)])
     for spec in specs:
         mask = parts[spec.name]
         box = list(_bbox(mask))

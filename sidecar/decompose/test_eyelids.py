@@ -1,10 +1,20 @@
 """原画由来の閉眼素材の位置・画素・保護領域を検証する。"""
 import unittest
 import numpy as np
-from eyelids import close_eyelid
+from eyelids import close_eyelid, partition_eye
 
 
 class EyelidTests(unittest.TestCase):
+    def test_iris_partition_preserves_every_eye_pixel_without_overlap(self):
+        eye=np.zeros((12,20),bool);eye[2:10,2:18]=True
+        iris=np.zeros_like(eye);iris[:,8:12]=True
+        measured,remainder=partition_eye(eye,iris)
+        np.testing.assert_array_equal(measured | remainder,eye)
+        self.assertFalse((measured & remainder).any())
+        for invalid in (np.zeros_like(eye),eye):
+            with self.assertRaisesRegex(ValueError,'分離'):
+                partition_eye(eye,invalid)
+
     def fixture(self):
         image=np.full((40,60,4),(240,210,190,255),dtype=np.uint8)
         for x in range(10,50):
