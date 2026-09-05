@@ -422,6 +422,8 @@ def decompose_image(
         "parts": manifest_parts,
         "features": features,
     }
+    from materials import assess_materials
+    manifest["material_readiness"] = assess_materials(manifest_parts)
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

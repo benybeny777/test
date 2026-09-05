@@ -47,6 +47,8 @@ def create_rig(manifest_path: Path, output_path: Path) -> Path:
     rig = {
         "schema_version": 2,
         "profile": "lvs-anime25d-v1",
+        "material_readiness": manifest.get("material_readiness", {
+            "status": "incomplete", "note": "素材分割の充足が未検証です"}),
         "canvas": manifest["canvas"],
         "layers_manifest": os.path.relpath(
             manifest_path.resolve(), output_path.parent.resolve()
