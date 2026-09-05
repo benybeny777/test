@@ -46,6 +46,10 @@ PART_SPECS = (
     PartSpec("right_eye_closed", 63, (0.56, 0.18)),
     PartSpec("mouth_closed", 70, (0.50, 0.24)),
     PartSpec("mouth_open", 71, (0.50, 0.24)),
+    PartSpec("left_eye_base", 58, (0.44, 0.18)),
+    PartSpec("right_eye_base", 59, (0.56, 0.18)),
+    PartSpec("left_eyelid_upper", 64, (0.44, 0.18)),
+    PartSpec("right_eyelid_upper", 65, (0.56, 0.18)),
 )
 
 
@@ -425,6 +429,19 @@ def _decompose_image(
         for suffix in suffixes:
             parts[f'{feature}_{suffix}'] = mask
     lip_seam = trace_lip_seam(rgba, features['mouth'])
+    eye_materials={}
+    for feature in ('left_eye','right_eye'):
+        closed,bounds,color,base,upper,aperture=expression_patch(
+            rgba,features[feature],'eye',parts['face'] if grounded_result is not None else None,
+            masks[feature] if grounded_result is not None else None,
+            masks['hair'] if grounded_result is not None else None,with_parts=True)
+        names=(feature+'_closed',feature+'_base',feature.replace('_eye','_eyelid_upper'))
+        for name,material in zip(names,(closed,base,upper)):
+            parts[name]=material[:,:,3]>0
+            scores[name]=scores.get(feature+'_closed',0.)
+            eye_materials[name]=(material,list(bounds),color,aperture,feature)
+        if grounded_result is not None:
+            parts[feature+'_open']=masks[feature] & ~masks['hair'] & subject
     parts_dir = output_dir / "parts"
     parts_dir.mkdir(parents=True, exist_ok=True)
     layer_paths: list[tuple[str, Path]] = []
@@ -435,7 +452,11 @@ def _decompose_image(
         mask = parts[spec.name]
         box = list(_bbox(mask))
         color = None
-        if spec.name in {'left_eye_closed','right_eye_closed','mouth_open'}:
+        aperture=None
+        feature_name=spec.name.rsplit('_',1)[0]
+        if spec.name in eye_materials:
+            layer,box,color,aperture,feature_name=eye_materials[spec.name]
+        elif spec.name == 'mouth_open':
             layer, box, color = expression_patch(
                 rgba, box, 'mouth' if spec.name=='mouth_open' else 'eye',
                 parts['face'] if grounded_result is not None else None,
@@ -465,12 +486,13 @@ def _decompose_image(
                 "bbox": box,
                 "z_index": spec.z_index,
                 "pivot": center,
-                "feature_box": features.get(spec.name.rsplit('_',1)[0]),
+                "feature_box": features.get(feature_name),
                 "line_color": color,
                 "lip_seam": lip_seam if spec.name == 'mouth_closed' else None,
+                "eye_aperture": aperture,
                 "candidate_score": round(scores[spec.name], 6),
                 "generated_variant": spec.name
-                in {"left_eye_closed", "right_eye_closed", "mouth_open"},
+                in set(eye_materials) | {"mouth_open"},
             }
         )
     psd_path = output_dir / "source.psd"

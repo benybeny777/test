@@ -1,6 +1,7 @@
 import * as THREE from "./vendor/three/three.module.min.js";
 import {localAssetUrl, loadLocalJson} from "./local-assets.js";
 import {drawTexturedMouth,lipMesh,MOUTH_PRESETS as MOUTHS} from "./mouth-geometry.js";
+import {eyeAperture,drawBlink} from './eye-geometry.js';
 
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
 const smooth = (a,b,x) => { const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
@@ -36,7 +37,10 @@ export function createAvatarRenderer(canvas) {
       if(incoming.schema_version!==3) throw new Error("旧リグです。リグ工程から再生成してください");
       if(incoming.lip_rig_version!==1)throw new Error('唇の分割がない旧リグです。分解工程から再生成してください');
       lipMesh(incoming.layers?.mouth_closed,0,0);
-      const loaded=await Promise.all(["neutral","left_eye_closed","right_eye_closed","mouth_open","mouth_closed"].map(async name=>{
+      if(incoming.eye_rig_version!==1)throw new Error('まぶたの分割がない旧リグです。分解から再生成してください');
+      for(const side of ['left','right'])eyeAperture(incoming.layers?.[side+'_eye_base'],1);
+      const names=['neutral','mouth_open','mouth_closed',...['left','right'].flatMap(side=>[side+'_eye_open',side+'_eye_base',side+'_eyelid_upper'])];
+      const loaded=await Promise.all(names.map(async name=>{
         const layer=incoming.layers[name];
         if(!layer) throw new Error(`必須レイヤーがありません: ${name}`);
         const src=next.partUrls?.[name] ?? layer.url;
@@ -67,10 +71,8 @@ export function createAvatarRenderer(canvas) {
     // 重複部位の半透明画素を重ねず、中立は原画のアルファを完全保持する。
     const drawLayer=name=>{const box=rig.layers[name].texture_box;ctx.drawImage(images.get(name),box[0],box[1]);};
     drawLayer("neutral");
-    for(const [name,alpha] of [["left_eye_closed",left],["right_eye_closed",right]]) {
-      ctx.globalAlpha=alpha;drawLayer(name);
-    }
-    ctx.globalAlpha=1;
+    drawBlink(ctx,images,rig,'left',1-left);
+    drawBlink(ctx,images,rig,'right',1-right);
     if(!state.preserveOriginalMouth || open>0 || form!==0) {
       // 下地は変形させず、元の口を消した同じ座標へ合成する。
       // 中立の閉口では原画の唇を消さず、口の合わせ目だけを明瞭にする。

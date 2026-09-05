@@ -30,6 +30,7 @@ class RigCreationTests(unittest.TestCase):
                     "bbox": [0, 0, 80, 120],
                     "path": f"parts/{name}.png",
                     "lip_seam": [[12,20],[18,20],[24,20]] if name == 'mouth_closed' else None,
+                    "eye_aperture": [[12,20,26,24],[24,20,26,24]] if name.endswith(('eye_base','eyelid_upper','eye_closed')) else None,
                 }
                 for index, name in enumerate(sorted(MODULE.REQUIRED_PARTS))
             ]
@@ -53,7 +54,7 @@ class RigCreationTests(unittest.TestCase):
             self.assertFalse(Path(rig["layers_manifest"]).is_absolute())
             self.assertTrue((root / "output" / "parts" / "mouth_open.png").is_file())
             original = output.read_bytes()
-            for defect in ("empty", "size", "corrupt", "duplicate", "outside", "seam"):
+            for defect in ("empty", "size", "corrupt", "duplicate", "outside", "seam", "eye", "eye_mismatch"):
                 with self.subTest(defect=defect):
                     data = json.loads(manifest.read_text(encoding="utf-8"))
                     target = root / parts[-1]["path"]
@@ -68,6 +69,9 @@ class RigCreationTests(unittest.TestCase):
                         data["parts"].append(data["parts"][0])
                     elif defect == "seam":
                         next(part for part in data['parts'] if part['name']=='mouth_closed')['lip_seam']=[[12,20],[11,20],[24,20]]
+                    elif defect in ('eye', 'eye_mismatch'):
+                        next(part for part in data['parts'] if part['name']=='left_eye_base')['eye_aperture'] = (
+                            [[12,27,26,24],[24,20,26,24]] if defect == 'eye' else [[12,20,26,23],[24,20,26,24]])
                     else:
                         data["parts"][-1]["path"] = "../outside.png"
                     manifest.write_text(json.dumps(data), encoding="utf-8")

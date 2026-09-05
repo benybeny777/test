@@ -31,6 +31,7 @@ REQUIRED_PARTS = {
     "right_eye_closed",
     "mouth_closed",
     "mouth_open",
+    "left_eye_base", "right_eye_base", "left_eyelid_upper", "right_eyelid_upper",
 }
 
 
@@ -89,6 +90,26 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
         if not previous_x < x <= size[0] or not 0 <= y <= size[1]:
             raise ValueError("唇の分割境界が交差またはキャンバス外です")
         previous_x=x
+    for side in ('left', 'right'):
+        expected = None
+        for suffix in ('eye_base', 'eyelid_upper', 'eye_closed'):
+            aperture = parts[f'{side}_{suffix}'].get('eye_aperture')
+            if not isinstance(aperture, list) or len(aperture) < 2:
+                raise ValueError('まぶたの実測境界がありません。分解工程を再実行してください')
+            previous_x = -1
+            for point in aperture:
+                if not isinstance(point, list) or len(point) != 4 or any(
+                    type(v) not in (int, float) or not math.isfinite(v) for v in point
+                ):
+                    raise ValueError('まぶたの実測境界が不正です')
+                x, top, bottom, closed = point
+                if not (0 <= x <= size[0] and previous_x < x and
+                        0 <= top <= bottom <= size[1] and 0 <= closed <= size[1]):
+                    raise ValueError('まぶたの実測境界が交差またはキャンバス外です')
+                previous_x = x
+            if expected is not None and aperture != expected:
+                raise ValueError('まぶた素材間の実測境界が一致しません')
+            expected = aperture
     return parts
 
 
@@ -120,6 +141,7 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
     rig = {
         "schema_version": 3,
         "lip_rig_version": 1,
+        "eye_rig_version": 1,
         "profile": "lvs-anime25d-v1",
         "material_readiness": manifest.get("material_readiness", {
             "status": "incomplete", "note": "素材分割の充足が未検証です"}),
@@ -140,6 +162,7 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
                 "feature_box": parts[name].get("feature_box"),
                 "line_color": parts[name].get("line_color"),
                 "lip_seam": parts[name].get("lip_seam"),
+                "eye_aperture": parts[name].get("eye_aperture"),
                 "z_index": parts[name]["z_index"],
             }
             for name in parts

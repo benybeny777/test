@@ -1,7 +1,7 @@
 """原画の局所コントラストから目口を測定し、境界を保った差分を作る。"""
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 from scipy import ndimage, sparse
 from scipy.sparse.linalg import spsolve
 
@@ -106,7 +106,7 @@ def repair_patch(rgba, box, support=None, target=None, protected=None):
     return crop,(l,t,r,b)
 
 
-def expression_patch(rgba, box, kind, support=None, target=None, protected=None):
+def expression_patch(rgba, box, kind, support=None, target=None, protected=None, with_parts=False):
     """目口の下地を補完し、原画の線色・唇色を使った局所差分を作る。"""
     crop,bounds=repair_patch(rgba,box,support,target,protected)
     l,t,r,b=bounds
@@ -115,22 +115,18 @@ def expression_patch(rgba, box, kind, support=None, target=None, protected=None)
     pixels=source.reshape(-1,3)
     dark=pixels[np.argsort(pixels.mean(axis=1))[:max(1,len(pixels)//8)]].mean(axis=0)
     image=Image.fromarray(crop)
-    draw=ImageDraw.Draw(image)
-    cx=(x0+x1)/2-l;cy=(y0+y1)/2-t
-    w=x1-x0
     color=tuple(int(v) for v in dark)+(255,)
     if kind=='eye':
-        # 原寸画素で曲線の被覆率を計算し、補間拡大せず階段状の閉眼線を避ける。
-        yy,xx=np.mgrid[:crop.shape[0],:crop.shape[1]]
-        u=(xx+.5-(cx-w/2))/w
-        curve=cy+w*.08*(1-(2*u-1)**2)
-        coverage=np.clip(max(1,w*.055)/2+.5-np.abs(yy+.5-curve),0,1)
-        coverage*=((u>=0)&(u<=1))
-        pixels=np.asarray(image).copy()
-        pixels[:,:,:3]=np.rint(pixels[:,:,:3]*(1-coverage[:,:,None])+dark*coverage[:,:,None]).astype(np.uint8)
-        image=Image.fromarray(pixels)
+        from eyelids import close_eyelid
+        closed,lash,aperture=close_eyelid(rgba,crop,bounds,box,target,protected,with_parts=True)
+        image=Image.fromarray(closed)
     elif kind != 'mouth':
         raise ValueError(f"未対応の差分種別です: {kind}")
     result=np.zeros_like(rgba)
     result[t:b,l:r]=np.asarray(image)
+    if with_parts:
+        if kind!='eye':raise ValueError('目以外の素材分割は指定できません')
+        base=np.zeros_like(rgba);base[t:b,l:r]=crop
+        upper=np.zeros_like(rgba);upper[t:b,l:r]=lash
+        return result,bounds,color,base,upper,aperture
     return result,bounds,color

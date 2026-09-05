@@ -4,6 +4,12 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 ## 必要なもの
 
+### 原寸閉眼のローカル編集診断
+
+`tools/evaluate-eye-inpaint.py`は採用済みAnimagine XL 4.0の固定SHAを検査して使う比較専用ツールであり、製品パイプラインへ候補を昇格しない。作業用Pythonから`--character <キャラフォルダ> --comfy <本アプリ管理ComfyUI> --output temp/<新規診断名>`を指定する。任意の`--denoise`、`--mask-grow`で条件比較する。既存利用者環境や`extra_model_paths.yaml`のある環境を使わない。
+
+元キャンバスへVAE倍数の余白だけを足し、リサイズせず目マスク内を編集する。出力は診断領域のcandidate.png/report.json/workflow.jsonとログのみで、原画・正規素材を変更しない。起動するComfyUIは127.0.0.1の専用ポート、API/カスタムノード無効、処理後に終了・waitする。同時にほかのGPU処理を走らせない。成功ログを品質合格と解釈せず、虹彩色の閉眼への混入などを原画と目視比較する。
+
 ### 意味解析候補の比較
 
 通常経路のブラウザ検証はリポジトリルートで `sidecar/.venv/Scripts/python.exe tools/preview_server.py` を起動し、`http://127.0.0.1:8791/ui/check.html` を開く。原画と本体共通レンダラーを比較する。`--lan`は信頼できるLANでのスマホ確認に限る。サーバーは画面・共通描画JS・検証用キャラの画像/JSONだけを許可し、モデル・プロジェクト文書・ディレクトリ一覧を返さない。応答はno-storeとし、旧モジュールのキャッシュがある場合は版付きURLで開き直す。GPU生成後にまとめて確認し、使い終わった自分のサーバーだけを停止する。
