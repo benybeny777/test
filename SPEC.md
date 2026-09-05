@@ -357,7 +357,9 @@ Rust: 127.0.0.1:<port>
 |---|---|---|---|---|---|---|---|
 | 背景除去 | `rembg` v2.0.83 + `skytnt/anime-seg` の `isnetis.onnx` | MIT + Apache-2.0 | 可 | なし | 可。Apache-2.0 の表示を保持 | 固有条件なし | **採用。** `rembg` が再ホストする重みではなく、作者公式の [モデル](https://huggingface.co/skytnt/anime-seg) を固定する |
 | 背景除去の代替 | U-2-Net の上流重みを自前で ONNX 変換 | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | 条件付き候補。`rembg` 配布の `u2net.onnx` は変換元を追跡できないため使わない |
-| 2.5D候補マスク | [`facebook/sam2.1-hiera-tiny`](https://huggingface.co/facebook/sam2.1-hiera-tiny) | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | **採用。** Meta公式はコード、学習済みチェックポイント、デモ、学習コードをApache-2.0と明記する。8GB GPU向けに最小のHiera Tinyを固定し、意味分類は製品側で決定的に行う |
+| 2.5D候補マスク | [`facebook/sam2.1-hiera-tiny`](https://huggingface.co/facebook/sam2.1-hiera-tiny) | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | **採用。** Meta公式はコード、学習済みチェックポイント、デモ、学習コードをApache-2.0と明記する。Hiera Tinyを固定。幾何的な意味分類の限界が実測され、意味解析の補助候補を比較中 |
+| 意味解析比較A | [`microsoft/Florence-2-large-ft`](https://huggingface.co/microsoft/Florence-2-large-ft) | 重みMIT、実装ファイルApache-2.0表示も保持 | 可 | 明示的制限なし | 可。各権利表示を保持 | 固有条件の記載なし。原画の権利は別 | **実機比較のみ承認・製品未採用。** 3原画の顔/目/口/首を検出。共通選別後も女性Aの襟候補は欠落。公式旧実装のKVキャッシュを無効化して実行 |
+| 意味解析比較B | [`IDEA-Research/grounding-dino-base`](https://huggingface.co/IDEA-Research/grounding-dino-base) | Apache-2.0 | 可 | 明示的制限なし | 可。LICENSE/NOTICEを保持 | 固有条件の記載なし。原画の権利は別 | **実機比較のみ承認・製品未採用。** 部位候補とスコアを取得。3原画の首/口位置は改善するが人物全体の誤検出もあり、候補選別とSAMによる境界検査が必要 |
 | 2.5D意味レイヤー分解コード | [`shitagaki-lab/see-through`](https://github.com/shitagaki-lab/see-through) `7f139bb25c46a0c8ac720d95ddab185fcda5451c` | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEと変更表示を保持 | 固有条件なし | **コードだけ適合。重み監査未完了のため採用保留。** 1280解像度BF16 Block SwapはRTX 5060 Laptopで完走済みだが、コードのライセンスを別配布の重みへ推定適用しない |
 | See-through LayerDiff重み | [`layerdifforg/seethroughv0.0.2_layerdiff3d`](https://huggingface.co/layerdifforg/seethroughv0.0.2_layerdiff3d) `966721bb4ef2ddc3af3696862fa10b3f78d9785d` | Apache-2.0 | 可 | なし | 可。LICENSE/NOTICEを保持 | 固有条件なし | **重みまで適合。** 公式モデルカードのライセンス表示を確認 |
 | See-through Marigold重み | [`layerdifforg/seethroughv0.0.1_marigold`](https://huggingface.co/layerdifforg/seethroughv0.0.1_marigold) `aa7a892f83ff68d7b09186a405ba08d5d33f770f` | **表示なし** | **未確認** | **未確認** | **未確認** | **未確認** | **採用保留。** 公式モデルリポジトリにモデルカードとLICENSEがなく、コード側Apache-2.0の適用対象だと確定できない |
@@ -493,7 +495,7 @@ RTX 5060 Laptopで、女性音声「こんにちは、今日はいい天気で�
 | 原画保持 | 中立PNGを別保存し、描画時の重複アルファ合成を排除。補間拡大素材は使わない |
 | 口・まばたき | 実測位置と2軸口形を実装中。実写の閉眼下地・線画はひより相当とは言えない |
 | 小角度移動 | 実ブラウザで首肩の裂け目を修正確認。連続した平面変形であり、立体的な顔回転や隠れた部位の復元では劣る |
-| 別原画への再現性 | 未達。共通の人物比率ポイントでは女性Aの首に顔が混入し、実写では衣装を抽出。顔と口の測定による誘導でもむぎに顔が混入し、実写は目の測定で失敗。候補スコアだけで部位名を確定しない |
+| 別原画への再現性 | 製品は未達。比較用Florence-2/Grounding DINOを加えると3原画の顔/目/口/首の位置候補が改善し、各6入力の2回推論は完全一致した。ただし襟の欠落/欠損、実写の顎境界、目口の内部素材分割は未解決。比較結果を製品の品質合格へ昇格しない |
 | OBS・VRM | 現行スコープ外。下表の旧方式の利点を現行製品の利点として扱わない |
 
 模倣が目的ではない。**先行製品の構造的な弱点を潰した上位版を作る。** 比較値は本節へ集約し、新しい実測が出たら更新する。

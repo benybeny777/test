@@ -4,6 +4,31 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 ## 必要なもの
 
+### 意味解析候補の比較（製品未採用）
+
+利用者が比較を承認したFlorence-2-large-ftとGrounding DINO baseを `tools/semantic-eval/` で再現する。通常の製品セットアップへは含めない。共有Python 3.12/Transformers 4.57.6を使い、比較に必要なtimm 1.0.29（Apache-2.0）だけを追加する。既存torch等を更新しない。
+
+```powershell
+uv pip install --python sidecar/.venv/Scripts/python.exe --no-deps -r tools/semantic-eval/requirements.txt
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/download_models.py
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/evaluate.py florence
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/evaluate.py dino
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/segment.py --backend Florence-2-large-ft
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/segment.py --backend grounding-dino-base
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/summarize.py
+```
+
+GPU工程は逐次実行する。原画は `temp/t7-characters/<id>/source/isolated.png`。evaluate/segmentの `--characters <id> ...` で別原画にも同じ処理を適用する。既定3件は比較fixtureであり、キャラ別ロジックではない。`evaluate.py --run-name repeat` を付けて反復し、推論結果の一致を集計する。モデルは `models/semantic-evaluation/`、取得manifestと画像・数値結果は `temp/` 内へ保存する。描画確認用の縮小画像を高精細素材へ採用しない。
+
+| 比較モデル | 固定リビジョン | 重みSHA-256 |
+|---|---|---|
+| Florence-2-large-ft | `4a12a2b54b7016a48a22037fbd62da90cd566f2a` | `8b4e610c952eef90a836c56cda0f398a672a3a6ca7b4d96b0e09a86dee42e2c3` |
+| Grounding DINO base | `12bdfa3120f3e7ec7b434d90674b3396eccf88eb` | `5548f844c928c4b6f411fa8cbcc2bfa8dbbba437cb1d513975519f93c2a9ed21` |
+
+Florenceの公式実装は旧KVキャッシュ形式のため、比較では `use_cache=False` を明示する。重みを変えず速度の代償を受け入れる。SAM2の比較は設定に一致する `Sam2VideoModel` の単一フレーム経路を使い、重みキーの不一致を拒否する。内部APIへの依存は固定Transformers版限定であり、製品採用時には正規アダプターとテストが必要。結果は部位候補で、独立した上下唇・瞳・白目・隠れ領域の完成や動作合格を意味しない。
+
+### 通常の開発環境
+
 | 項目 | 版・備考 |
 |---|---|
 | Rust（cargo） | 安定版 latest |
