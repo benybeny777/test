@@ -6,10 +6,13 @@ import argparse
 import json
 import logging
 import os
-import shutil
+import sys
 import math
 from pathlib import Path
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from output_transaction import directory_output
 
 
 LOGGER = logging.getLogger("local_vtuber_studio.rig2d")
@@ -79,6 +82,14 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
 
 
 def create_rig(manifest_path: Path, output_path: Path) -> Path:
+    """完成したリグだけを公開し、失敗した再生成で前回の素材を消さない。"""
+    with directory_output(output_path.parent) as pending:
+        _create_rig(manifest_path, pending / output_path.name, output_path.parent)
+    print(json.dumps({"event": "complete", "output": str(output_path)}), flush=True)
+    return output_path
+
+
+def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> None:
     """レイヤーを検証し、T11で変形定義を追加できるリグJSONを保存する。"""
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -102,7 +113,7 @@ def create_rig(manifest_path: Path, output_path: Path) -> Path:
             "status": "incomplete", "note": "素材分割の充足が未検証です"}),
         "canvas": manifest["canvas"],
         "layers_manifest": os.path.relpath(
-            manifest_path.resolve(), output_path.parent.resolve()
+            manifest_path.resolve(), published_dir.resolve()
         ),
         "draw_order": [
             part["name"]
@@ -138,8 +149,6 @@ def create_rig(manifest_path: Path, output_path: Path) -> Path:
     output_path.write_text(
         json.dumps(rig, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    print(json.dumps({"event": "complete", "output": str(output_path)}), flush=True)
-    return output_path
 
 
 def main() -> int:

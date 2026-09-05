@@ -6,12 +6,16 @@ import argparse
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from output_transaction import directory_output
 
 
 LOGGER = logging.getLogger("local_vtuber_studio.decompose")
@@ -327,9 +331,21 @@ def _save_psd(layer_paths: list[tuple[str, Path]], destination: Path) -> None:
 
 
 def decompose_image(
+    input_path: Path, output_dir: Path, **options: Any,
+) -> Path:
+    """全素材とmanifestの生成後に公開し、失敗時は前回の出力を保つ。"""
+    with directory_output(output_dir) as pending:
+        _decompose_image(input_path, pending, published_dir=output_dir, **options)
+    result = output_dir / "manifest.json"
+    _emit("complete", manifest=str(result))
+    return result
+
+
+def _decompose_image(
     input_path: Path,
     output_dir: Path,
     *,
+    published_dir: Path,
     model_path: Path | None = None,
     candidate_masks_dir: Path | None = None,
     keep_candidates: bool = False,
@@ -353,7 +369,7 @@ def decompose_image(
             raise ValueError("SAM2モデルの指定が必要です")
         from grounded import analyse_cached
         grounded_result = analyse_cached(source, grounding_model, model_path, grounding_threshold,
-                                         _emit, output_dir.parent / 'analysis')
+                                         _emit, published_dir.parent / 'analysis')
         candidates = list(grounded_result[0].values())
         method = "grounding-dino-base+sam2.1"
     elif candidate_masks_dir is not None:
@@ -452,7 +468,7 @@ def decompose_image(
         "schema_version": SCHEMA_VERSION,
         "method": method,
         "canvas": {"width": source.width, "height": source.height},
-        "source": os.path.relpath(input_path.resolve(), output_dir.resolve()),
+        "source": os.path.relpath(input_path.resolve(), published_dir.resolve()),
         "psd": psd_path.name,
         "parts": manifest_parts,
         "features": features,
@@ -463,7 +479,6 @@ def decompose_image(
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    _emit("complete", manifest=str(manifest_path), part_count=len(manifest_parts))
     return manifest_path
 
 

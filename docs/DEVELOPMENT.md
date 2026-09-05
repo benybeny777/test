@@ -163,6 +163,8 @@ T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`to
 
 ## プロセスの後始末
 
+保存保護の検証は `sidecar/.venv/Scripts/python.exe -m unittest discover -s sidecar -p test_output_transaction.py`、口の2軸輪郭は作業用Nodeで `node --test tools/test-mouth-geometry.mjs` を使う。いずれもモデル推論不要で、生成例外・公開失敗・中断復旧・二重実行拒否、および全パラメータ範囲の輪郭を検査する。Nodeは製品の起動・ビルド依存にはしない。
+
 - 起動して確認したら、使い終わったプロセスは止める。ロックや再ビルドの無駄を避ける
 - **子プロセス（Python サイドカー、推論エンジン）は `kill` して `wait` でハンドルまで回収する。** ゾンビになりやすい
 - **プロセスを止める前に、必ず親プロセスとコマンドラインで「自分が起動したもの」かを確かめる。** `python.exe` や `node.exe` は他のアプリも使っているため、名前だけで一括終了すると稼働中のものを壊す

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -82,7 +83,20 @@ def isolate_image(input_path: Path, output_path: Path, model_path: Path) -> Path
     if not np.asarray(isolated, dtype=np.uint8)[:, :, 3].any():
         raise ValueError("人物の前景を検出できません")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    isolated.save(output_path)
+    temporary_dir = output_path.parent / "temp"
+    temporary_dir.mkdir(parents=True, exist_ok=True)
+    from tempfile import NamedTemporaryFile
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=temporary_dir, suffix=".png", delete=False) as handle:
+            temporary = Path(handle.name)
+            isolated.save(handle, format="PNG")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output_path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     print(
         json.dumps({"event": "complete", "output": str(output_path)}, ensure_ascii=False),
         flush=True,

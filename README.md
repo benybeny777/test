@@ -15,7 +15,7 @@
 目標のパイプラインは「原画/透過検査 → 構造解析 → 素材分離 → 隠れ部分補完 → 部位別リグ → 自動/目視QA」です。現在実行できる3工程とは異なり、まだ実装途中です。目口・首/襟・髪束を独立して動かせる素材を作り、ひよりを品質目標に検証します。[設計と未確定事項](SPEC.md#42-生成パイプライン)を参照してください。
 
 - 手持ちのイラスト1枚から、原画品質を保った2D/2.5Dモデルを自動生成する（実装中）
-- 左右のまばたきと、`MouthOpenY × MouthForm` による口形を確認する（品質調整中。6表情の自動生成は現行2.5Dでは未対応）
+- 左右のまばたきと、`MouthOpenY × MouthForm` による口形を確認する。上下の口輪郭・口内・舌・歯を連続変形する試作で、閉口時も口形を変えられる。原画比較ボタンは元の口へ戻す。実写の唇の質感は未達で、原画テクスチャを保持する変形が必要（6表情の自動生成は未対応）
 - マイク音声をローカル解析してリアルタイムに口を動かす
 - 同じ描画コードをブラウザ確認画面で動かす。OBS機能・PicoAgentへの組み込みは現在の対象外
 - 背景を生成する
@@ -67,7 +67,7 @@ cargo xtask dev
 |---|---|---|---|
 | 入力登録 | PNG/JPEGを取り込み、表示名・人物設定・同一性タグを記録 | `source/input.png`、`character.json` | すべての再生成の起点。入力原本は上書きしない |
 | ① `isolate` | 元キャンバスを保持。既存の透過は維持し、不透明入力は背景除去 | `source/isolated.png` | レイヤー分解の入力 |
-| ② `decompose` | SAM 2.1で全身と頭部を解析し、画素から目口位置・差分を生成 | `layers/manifest.json`、`layers/parts/*.png`、`layers/source.psd` | 2.5Dリグの描画部品と確認用PSD |
+| ② `decompose` | Grounding DINOで意味領域を検出し、SAM 2.1で原寸マスクと目口差分を生成 | `analysis/analysis.json`、`analysis/masks.npz`、`layers/manifest.json`、`layers/parts/*.png`、`layers/source.psd` | 署名付き解析キャッシュ、2.5D描画部品と確認用PSD |
 | ③ `rig2d` | 部位と重なり順を検証し、製品内2.5Dリグへ変換 | `rig2d/rig.json`、`rig2d/parts/*.png` | 本体・ブラウザ確認用共通レンダラーの入力 |
 
 中心資産は `layers/manifest.json`、`layers/parts/`、`rig2d/rig.json` です。`character.json` で各工程の状態を管理し、未着手は `pending`、実行後は `running / complete / failed` と理由を保存します。

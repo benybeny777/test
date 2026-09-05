@@ -11,10 +11,10 @@ const inputs=new Map();
 for(const [key,title,min,max,value] of [['mouthOpenY','開き',0,1,0],['mouthForm','横幅・丸み',-1,1,0],['eyeLOpen','左目',0,1,1],['eyeROpen','右目',0,1,1],['yaw','顔左右',-15,15,0],['pitch','顔上下',-15,15,0]]) {
   const label=document.createElement('label');label.append(title);
   const input=document.createElement('input');input.type='range';input.min=min;input.max=max;input.step=(max-min)/100;input.value=value;
-  input.addEventListener('input',()=>{state[key]=Number(input.value);apply();});
+  input.addEventListener('input',()=>{state[key]=Number(input.value);state.preserveOriginalMouth=false;apply();});
   label.append(input);document.querySelector('#controls').append(label);inputs.set(key,input);
 }
-function reset(){state={...state,mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,idleSwayDegrees:0};for(const [key,input] of inputs)input.value=state[key];}
+function reset(){state={...state,mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,idleSwayDegrees:0,preserveOriginalMouth:false};for(const [key,input] of inputs)input.value=state[key];}
 async function apply(){try{await renderer.applyState(state);return true;}catch(error){status.textContent=error.message;return false;}}
 async function load(){
   const token=++generation;status.textContent='読込中';
@@ -35,7 +35,7 @@ async function load(){
   finally{if(token===generation)document.querySelectorAll('button,input').forEach(element=>element.disabled=false);}
 }
 select.addEventListener('change',load);
-document.querySelector('#neutral').addEventListener('click',()=>{reset();apply();});
+document.querySelector('#neutral').addEventListener('click',()=>{reset();state.preserveOriginalMouth=true;apply();});
 document.querySelector('#blink').addEventListener('click',()=>{delete state.eyeLOpen;delete state.eyeROpen;apply();});
 function focusFace(){
   if(!currentRig)return;

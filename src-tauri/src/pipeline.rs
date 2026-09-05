@@ -440,6 +440,7 @@ impl PipelineContext {
             return Err(PipelineError::Invalid(format!("未知の工程です: {stage}")));
         }
         let mut manifest = self.load_character(id)?;
+        validate_stage_input(&manifest, stage)?;
         let directory = self.character_dir(id)?;
         invalidate_from_stage(&mut manifest, &directory, stage)?;
         set_stage(&mut manifest, stage, "running", "実行中");
@@ -809,6 +810,26 @@ fn remove_dir_if_present(path: &Path) -> Result<(), PipelineError> {
     }
 }
 
+fn validate_stage_input(manifest: &CharacterManifest, stage: &str) -> Result<(), PipelineError> {
+    let prerequisite = match stage {
+        "decompose" => Some("isolate"),
+        "rig2d" => Some("decompose"),
+        _ => None,
+    };
+    if let Some(required) = prerequisite {
+        if !manifest
+            .stages
+            .get(required)
+            .is_some_and(|state| state.status == "complete")
+        {
+            return Err(PipelineError::Invalid(format!(
+                "前工程{required}が完了していません。保存された旧成果物では{stage}を実行できません"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn invalidate_from_stage(
     manifest: &mut CharacterManifest,
     directory: &Path,
@@ -825,18 +846,8 @@ fn invalidate_from_stage(
     let model = directory.join("model");
     let facepatch = directory.join("facepatch");
     match stage {
-        "isolate" => {
-            remove_file_if_present(&directory.join("source/isolated.png"))?;
-            remove_dir_if_present(&directory.join("layers"))?;
-            remove_dir_if_present(&directory.join("rig2d"))?;
-        }
-        "decompose" => {
-            remove_dir_if_present(&directory.join("layers"))?;
-            remove_dir_if_present(&directory.join("rig2d"))?;
-        }
-        "rig2d" => {
-            remove_dir_if_present(&directory.join("rig2d"))?;
-        }
+        // 旧出力は生成側で成功後に置き換える。開始時には状態だけを失効させる。
+        "isolate" | "decompose" | "rig2d" => {}
         "mesh" => {
             for name in [
                 "foreground.png",
@@ -1014,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn upstream_rerun_invalidates_statuses_and_dependent_artifacts() {
+    fn upstream_rerun_invalidates_statuses_but_preserves_previous_artifacts() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().join("c_test");
         fs::create_dir_all(directory.join("source")).unwrap();
@@ -1049,13 +1060,21 @@ mod tests {
                 .collect(),
         };
 
+        validate_stage_input(&manifest, "rig2d").unwrap();
         invalidate_from_stage(&mut manifest, &directory, "decompose").unwrap();
+        assert!(validate_stage_input(&manifest, "rig2d").is_err());
 
         assert!(manifest.stages.contains_key("isolate"));
         assert!(!manifest.stages.contains_key("decompose"));
         assert!(!manifest.stages.contains_key("rig2d"));
         assert!(directory.join("source/isolated.png").is_file());
-        assert!(!directory.join("layers").exists());
-        assert!(!directory.join("rig2d").exists());
+        assert_eq!(
+            fs::read(directory.join("layers/manifest.json")).unwrap(),
+            b"old layers"
+        );
+        assert_eq!(
+            fs::read(directory.join("rig2d/rig.json")).unwrap(),
+            b"old rig"
+        );
     }
 }

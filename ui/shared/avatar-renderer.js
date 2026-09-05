@@ -1,5 +1,6 @@
 import * as THREE from "./vendor/three/three.module.min.js";
 import {localAssetUrl, loadLocalJson} from "./local-assets.js";
+import {drawMouth} from "./mouth-geometry.js";
 
 const MOUTHS = { close: [0,0], a:[1,0], i:[.28,.9], u:[.5,-.9], e:[.55,.65], o:[.9,-.7] };
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
@@ -58,7 +59,7 @@ export function createAvatarRenderer(canvas) {
     state={...next};
   }
   function appearance(left,right,open,form) {
-    const key=[left,right,open,form].map(v=>v.toFixed(3)).join(",");
+    const key=[left,right,open,form,state.preserveOriginalMouth?1:0].map(v=>v.toFixed(3)).join(",");
     if(key===lastAppearance) return;
     lastAppearance=key;
     ctx.clearRect(0,0,sheet.width,sheet.height);
@@ -69,24 +70,14 @@ export function createAvatarRenderer(canvas) {
       ctx.globalAlpha=alpha;drawLayer(name);
     }
     ctx.globalAlpha=1;
-    if(open>0) {
+    if(!state.preserveOriginalMouth || open>0 || form!==0) {
       // 下地は変形させず、元の口を消した同じ座標へ合成する。
-      ctx.globalAlpha=Math.min(1,open*8);
-      drawLayer("mouth_open");ctx.globalAlpha=1;
+      // 中立の閉口では原画の唇を消さず、口の合わせ目だけを明瞭にする。
+      if(open>0 || form!==0)drawLayer("mouth_open");
       const layer=rig.layers.mouth_open;
       const box=layer.feature_box;
       if(!box) throw new Error("口の実測座標がありません");
-      const [l,t,r,b]=box,cx=(l+r)/2,cy=(t+b)/2;
-      const halfWidth=(r-l)*.46*(1+form*.32),halfHeight=(r-l)*.32*open;
-      const color=layer.line_color ?? [100,35,45];
-      ctx.beginPath();ctx.ellipse(cx,cy,halfWidth,Math.max(.3,halfHeight),0,0,Math.PI*2);
-      ctx.fillStyle="rgb(75,25,38)";ctx.fill();
-      ctx.strokeStyle=`rgb(${color[0]},${color[1]},${color[2]})`;
-      ctx.lineWidth=Math.max(1,(r-l)*.055);ctx.stroke();
-      ctx.save();ctx.clip();
-      ctx.fillStyle="rgb(192,93,111)";
-      ctx.beginPath();ctx.ellipse(cx,cy+halfHeight*.7,halfWidth*.66,halfHeight*.43,0,0,Math.PI*2);ctx.fill();
-      ctx.restore();
+      drawMouth(ctx,box,open,form,layer.line_color);
     }
     texture.needsUpdate=true;
   }
