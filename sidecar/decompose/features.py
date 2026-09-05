@@ -53,7 +53,7 @@ def locate_features(rgba, face):
     return boxes
 
 
-def repair_patch(rgba, box, support=None, target=None):
+def repair_patch(rgba, box, support=None, target=None, protected=None):
     """楕円内だけを周辺画素の調和補間で埋める。矩形の単色塗りをしない。"""
     l,t,r,b = box
     margin = max(3, round((r-l)*.15))
@@ -66,6 +66,8 @@ def repair_patch(rgba, box, support=None, target=None):
     if target is not None:
         # 目口の実マスクだけを補完し、矩形内の髪を肌で消さない。
         mask=ndimage.binary_dilation(target[t:b,l:r],iterations=max(1,round((r-l)*.04)))
+    if protected is not None:
+        mask &= ~protected[t:b,l:r]
     mask[[0,-1],:]=False
     mask[:,[0,-1]]=False
     coords=np.argwhere(mask)
@@ -101,9 +103,9 @@ def repair_patch(rgba, box, support=None, target=None):
     return crop,(l,t,r,b)
 
 
-def expression_patch(rgba, box, kind, support=None, target=None):
+def expression_patch(rgba, box, kind, support=None, target=None, protected=None):
     """目口の下地を補完し、原画の線色・唇色を使った局所差分を作る。"""
-    crop,bounds=repair_patch(rgba,box,support,target)
+    crop,bounds=repair_patch(rgba,box,support,target,protected)
     l,t,r,b=bounds
     x0,y0,x1,y1=box
     source=rgba[y0:y1,x0:x1,:3]

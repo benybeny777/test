@@ -136,16 +136,18 @@ def analyse(image, detector_path, sam_path, threshold, emit):
         for index,(role,item) in enumerate(chosen.items()):
             crop=crops['full' if role in ('clothes','left_arm','right_arm') else 'head']
             im=rgb.crop(crop);box=item['box'];local=[box[0]-crop[0],box[1]-crop[1],box[2]-crop[0],box[3]-crop[1]]
-            prompts={}
+            prompts={'input_boxes':[[local]]}
             if role=='hair':
                 # 髪の矩形だけでは頭全体が選ばれるため、検出済みの目口を明示的に除外する。
-                points=[]
+                # 4.57.6のbox+points同時指定はnum_objects未初期化になる。
+                # 公式VideoProcessorと同じ角ラベル2/3へ変換し、複数候補推論を維持する。
+                points=[local[:2],local[2:]]
                 for feature in ('left_eye','right_eye','mouth'):
                     fl,ft,fr,fb=chosen[feature]['box']
                     points.append([(fl+fr)/2-crop[0],(ft+fb)/2-crop[1]])
-                prompts={'input_points':[[points]],'input_labels':[[[0]*len(points)]]}
+                prompts={'input_points':[[points]],'input_labels':[[[2,3]+[0]*(len(points)-2)]]}
                 item['negative_features']=['left_eye','right_eye','mouth']
-            inputs=processor(images=im,input_boxes=[[local]],return_tensors='pt',**prompts).to('cuda')
+            inputs=processor(images=im,return_tensors='pt',**prompts).to('cuda')
             with torch.inference_mode():prediction=model._single_frame_forward(**inputs)
             small=processor.post_process_masks(prediction.pred_masks.cpu().unsqueeze(0),inputs['original_sizes'].cpu())[0].reshape(-1,im.height,im.width)[0].numpy().astype(bool)
             mask=np.zeros(subject.shape,bool);mask[crop[1]:crop[3],crop[0]:crop[2]]=small;mask &= subject

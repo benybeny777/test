@@ -8,6 +8,8 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 通常経路のブラウザ検証はリポジトリルートで `sidecar/.venv/Scripts/python.exe -m http.server 8791 --bind 127.0.0.1` を起動し、`http://127.0.0.1:8791/ui/check.html` を開く。原画と本体共通レンダラーを比較する。診断用の全リポジトリ配信なので外部へ公開しない。GPU生成後にまとめて確認し、使い終わった自分のサーバーだけを停止する。
 
+SAM2の画像マスク推論は共有環境のSam2VideoModelを重み整合性検査付きで使う。Transformers 4.57.6の単フレームbox+points併用にはnum_objects未初期化の問題があるため、髪の矩形を公式VideoProcessorと同じ角ラベル2/3へ変換し、目口の除外点0と同じ入力へまとめる。重みや共有ライブラリを改変せず、複数マスク推論を維持する。
+
 利用者が比較を承認したFlorence-2-large-ftとGrounding DINO baseを `tools/semantic-eval/` で再現する。比較後にGrounding DINOの組み込みが承認され、通常経路は `cargo xtask setup grounding`（`setup models`にも含む）で `models/grounding-dino-base` へ固定版・SHA256検証付きで取得する。比較用の保存先とは分離し、診断画像を製品成果物へ転用しない。共有Python 3.12/Transformers 4.57.6を使い、Florence比較に必要なtimm 1.0.29（Apache-2.0）だけを追加する。既存torch等を更新しない。
 
 ```powershell

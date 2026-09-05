@@ -49,6 +49,14 @@ class FeatureTests(unittest.TestCase):
         protected=original[:,:,:3].mean(axis=2)==10
         np.testing.assert_array_equal(patch[protected],original[protected])
 
+    def test_protected_hair_inside_target_is_preserved(self):
+        image,face=self.fixture()
+        target=np.zeros(face.shape,dtype=bool);target[75:83,45:70]=True
+        hair=np.zeros(face.shape,dtype=bool);hair[74:78,45:49]=True
+        image[hair,:3]=10
+        patch,(l,t,r,b)=repair_patch(image,[45,75,70,83],face,target,hair)
+        np.testing.assert_array_equal(patch[hair[t:b,l:r]],image[t:b,l:r][hair[t:b,l:r]])
+
     def test_mouth_tracks_changed_art_instead_of_fixed_canvas_position(self):
         image, face = self.fixture()
         before = locate_features(image, face)['mouth']

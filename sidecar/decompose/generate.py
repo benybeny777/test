@@ -421,7 +421,8 @@ def decompose_image(
             layer, box, color = expression_patch(
                 rgba, box, 'mouth' if spec.name=='mouth_open' else 'eye',
                 parts['face'] if grounded_result is not None else None,
-                masks[spec.name.rsplit('_',1)[0]] if grounded_result is not None else None)
+                masks[spec.name.rsplit('_',1)[0]] if grounded_result is not None else None,
+                masks['hair'] if grounded_result is not None else None)
         else:
             layer = rgba.copy()
             if spec.name != "neutral":
