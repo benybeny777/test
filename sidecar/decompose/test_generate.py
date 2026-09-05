@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ from PIL import Image
 
 
 MODULE_PATH = Path(__file__).with_name("generate.py")
+sys.path.insert(0, str(MODULE_PATH.parent))
 SPEC = importlib.util.spec_from_file_location("decompose_generate", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -24,6 +26,9 @@ class SemanticDecompositionTests(unittest.TestCase):
         rgba = np.zeros((120, 80, 4), dtype=np.uint8)
         rgba[5:116, 28:52] = (180, 120, 100, 255)
         rgba[30:75, 8:72] = (60, 80, 140, 255)
+        rgba[13:15, 31:35, :3] = 20
+        rgba[13:15, 45:49, :3] = 20
+        rgba[24:26, 37:43, :3] = (100, 20, 30)
         self.source_alpha = rgba[:, :, 3] > 0
         self.input_path = self.root / "input.png"
         Image.fromarray(rgba, mode="RGBA").save(self.input_path)
@@ -44,11 +49,20 @@ class SemanticDecompositionTests(unittest.TestCase):
             mask = np.zeros((120, 80), dtype=np.uint8)
             mask[top:bottom, left:right] = 255
             Image.fromarray(mask, mode="L").save(self.masks / f"{index:02}.png")
+        hair = np.zeros((120, 80), dtype=np.uint8)
+        hair[5:13,28:52] = 255
+        hair[5:29,28:30] = 255
+        hair[5:29,50:52] = 255
+        Image.fromarray(hair).save(self.masks / 'hair.png')
 
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_writes_deterministic_manifest_and_clipped_layers(self):
+    @patch('features.locate_features', return_value={
+        'left_eye': [31, 12, 35, 16], 'right_eye': [45, 12, 49, 16],
+        'mouth': [37, 23, 43, 27],
+    })
+    def test_writes_deterministic_manifest_and_clipped_layers(self, _detector):
         output = self.root / "layers"
         manifest_path = MODULE.decompose_image(
             self.input_path, output, candidate_masks_dir=self.masks

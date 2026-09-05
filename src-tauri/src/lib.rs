@@ -5,9 +5,9 @@ pub mod lipsync;
 pub mod pipeline;
 pub mod sidecar;
 pub mod store;
-pub mod stream;
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::RwLock,
@@ -20,7 +20,6 @@ use crate::{
     config::AppConfig,
     engines::{ConversationResult, EngineContext},
     pipeline::{CharacterManifest, Framing, NewCharacter, PipelineContext, STAGES},
-    stream::{AvatarState, ObsServer},
 };
 
 struct StudioState {
@@ -28,17 +27,32 @@ struct StudioState {
     config_path: PathBuf,
     pipeline: PipelineContext,
     engines: EngineContext,
-    obs: tokio::sync::Mutex<Option<ObsServer>>,
     execution: tokio::sync::Mutex<()>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PreviewAssets {
-    model: Vec<u8>,
-    texture: Vec<u8>,
-    blink_texture: Option<Vec<u8>>,
+    rig: Vec<u8>,
+    parts: BTreeMap<String, Vec<u8>>,
 }
+
+const RIG2D_PARTS: &[&str] = &[
+    "neutral",
+    "back_hair",
+    "body",
+    "left_arm",
+    "right_arm",
+    "face",
+    "front_hair",
+    "side_hair",
+    "left_eye_open",
+    "right_eye_open",
+    "left_eye_closed",
+    "right_eye_closed",
+    "mouth_closed",
+    "mouth_open",
+];
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -224,25 +238,22 @@ fn load_preview_assets(
     mouth_key: String,
     state: State<'_, StudioState>,
 ) -> Result<PreviewAssets, String> {
+    let _ = (&expression_key, &mouth_key);
     let directory = state
         .pipeline
         .character_dir(&character_id)
         .map_err(error_text)?;
-    let expression = directory
-        .join("facepatch/projected")
-        .join(&expression_key)
-        .join(format!("{mouth_key}.png"));
-    let blink = directory
-        .join("facepatch/projected/blink")
-        .join(format!("{mouth_key}.png"));
+    let mut parts = BTreeMap::new();
+    for name in RIG2D_PARTS {
+        parts.insert(
+            (*name).to_owned(),
+            fs::read(directory.join("rig2d/parts").join(format!("{name}.png")))
+                .map_err(error_text)?,
+        );
+    }
     Ok(PreviewAssets {
-        model: fs::read(directory.join("model/rigged.vrm")).map_err(error_text)?,
-        texture: fs::read(expression).map_err(error_text)?,
-        blink_texture: blink
-            .is_file()
-            .then(|| fs::read(blink))
-            .transpose()
-            .map_err(error_text)?,
+        rig: fs::read(directory.join("rig2d/rig.json")).map_err(error_text)?,
+        parts,
     })
 }
 
@@ -327,71 +338,6 @@ async fn voice_chat(
     .map_err(error_text)
 }
 
-#[tauri::command]
-async fn start_obs(
-    character_id: String,
-    expression_key: String,
-    mouth_key: String,
-    framing: Framing,
-    state: State<'_, StudioState>,
-) -> Result<String, String> {
-    let mut guard = state.obs.lock().await;
-    if let Some(server) = guard.take() {
-        server.stop().await.map_err(error_text)?;
-    }
-    let config = state
-        .config
-        .read()
-        .map_err(|_| "設定ロックが壊れました".to_owned())?
-        .clone();
-    let assets = state
-        .pipeline
-        .character_dir(&character_id)
-        .map_err(error_text)?;
-    let mut avatar = AvatarState {
-        expression_key: expression_key.clone(),
-        mouth_key: mouth_key.clone(),
-        model_url: "/assets/model/rigged.vrm".into(),
-        texture_url: format!("/assets/facepatch/projected/{expression_key}/{mouth_key}.png"),
-        blink_texture_url: Some(format!("/assets/facepatch/projected/blink/{mouth_key}.png")),
-        yaw: framing.yaw,
-        pitch: framing.pitch,
-        scale: framing.scale,
-        offset_x: framing.offset_x,
-        offset_y: framing.offset_y,
-        arm_pose: std::collections::BTreeMap::from([
-            ("leftUpperArm".into(), framing.arm_pose.left_upper_arm),
-            ("leftLowerArm".into(), framing.arm_pose.left_lower_arm),
-            ("rightUpperArm".into(), framing.arm_pose.right_upper_arm),
-            ("rightLowerArm".into(), framing.arm_pose.right_lower_arm),
-            ("head".into(), framing.arm_pose.head),
-        ]),
-        ..AvatarState::default()
-    };
-    avatar.apply_animation_config(&config.avatar);
-    let server = stream::start_obs_server(
-        state.pipeline.repository_root.join("ui-stream"),
-        state.pipeline.repository_root.join("ui/shared"),
-        assets,
-        config.obs.port_range_start,
-        config.obs.port_range_end,
-        avatar,
-    )
-    .await
-    .map_err(error_text)?;
-    let url = format!("http://127.0.0.1:{}/", server.port());
-    *guard = Some(server);
-    Ok(url)
-}
-
-#[tauri::command]
-async fn stop_obs(state: State<'_, StudioState>) -> Result<(), String> {
-    if let Some(server) = state.obs.lock().await.take() {
-        server.stop().await.map_err(error_text)?;
-    }
-    Ok(())
-}
-
 fn error_text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -427,7 +373,6 @@ pub fn run() {
                     repository_root: repository_root.clone(),
                 },
                 engines: EngineContext { repository_root },
-                obs: tokio::sync::Mutex::new(None),
                 execution: tokio::sync::Mutex::new(()),
             });
             Ok(())
@@ -448,21 +393,10 @@ pub fn run() {
             converse,
             transcribe,
             voice_chat,
-            start_obs,
-            stop_obs,
         ])
         .build(tauri::generate_context!())
         .expect("LocalVTuberStudio の初期化に失敗しました");
-    application.run(|handle, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            let state = handle.state::<StudioState>();
-            if let Ok(mut guard) = state.obs.try_lock()
-                && let Some(server) = guard.take()
-            {
-                let _ = tauri::async_runtime::block_on(server.stop());
-            }
-        }
-    });
+    application.run(|_, _| {});
 }
 
 #[cfg(test)]
@@ -480,7 +414,6 @@ mod network_tests {
             "sidecar/decompose",
             "sidecar/rig2d",
             "ui",
-            "ui-stream",
         ];
         let forbidden = [
             "reqwest",
@@ -537,6 +470,12 @@ mod network_tests {
             ) {
                 let text = std::fs::read_to_string(&path).unwrap();
                 for token in forbidden {
+                    // 同一オリジン検査とリダイレクト拒否を持つ資産読込だけを許可する。
+                    if path == root.join("ui/shared/local-assets.js") && *token == "fetch(" {
+                        assert!(text.contains("url.origin !== location.origin"));
+                        assert!(text.contains("fetch(localAssetUrl(source), {redirect: \"error\"})"));
+                        continue;
+                    }
                     assert!(
                         !text.contains(token),
                         "生成経路に外向き通信候補があります: {}: {token}",

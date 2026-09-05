@@ -569,6 +569,13 @@ impl PipelineContext {
             OsString::from(directory.join("source/isolated.png")),
             "--output".into(),
             OsString::from(directory.join("layers")),
+            "--keep-candidates".into(),
+            "--points-per-batch".into(),
+            config.ai.sam2_points_per_batch.to_string().into(),
+            "--pred-iou-threshold".into(),
+            config.ai.sam2_pred_iou_threshold.to_string().into(),
+            "--stability-threshold".into(),
+            config.ai.sam2_stability_threshold.to_string().into(),
             "--model".into(),
             OsString::from(
                 self.repository_root
@@ -581,7 +588,7 @@ impl PipelineContext {
                 let _ = app.emit("pipeline-progress", value);
             }
         })?;
-        Ok("SAM 2.1候補マスクから10個の意味レイヤーを生成しました".into())
+        Ok("SAM 2.1候補から部位・表情差分・原画レイヤーを生成しました".into())
     }
 
     fn run_rig2d(

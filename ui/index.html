@@ -29,7 +29,7 @@
       </aside>
       <div class="workspace">
         <section class="preview-panel">
-          <div class="stage" id="stage"><canvas id="avatar"></canvas><p id="empty-preview">完成キャラクターを選ぶと3Dプレビューを表示します</p></div>
+          <div class="stage" id="stage"><canvas id="avatar"></canvas><p id="empty-preview">完成キャラクターを選ぶと2.5Dプレビューを表示します</p></div>
           <div class="preview-controls">
             <label>表情<select id="preview-expression"></select></label>
             <label>口形<select id="preview-mouth"><option>close</option><option>a</option><option>i</option><option>u</option><option>e</option><option>o</option></select></label>
@@ -38,6 +38,10 @@
         </section>
         <section>
           <h2>生成パイプライン</h2>
+          <label>SAM同時処理点数（原画解像度・探索点総数は維持）<input id="sam-batch" type="number" min="1" max="64" step="1" value="8" /></label>
+          <label>候補予測IoU閾値<input id="sam-iou" type="number" min="0" max="1" step="0.01" value="0.7" /></label>
+          <label>候補安定性閾値<input id="sam-stability" type="number" min="0" max="1" step="0.01" value="0.85" /></label>
+          <button id="save-sam-batch" class="quiet">設定を保存（次回分解から反映）</button>
           <div id="pipeline" class="pipeline"></div>
           <div class="actions"><button id="run-all">全工程を実行</button><button id="retry-stage" class="quiet">選択工程だけ実行</button></div>
           <pre id="log">キャラクターを選択してください</pre>
@@ -72,11 +76,9 @@
             <p id="chat-output" class="result">llama.cpp の応答をここへ表示します</p>
           </section>
           <section>
-            <h2>音声認識とOBS</h2>
+            <h2>音声認識</h2>
             <label>16kHz WAVのパス<input id="wav-path" placeholder="C:\audio\speech.wav" /></label>
             <div class="actions"><button id="transcribe" class="quiet">whisper.cppで文字起こし</button><button id="voice-chat">認識して会話</button></div>
-            <div class="actions"><button id="start-obs">OBS出力を開始</button><button id="stop-obs" class="quiet">停止</button></div>
-            <p id="obs-url" class="result">未起動</p>
           </section>
         </div>
       </div>

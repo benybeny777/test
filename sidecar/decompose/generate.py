@@ -15,7 +15,7 @@ from PIL import Image
 
 
 LOGGER = logging.getLogger("local_vtuber_studio.decompose")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -28,14 +28,18 @@ class PartSpec:
 
 
 PART_SPECS = (
+    PartSpec("neutral", 0, (0.50, 0.50)),
     PartSpec("back_hair", 10, (0.50, 0.18)),
     PartSpec("body", 20, (0.50, 0.55)),
     PartSpec("left_arm", 30, (0.30, 0.40)),
     PartSpec("right_arm", 31, (0.70, 0.40)),
     PartSpec("face", 40, (0.50, 0.19)),
     PartSpec("front_hair", 50, (0.50, 0.13)),
+    PartSpec("side_hair", 51, (0.50, 0.18)),
     PartSpec("left_eye_open", 60, (0.44, 0.18)),
     PartSpec("right_eye_open", 61, (0.56, 0.18)),
+    PartSpec("left_eye_closed", 62, (0.44, 0.18)),
+    PartSpec("right_eye_closed", 63, (0.56, 0.18)),
     PartSpec("mouth_closed", 70, (0.50, 0.24)),
     PartSpec("mouth_open", 71, (0.50, 0.24)),
 )
@@ -162,7 +166,20 @@ def classify_semantic_parts(
         normalised, relative_box(0.12, 0.15, 0.88, 0.48), subject
     )
     if min(face_score, hair_score, torso_score) <= 0.0:
-        raise ValueError("SAM 2.1候補から顔・髪・上半身を識別できません")
+        raise ValueError(f"SAM 2.1候補から部位を識別できません: 顔={face_score:.3f}, 髪={hair_score:.3f}, 上半身={torso_score:.3f}")
+
+    # 頭部の高スコア候補が髪そのものの場合、顔として二重採用しない。
+    # 髪の実測範囲内で肌側の連結領域を求め、後段の目口検査も必須にする。
+    from scipy import ndimage
+    hl, ht, hr, hb = _bbox(hair)
+    head_region = np.zeros(subject.shape, dtype=bool)
+    head_region[ht:min(hb, ht+round((hr-hl)*1.3)), hl:hr] = True
+    skin_candidates = head_region & subject & ~hair
+    labels, count = ndimage.label(skin_candidates)
+    if count == 0:
+        raise ValueError("髪と区別できる顔の連結領域がありません")
+    sizes = np.bincount(labels.ravel()); sizes[0] = 0
+    face = labels == sizes.argmax()
 
     face_left, face_top, face_right, face_bottom = _bbox(face)
     face_height = face_bottom - face_top
@@ -186,30 +203,39 @@ def classify_semantic_parts(
     hair_bottom = _bbox(hair)[3]
     y_grid = np.broadcast_to(np.arange(canvas_h)[:, None], subject.shape)
     front_hair = hair & (y_grid < hair_top + 0.72 * (hair_bottom - hair_top))
+    side_hair = hair & (y_grid >= hair_top + 0.38 * (hair_bottom - hair_top))
 
     parts = {
+        "neutral": subject,
         "back_hair": hair,
         "body": subject & ~face & ~hair & ~left_arm & ~right_arm,
         "left_arm": left_arm,
         "right_arm": right_arm,
         "face": face,
         "front_hair": front_hair,
+        "side_hair": side_hair,
         "left_eye_open": face_box(0.15, 0.23, 0.45, 0.38),
         "right_eye_open": face_box(0.55, 0.23, 0.85, 0.38),
+        "left_eye_closed": face_box(0.15, 0.23, 0.45, 0.38),
+        "right_eye_closed": face_box(0.55, 0.23, 0.85, 0.38),
         "mouth_closed": face_box(0.34, 0.48, 0.66, 0.62),
         # T11でMouthOpenY変形を適用する同一座標の変形元。ここでは原画を
         # 描き替えず、開閉双方の必須スロットを確定する。
         "mouth_open": face_box(0.34, 0.48, 0.66, 0.62),
     }
     scores = {
+        "neutral": 1.0,
         "back_hair": hair_score,
         "body": 1.0,
         "left_arm": torso_score,
         "right_arm": torso_score,
         "face": face_score,
         "front_hair": hair_score,
+        "side_hair": hair_score,
         "left_eye_open": face_score,
         "right_eye_open": face_score,
+        "left_eye_closed": face_score,
+        "right_eye_closed": face_score,
         "mouth_closed": face_score,
         "mouth_open": face_score,
     }
@@ -218,6 +244,8 @@ def classify_semantic_parts(
     if missing:
         raise ValueError(f"必須部位を生成できません: {', '.join(missing)}")
     return parts, scores
+
+
 
 
 def load_candidate_masks(directory: Path, size: tuple[int, int]) -> list[np.ndarray]:
@@ -236,7 +264,7 @@ def load_candidate_masks(directory: Path, size: tuple[int, int]) -> list[np.ndar
     return masks
 
 
-def generate_sam2_masks(image: Image.Image, model_path: Path) -> list[np.ndarray]:
+def generate_sam2_masks(image: Image.Image, model_path: Path, points_per_batch: int, pred_iou_threshold: float, stability_threshold: float) -> list[np.ndarray]:
     """ローカルのSAM 2.1モデルをCUDAで実行して候補マスクを返す。"""
 
     if not model_path.is_dir():
@@ -257,8 +285,21 @@ def generate_sam2_masks(image: Image.Image, model_path: Path) -> list[np.ndarray
         dtype=torch.float32,
         local_files_only=True,
     )
-    output: dict[str, Any] = generator(image.convert("RGB"), points_per_batch=64)
-    return [np.asarray(mask, dtype=bool) for mask in output.get("masks", [])]
+    # 透明画素に残ったRGBをモデルへ見せない。原画そのものは変更しない。
+    rgb = Image.alpha_composite(Image.new("RGBA", image.size, (128,128,128,255)), image.convert("RGBA")).convert("RGB")
+    options = dict(points_per_batch=points_per_batch, pred_iou_thresh=pred_iou_threshold, stability_score_thresh=stability_threshold)
+    output: dict[str, Any] = generator(rgb, **options)
+    masks = [np.asarray(mask, dtype=bool) for mask in output.get("masks", [])]
+    # 全身の疎な探索で小さい頭部を取りこぼさないよう、同じモデルで追加解析する。
+    alpha = np.asarray(image.convert("RGBA"))[:,:,3]
+    l,t,r,b = _bbox(alpha >= 128)
+    head_bottom = min(b, t + round((b-t)*.30))
+    output = generator(rgb.crop((l,t,r,head_bottom)), **options)
+    for small in output.get("masks", []):
+        mask = np.zeros(alpha.shape, dtype=bool)
+        mask[t:head_bottom,l:r] = np.asarray(small, dtype=bool)
+        masks.append(mask)
+    return masks
 
 
 def _save_psd(layer_paths: list[tuple[str, Path]], destination: Path) -> None:
@@ -292,13 +333,16 @@ def decompose_image(
     model_path: Path | None = None,
     candidate_masks_dir: Path | None = None,
     keep_candidates: bool = False,
+    points_per_batch: int = 8,
+    pred_iou_threshold: float = .7,
+    stability_threshold: float = .85,
 ) -> Path:
     """入力画像を意味レイヤーへ分解し、manifestのパスを返す。"""
 
     with Image.open(input_path) as opened:
         source = opened.convert("RGBA")
     rgba = np.asarray(source, dtype=np.uint8)
-    subject = rgba[:, :, 3] > 0
+    subject = rgba[:, :, 3] >= 128
     if not subject.any():
         raise ValueError("入力画像に不透明な被写体がありません")
     if candidate_masks_dir is not None:
@@ -306,7 +350,9 @@ def decompose_image(
         method = "fixture"
     elif model_path is not None:
         _emit("progress", stage="sam2", progress=0.1)
-        candidates = generate_sam2_masks(source, model_path)
+        if not 1 <= points_per_batch <= 64:
+            raise ValueError("SAMバッチ数は1〜64で指定してください")
+        candidates = generate_sam2_masks(source, model_path, points_per_batch, pred_iou_threshold, stability_threshold)
         method = "sam2.1-hiera-tiny"
     else:
         raise ValueError("--model または --candidate-masks のどちらかが必要です")
@@ -322,14 +368,32 @@ def decompose_image(
             )
 
     parts, scores = classify_semantic_parts(subject, candidates)
+    from features import locate_features, expression_patch
+    features = locate_features(rgba, parts['face'])
+    for feature, box in features.items():
+        mask = np.zeros(subject.shape, dtype=bool)
+        l,t,r,b = box
+        mask[t:b,l:r] = subject[t:b,l:r]
+        suffixes = ('closed','open')
+        for suffix in suffixes:
+            parts[f'{feature}_{suffix}'] = mask
     parts_dir = output_dir / "parts"
     parts_dir.mkdir(parents=True, exist_ok=True)
     layer_paths: list[tuple[str, Path]] = []
     manifest_parts: list[dict[str, object]] = []
     for spec in PART_SPECS:
         mask = parts[spec.name]
-        layer = rgba.copy()
-        layer[~mask] = 0
+        box = list(_bbox(mask))
+        color = None
+        if spec.name in {'left_eye_closed','right_eye_closed','mouth_open'}:
+            layer, box, color = expression_patch(
+                rgba, box, 'mouth' if spec.name=='mouth_open' else 'eye')
+        else:
+            layer = rgba.copy()
+            if spec.name != "neutral":
+                layer[~mask] = 0
+        # 回転・口の変形中心はキャンバス比率ではなく実測領域から求める。
+        center = [(box[0]+box[2])/2/source.width,(box[1]+box[3])/2/source.height]
         path = parts_dir / f"{spec.name}.png"
         Image.fromarray(layer, mode="RGBA").save(path)
         layer_paths.append((spec.name, path))
@@ -337,10 +401,14 @@ def decompose_image(
             {
                 "name": spec.name,
                 "path": f"parts/{path.name}",
-                "bbox": list(_bbox(mask)),
+                "bbox": box,
                 "z_index": spec.z_index,
-                "pivot": list(spec.pivot),
+                "pivot": center,
+                "feature_box": features.get(spec.name.rsplit('_',1)[0]),
+                "line_color": color,
                 "candidate_score": round(scores[spec.name], 6),
+                "generated_variant": spec.name
+                in {"left_eye_closed", "right_eye_closed", "mouth_open"},
             }
         )
     psd_path = output_dir / "source.psd"
@@ -352,6 +420,7 @@ def decompose_image(
         "source": os.path.relpath(input_path.resolve(), output_dir.resolve()),
         "psd": psd_path.name,
         "parts": manifest_parts,
+        "features": features,
     }
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(
@@ -371,6 +440,9 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--model", type=Path)
     source.add_argument("--candidate-masks", type=Path)
     parser.add_argument("--keep-candidates", action="store_true")
+    parser.add_argument("--points-per-batch", type=int, default=8)
+    parser.add_argument("--pred-iou-threshold", type=float, default=.7)
+    parser.add_argument("--stability-threshold", type=float, default=.85)
     return parser
 
 
@@ -386,6 +458,9 @@ def main() -> int:
             model_path=args.model,
             candidate_masks_dir=args.candidate_masks,
             keep_candidates=args.keep_candidates,
+            points_per_batch=args.points_per_batch,
+            pred_iou_threshold=args.pred_iou_threshold,
+            stability_threshold=args.stability_threshold,
         )
     except Exception as error:
         LOGGER.exception("レイヤー分解に失敗しました")

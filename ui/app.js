@@ -62,6 +62,10 @@ async function action(operation) {
 }
 
 async function refresh() {
+  const config = await invoke("get_config");
+  $("#sam-batch").value = config.ai.sam2_points_per_batch;
+  $("#sam-iou").value = config.ai.sam2_pred_iou_threshold;
+  $("#sam-stability").value = config.ai.sam2_stability_threshold;
   characters = await invoke("list_characters");
   if (selected) {
     selected = characters.find((value) => value.characterId === selected.characterId);
@@ -82,7 +86,7 @@ function renderCharacters() {
       selected = character;
       renderCharacters();
       renderSelected();
-      if (selected?.stages?.facepatch?.status === "complete") {
+      if (selected?.stages?.rig2d?.status === "complete") {
         action(loadPreview);
       } else {
         $("#empty-preview").hidden = false;
@@ -157,12 +161,17 @@ async function loadPreview(expressionKey) {
     mouthKey: mouth,
   });
   previewUrls.forEach((url) => URL.revokeObjectURL(url));
-  previewUrls = [bytesUrl(assets.model, "model/gltf-binary"), bytesUrl(assets.texture, "image/png")];
-  if (assets.blinkTexture) previewUrls.push(bytesUrl(assets.blinkTexture, "image/png"));
+  const rigUrl = bytesUrl(assets.rig, "application/json");
+  const partUrls = {};
+  previewUrls = [rigUrl];
+  for (const [name, bytes] of Object.entries(assets.parts)) {
+    const url = bytesUrl(bytes, "image/png");
+    previewUrls.push(url);
+    partUrls[name] = url;
+  }
   await renderer.applyState({
-    modelUrl: previewUrls[0],
-    textureUrl: previewUrls[1],
-    blinkTextureUrl: previewUrls[2],
+    rigUrl,
+    partUrls,
     expressionKey: expression,
     mouthKey: mouth,
     crossfadeMs: 160,
@@ -263,33 +272,33 @@ $("#voice-chat").addEventListener("click", () => action(async () => {
   await loadPreview(result.expressionKey);
   log("音声認識→会話→表情切替をローカルで完了しました");
 }));
-$("#start-obs").addEventListener("click", () => action(async () => {
-  const url = await invoke("start_obs", {
-    characterId: requireCharacter().characterId,
-    expressionKey: $("#preview-expression").value,
-    mouthKey: $("#preview-mouth").value,
-    framing: framing(),
-  });
-  $("#obs-url").textContent = url + " をOBSブラウザソースへ追加してください";
-}));
-$("#stop-obs").addEventListener("click", () => action(async () => {
-  await invoke("stop_obs");
-  $("#obs-url").textContent = "停止しました";
-}));
-
 for (const id of ["yaw", "pitch", "scale", "left-arm", "right-arm"]) {
   $("#" + id).addEventListener("input", () => {
     $("#" + id + "-value").textContent = $("#" + id).value;
   });
 }
 
-await listen("pipeline-progress", (event) => log(event.payload));
+$("#save-sam-batch").addEventListener("click", () => action(async () => {
+  const value = Number($("#sam-batch").value);
+  if (!Number.isInteger(value) || value < 1 || value > 64) throw new Error("同時処理点数は1〜64の整数です");
+  const config = await invoke("get_config");
+  config.ai.sam2_points_per_batch = value;
+  for (const [id,key] of [["sam-iou","sam2_pred_iou_threshold"],["sam-stability","sam2_stability_threshold"]]) {
+    const threshold = Number($("#"+id).value);
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) throw new Error("候補閾値は0〜1で指定してください");
+    config.ai[key] = threshold;
+  }
+  await invoke("save_config", {config});
+  log("保存しました。次回のレイヤー分解から反映します。");
+}));
+const unlistenPipeline = await listen("pipeline-progress", (event) => log(event.payload));
 addEventListener("beforeunload", () => {
+  unlistenPipeline();
   previewUrls.forEach((url) => URL.revokeObjectURL(url));
   if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
   renderer.dispose();
 });
 await action(refresh);
-if (selected?.stages?.facepatch?.status === "complete") {
+if (selected?.stages?.rig2d?.status === "complete") {
   await action(loadPreview);
 }

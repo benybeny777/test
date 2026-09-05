@@ -1,254 +1,144 @@
-import * as THREE from "/shared/vendor/three/three.module.min.js";
-import { GLTFLoader } from "/shared/vendor/three/addons/loaders/GLTFLoader.js";
+import * as THREE from "./vendor/three/three.module.min.js";
+import {localAssetUrl, loadLocalJson} from "./local-assets.js";
 
-const vertexShader = `
-  varying vec2 vUv;
-  #include <common>
-  #include <skinning_pars_vertex>
-  void main() {
-    vUv = uv;
-    vec3 transformed = vec3(position);
-    #include <skinbase_vertex>
-    #include <skinning_vertex>
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
-  }
-`;
-
-const fragmentShader = `
-  uniform sampler2D fromMap;
-  uniform sampler2D toMap;
-  uniform float blendAmount;
-  varying vec2 vUv;
-  void main() {
-    gl_FragColor = mix(texture2D(fromMap, vUv), texture2D(toMap, vUv), blendAmount);
-  }
-`;
-
-export function createAvatarRenderer(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setClearColor(0x000000, 0);
-  renderer.setPixelRatio(devicePixelRatio);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  const scene = new THREE.Scene();
-  const camera = new THREE.OrthographicCamera(-0.7, 0.7, 0.7, -0.7, 0.01, 100);
-  camera.position.set(0, 0, 3);
-  camera.lookAt(0, 0, 0);
-  const clock = new THREE.Clock();
-  let model;
-  let modelRoot;
-  let modelUrl;
-  let mixer;
-  let baseTexture;
-  let blinkTexture;
-  let textureUrl;
-  let blinkTextureUrl;
-  let transition;
-  let blinkStart = 0;
-  let nextBlink = Number.POSITIVE_INFINITY;
-  let state = {};
-  let disposed = false;
-  let animationFrame;
-  const resizeObserver = new ResizeObserver(resize);
-  let revision = 0;
-  const poseBones = new Map();
-  const baseBoneRotations = new Map();
-  const textureCache = new Map();
-
-  function resize() {
-    const width = Math.max(1, canvas.clientWidth || innerWidth);
-    const height = Math.max(1, canvas.clientHeight || innerHeight);
-    const aspect = width / height;
-    camera.left = -0.7 * aspect;
-    camera.right = 0.7 * aspect;
-    camera.top = 0.7;
-    camera.bottom = -0.7;
-    camera.updateProjectionMatrix();
-    renderer.setSize(width, height, false);
-  }
-
-  function materialFor(texture) {
-    return new THREE.ShaderMaterial({
-      uniforms: {
-        fromMap: { value: texture },
-        toMap: { value: texture },
-        blendAmount: { value: 1 },
-      },
-      vertexShader,
-      fragmentShader,
-      transparent: true,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
-  }
-
-  function setMaterialTextures(from, to, amount) {
-    model?.traverse((object) => {
-      if (!object.isMesh) return;
-      object.material.uniforms.fromMap.value = from;
-      object.material.uniforms.toMap.value = to;
-      object.material.uniforms.blendAmount.value = amount;
-    });
-  }
-
-  async function loadTexture(url) {
-    if (!textureCache.has(url)) {
-      const pending = new THREE.TextureLoader().loadAsync(url).then((texture) => {
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.flipY = false;
-        texture.needsUpdate = true;
-        return texture;
-      });
-      textureCache.set(url, pending);
-      pending.catch(() => textureCache.delete(url));
-    }
-    return textureCache.get(url);
-  }
-
-  async function applyState(nextState) {
-    const currentRevision = ++revision;
-    state = nextState;
-    if (!model || modelUrl !== nextState.modelUrl) {
-      const loaded = await new GLTFLoader().loadAsync(nextState.modelUrl);
-      if (currentRevision !== revision) {
-        disposeModel(loaded.scene);
-        return;
-      }
-      disposeModel(model);
-      if (modelRoot) scene.remove(modelRoot);
-      model = loaded.scene;
-      modelUrl = nextState.modelUrl;
-      mixer = loaded.animations.length ? new THREE.AnimationMixer(model) : undefined;
-      if (mixer) mixer.clipAction(loaded.animations[0]).play();
-      poseBones.clear();
-      baseBoneRotations.clear();
-      model.traverse((object) => {
-        if (object.isBone && object.name) {
-          poseBones.set(object.name, object);
-          baseBoneRotations.set(object.name, object.quaternion.clone());
-        }
-        if (!object.isMesh) return;
-        object.material?.dispose();
-        object.material = materialFor(baseTexture);
-      });
-      const bounds = new THREE.Box3().setFromObject(model);
-      const center = bounds.getCenter(new THREE.Vector3());
-      const size = bounds.getSize(new THREE.Vector3());
-      const focusY = bounds.min.y + size.y * 0.62;
-      model.position.set(-center.x, -focusY, -center.z);
-      modelRoot = new THREE.Group();
-      modelRoot.add(model);
-      scene.add(modelRoot);
-    }
-    if (!baseTexture || textureUrl !== nextState.textureUrl) {
-      const nextTexture = await loadTexture(nextState.textureUrl);
-      if (currentRevision !== revision) return;
-      const previous = baseTexture;
-      baseTexture = nextTexture;
-      textureUrl = nextState.textureUrl;
-      transition = previous ? { from: previous, to: nextTexture, start: performance.now() } : undefined;
-      setMaterialTextures(previous ?? nextTexture, nextTexture, previous ? 0 : 1);
-    }
-    if (blinkTextureUrl !== nextState.blinkTextureUrl) {
-      blinkTexture = nextState.blinkTextureUrl
-        ? await loadTexture(nextState.blinkTextureUrl)
-        : undefined;
-      if (currentRevision !== revision) return;
-      blinkTextureUrl = nextState.blinkTextureUrl;
-      nextBlink = performance.now() + randomBlinkDelay(state);
-    }
-  }
-
-  function render(now) {
-    if (disposed) return;
-    mixer?.update(clock.getDelta());
-    applyArmPose(state.armPose);
-    if (transition) {
-      const duration = Math.max(1, state.crossfadeMs ?? 160);
-      const amount = Math.min(1, (now - transition.start) / duration);
-      setMaterialTextures(transition.from, transition.to, amount);
-      if (amount >= 1) {
-        transition = undefined;
-      }
-    } else if (blinkTexture && now >= nextBlink) {
-      if (!blinkStart) blinkStart = now;
-      const duration = Math.max(1, state.blinkDurationMs ?? 140);
-      const progress = (now - blinkStart) / duration;
-      if (progress >= 1) {
-        setMaterialTextures(baseTexture, baseTexture, 1);
-        blinkStart = 0;
-        nextBlink = now + randomBlinkDelay(state);
-      } else {
-        const amount = 1 - Math.abs(progress * 2 - 1);
-        setMaterialTextures(baseTexture, blinkTexture, amount);
-      }
-    }
-    if (modelRoot) {
-      const period = Math.max(100, state.idleSwayPeriodMs ?? 4200);
-      const sway = Math.sin((now / period) * Math.PI * 2);
-      const degrees = state.idleSwayDegrees ?? 0.7;
-      modelRoot.rotation.z = THREE.MathUtils.degToRad(sway * degrees);
-      modelRoot.rotation.y = THREE.MathUtils.degToRad((state.yaw ?? 0) + sway * degrees * 0.35);
-      modelRoot.rotation.x = THREE.MathUtils.degToRad(state.pitch ?? 0);
-      modelRoot.scale.setScalar(state.scale ?? 1);
-      modelRoot.position.set(state.offsetX ?? 0, state.offsetY ?? 0, 0);
-    }
-    renderer.render(scene, camera);
-    animationFrame = requestAnimationFrame(render);
-  }
-
-  function applyArmPose(pose) {
-    if (!pose) return;
-    for (const [name, degrees] of Object.entries(pose)) {
-      const bone = poseBones.get(name);
-      const base = baseBoneRotations.get(name);
-      if (!bone || !base || !Array.isArray(degrees) || degrees.length !== 3) continue;
-      const isZero = degrees.every((value) => Math.abs(value) < 0.0001);
-      if (isZero && name === "head") continue;
-      if (isZero) {
-        bone.quaternion.copy(base);
-        continue;
-      }
-      const offset = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(...degrees.map(THREE.MathUtils.degToRad), "XYZ"),
-      );
-      bone.quaternion.copy(base).multiply(offset);
-    }
-  }
-
-  function dispose() {
-    disposed = true;
-    cancelAnimationFrame(animationFrame);
-    removeEventListener("resize", resize);
-    resizeObserver.disconnect();
-    mixer?.stopAllAction();
-    disposeModel(model);
-    for (const pending of textureCache.values()) {
-      pending
-        .then((texture) => texture.dispose())
-        .catch((error) => console.error("テクスチャ解放前の読み込みに失敗しました", error));
-    }
-    textureCache.clear();
-    renderer.dispose();
-    renderer.forceContextLoss();
-  }
-
-  addEventListener("resize", resize);
-  resizeObserver.observe(canvas);
-  resize();
-  animationFrame = requestAnimationFrame(render);
-  return { applyState, dispose };
-}
+const MOUTHS = { close: [0,0], a:[1,0], i:[.28,.9], u:[.5,-.9], e:[.55,.65], o:[.9,-.7] };
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const smooth = (a,b,x) => { const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
 
 export function randomBlinkDelay(state, random = Math.random) {
-  const minimum = state.blinkMinMs ?? 2800;
-  const maximum = Math.max(minimum, state.blinkMaxMs ?? 6500);
-  return minimum + random() * (maximum - minimum);
+  const low=state.blinkMinMs ?? 2800;
+  return low+random()*Math.max(0,(state.blinkMaxMs ?? 6500)-low);
 }
 
-function disposeModel(model) {
-  model?.traverse((object) => {
-    if (!object.isMesh) return;
-    object.geometry?.dispose();
-    object.material?.dispose();
-  });
+export function createAvatarRenderer(canvas) {
+  const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+  renderer.setClearColor(0,0);
+  renderer.setPixelRatio(devicePixelRatio || 1);
+  const scene=new THREE.Scene();
+  const camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);
+  camera.position.z=2;
+  const sheet=document.createElement("canvas");
+  const ctx=sheet.getContext("2d");
+  let rig,mesh,texture,images=new Map(),state={},revision=0,disposed=false,frame;
+  let nextBlink=Infinity,lastAppearance="";
+  const observer=new ResizeObserver(resize);
+  function resize() {
+    renderer.setSize(Math.max(1,canvas.clientWidth),Math.max(1,canvas.clientHeight),false);
+  }
+  function release() {
+    if(mesh) { scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();mesh=null; }
+    texture?.dispose(); texture=null;images.clear();
+  }
+  async function applyState(next) {
+    const token=++revision;
+    if(next.rigUrl!==state.rigUrl || !rig) {
+      const incoming=await loadLocalJson(next.rigUrl);
+      if(incoming.schema_version!==2) throw new Error("旧リグです。分解工程から再生成してください");
+      const loaded=await Promise.all(["neutral","left_eye_closed","right_eye_closed","mouth_open"].map(async name=>{
+        const layer=incoming.layers[name];
+        if(!layer) throw new Error(`必須レイヤーがありません: ${name}`);
+        const src=next.partUrls?.[name] ?? layer.url;
+        const asset=localAssetUrl(src);
+        const image=new Image();image.src=asset.href;await image.decode();
+        if(image.naturalWidth!==incoming.canvas.width || image.naturalHeight!==incoming.canvas.height) throw new Error(`レイヤー寸法が一致しません: ${name}`);
+        return [name,image];
+      }));
+      if(disposed || token!==revision) return;
+      release();rig=incoming;images=new Map(loaded);
+      sheet.width=rig.canvas.width;sheet.height=rig.canvas.height;
+      texture=new THREE.CanvasTexture(sheet);
+      texture.colorSpace=THREE.SRGBColorSpace;
+      const geometry=new THREE.PlaneGeometry(sheet.width,sheet.height,64,96);
+      const material=new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false});
+      mesh=new THREE.Mesh(geometry,material);mesh.frustumCulled=false;scene.add(mesh);
+      nextBlink=performance.now()+randomBlinkDelay(next);
+      lastAppearance="";
+    }
+    state={...next};
+  }
+  function appearance(left,right,open,form) {
+    const key=[left,right,open,form].map(v=>v.toFixed(3)).join(",");
+    if(key===lastAppearance) return;
+    lastAppearance=key;
+    ctx.clearRect(0,0,sheet.width,sheet.height);
+    // 重複部位の半透明画素を重ねず、中立は原画のアルファを完全保持する。
+    ctx.drawImage(images.get("neutral"),0,0);
+    for(const [name,alpha] of [["left_eye_closed",left],["right_eye_closed",right]]) {
+      ctx.globalAlpha=alpha;ctx.drawImage(images.get(name),0,0);
+    }
+    ctx.globalAlpha=1;
+    if(open>0) {
+      // 下地は変形させず、元の口を消した同じ座標へ合成する。
+      ctx.globalAlpha=Math.min(1,open*8);
+      ctx.drawImage(images.get("mouth_open"),0,0);ctx.globalAlpha=1;
+      const layer=rig.layers.mouth_open;
+      const box=layer.feature_box;
+      if(!box) throw new Error("口の実測座標がありません");
+      const [l,t,r,b]=box,cx=(l+r)/2,cy=(t+b)/2;
+      const halfWidth=(r-l)*.46*(1+form*.32),halfHeight=(r-l)*.32*open;
+      const color=layer.line_color ?? [100,35,45];
+      ctx.beginPath();ctx.ellipse(cx,cy,halfWidth,Math.max(.3,halfHeight),0,0,Math.PI*2);
+      ctx.fillStyle="rgb(75,25,38)";ctx.fill();
+      ctx.strokeStyle=`rgb(${color[0]},${color[1]},${color[2]})`;
+      ctx.lineWidth=Math.max(1,(r-l)*.055);ctx.stroke();
+      ctx.save();ctx.clip();
+      ctx.fillStyle="rgb(192,93,111)";
+      ctx.beginPath();ctx.ellipse(cx,cy+halfHeight*.7,halfWidth*.66,halfHeight*.43,0,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+    texture.needsUpdate=true;
+  }
+  function render(now) {
+    if(disposed) return;
+    if(rig) {
+      const duration=Math.max(1,state.blinkDurationMs ?? 180);
+      const phase=(now-nextBlink)/duration;
+      const blink=state.expressionKey==='blink' ? 1 : (phase>=0 && phase<=1 ? Math.sin(phase*Math.PI) : 0);
+      if(phase>1) nextBlink=now+randomBlinkDelay(state);
+      let [open,form]=MOUTHS[state.mouthKey] ?? MOUTHS.close;
+      open=clamp(state.mouthOpenY ?? open,0,1);form=clamp(state.mouthForm ?? form,-1,1);
+      appearance(state.eyeLOpen===undefined?blink:1-clamp(state.eyeLOpen,0,1),
+        state.eyeROpen===undefined?blink:1-clamp(state.eyeROpen,0,1),open,form);
+      const w=sheet.width,h=sheet.height,face=rig.layers.face.bbox;
+      const neck=face ? face[3] : h*.25;
+      const cx=face ? (face[0]+face[2])/2 : w/2;
+      const wave=Math.sin(now/(state.idleSwayPeriodMs ?? 4200)*Math.PI*2);
+      const sway=(state.idleSwayDegrees ?? .7)*wave;
+      const positions=mesh.geometry.attributes.position,uv=mesh.geometry.attributes.uv;
+      // 全パーツを同じ連続変位場へ通す。首・肩に独立回転の裂け目を作らない。
+      for(let i=0;i<positions.count;i++) {
+        const x=uv.getX(i)*w,y=(1-uv.getY(i))*h;
+        const head=1-smooth(neck*.75,neck*1.4,y);
+        let dx=head*clamp(state.yaw ?? 0,-30,30)*w*.00055;
+        let dy=head*clamp(state.pitch ?? 0,-30,30)*h*.00035;
+        dx+=(h-y)/h*sway*w*.002;
+        const side=x<cx?"left":"right";
+        const arm=rig.layers[side+"_arm"].bbox;
+        if(arm) {
+          const shoulder=arm[1]+(arm[3]-arm[1])*.10;
+          const influence=smooth(w*.06,w*.26,Math.abs(x-cx))*smooth(shoulder,shoulder+(arm[3]-shoulder)*.45,y);
+          const angle=clamp(state.armPose?.[side+"UpperArm"]?.[2] ?? 0,-30,30)*Math.PI/180;
+          dx+=-(y-shoulder)*Math.sin(angle)*influence;
+          dy+=(y-shoulder)*(Math.cos(angle)-1)*influence;
+        }
+        const hair=(state.hairSway ?? wave)*(state.idleSwayDegrees ?? .7);
+        dx+=hair*w*.001*head*smooth(w*.045,w*.13,Math.abs(x-cx));
+        positions.setXYZ(i,x-w/2+dx,h/2-y-dy,0);
+      }
+      positions.needsUpdate=true;
+      const cw=Math.max(1,canvas.clientWidth),ch=Math.max(1,canvas.clientHeight);
+      camera.left=-cw/2;camera.right=cw/2;camera.top=ch/2;camera.bottom=-ch/2;camera.updateProjectionMatrix();
+      const fit=Math.min(cw/w,ch/h)*(state.scale ?? 1);
+      mesh.scale.setScalar(fit);mesh.position.set(state.offsetX ?? 0,-(state.offsetY ?? 0),0);
+      renderer.render(scene,camera);
+    }
+    frame=requestAnimationFrame(render);
+  }
+  function dispose() {
+    disposed=true;++revision;cancelAnimationFrame(frame);observer.disconnect();
+    release();renderer.dispose();renderer.forceContextLoss();
+    sheet.width=sheet.height=0;
+  }
+  observer.observe(canvas);resize();frame=requestAnimationFrame(render);
+  return {applyState,dispose};
 }

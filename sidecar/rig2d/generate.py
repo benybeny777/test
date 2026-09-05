@@ -6,19 +6,24 @@ import argparse
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 
 
 LOGGER = logging.getLogger("local_vtuber_studio.rig2d")
 REQUIRED_PARTS = {
+    "neutral",
     "back_hair",
     "body",
     "left_arm",
     "right_arm",
     "face",
     "front_hair",
+    "side_hair",
     "left_eye_open",
     "right_eye_open",
+    "left_eye_closed",
+    "right_eye_closed",
     "mouth_closed",
     "mouth_open",
 }
@@ -32,8 +37,15 @@ def create_rig(manifest_path: Path, output_path: Path) -> Path:
     missing = sorted(REQUIRED_PARTS - parts.keys())
     if missing:
         raise ValueError(f"2.5Dリグの必須部位がありません: {', '.join(missing)}")
+    output_parts = output_path.parent / "parts"
+    output_parts.mkdir(parents=True, exist_ok=True)
+    for name, part in parts.items():
+        source = manifest_path.parent / part["path"]
+        if not source.is_file():
+            raise ValueError(f"2.5D部位画像がありません: {name}")
+        shutil.copy2(source, output_parts / f"{name}.png")
     rig = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": "lvs-anime25d-v1",
         "canvas": manifest["canvas"],
         "layers_manifest": os.path.relpath(
@@ -43,7 +55,30 @@ def create_rig(manifest_path: Path, output_path: Path) -> Path:
             part["name"]
             for part in sorted(parts.values(), key=lambda value: value["z_index"])
         ],
-        "parameters": {},
+        "layers": {
+            name: {
+                "url": f"/assets/rig2d/parts/{name}.png",
+                "pivot": parts[name]["pivot"],
+                "bbox": parts[name].get("bbox"),
+                "feature_box": parts[name].get("feature_box"),
+                "line_color": parts[name].get("line_color"),
+                "z_index": parts[name]["z_index"],
+            }
+            for name in parts
+        },
+        "parameters": {
+            "EyeLOpen": {"min": 0.0, "default": 1.0, "max": 1.0},
+            "EyeROpen": {"min": 0.0, "default": 1.0, "max": 1.0},
+            "MouthOpenY": {"min": 0.0, "default": 0.0, "max": 1.0},
+            "MouthForm": {"min": -1.0, "default": 0.0, "max": 1.0},
+            "AngleX": {"min": -30.0, "default": 0.0, "max": 30.0},
+            "AngleY": {"min": -30.0, "default": 0.0, "max": 30.0},
+            "AngleZ": {"min": -15.0, "default": 0.0, "max": 15.0},
+            "BodyAngleZ": {"min": -10.0, "default": 0.0, "max": 10.0},
+            "ArmLAngle": {"min": -45.0, "default": 0.0, "max": 45.0},
+            "ArmRAngle": {"min": -45.0, "default": 0.0, "max": 45.0},
+            "HairSway": {"min": -1.0, "default": 0.0, "max": 1.0},
+        },
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(

@@ -12,6 +12,9 @@ pub const SETTING_KEYS: &[&str] = &[
     "ai.mesh_model",
     "ai.models_dir",
     "ai.sam2_model",
+    "ai.sam2_points_per_batch",
+    "ai.sam2_pred_iou_threshold",
+    "ai.sam2_stability_threshold",
     "ai.stt_model",
     "avatar.blink_duration_ms",
     "avatar.blink_max_ms",
@@ -49,9 +52,6 @@ pub const SETTING_KEYS: &[&str] = &[
     "lipsync.smoothing_frames",
     "lipsync.volume_gate_db",
     "lipsync.window_samples",
-    "obs.enabled",
-    "obs.port_range_end",
-    "obs.port_range_start",
     "pipeline.atlas_resolution",
     "pipeline.capture_resolution",
     "pipeline.keep_intermediates",
@@ -74,7 +74,6 @@ pub struct AppConfig {
     pub import: ImportConfig,
     pub lipsync: LipSyncConfig,
     pub vad: VadConfig,
-    pub obs: ObsConfig,
     pub pipeline: PipelineConfig,
 }
 
@@ -113,6 +112,9 @@ pub struct AiConfig {
     pub blink_denoise: f32,
     pub mesh_model: String,
     pub sam2_model: String,
+    pub sam2_points_per_batch: u32,
+    pub sam2_pred_iou_threshold: f32,
+    pub sam2_stability_threshold: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -163,7 +165,8 @@ struct ConfigFile {
     import: Option<ImportConfig>,
     lipsync: Option<LipSyncConfigFile>,
     vad: Option<VadConfigFile>,
-    obs: Option<ObsConfigFile>,
+    // OBS機能廃止前の設定ファイルを壊さず読み捨てる。
+    obs: Option<serde_json::Value>,
     pipeline: Option<PipelineConfig>,
 }
 
@@ -232,22 +235,6 @@ struct VadConfigFile {
     max_seconds: Option<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields)]
-pub struct ObsConfig {
-    pub enabled: bool,
-    pub port_range_start: u16,
-    pub port_range_end: u16,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct ObsConfigFile {
-    enabled: Option<bool>,
-    port_range_start: Option<u16>,
-    port_range_end: Option<u16>,
-}
-
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
@@ -298,6 +285,9 @@ impl Default for AiConfig {
             blink_denoise: 0.85,
             mesh_model: "triposr".into(),
             sam2_model: "sam2.1-hiera-tiny".into(),
+            sam2_points_per_batch: 8,
+            sam2_pred_iou_threshold: 0.7,
+            sam2_stability_threshold: 0.85,
         }
     }
 }
@@ -361,16 +351,6 @@ impl Default for VadConfig {
             end_silence_seconds: 0.9,
             min_seconds: 0.5,
             max_seconds: 6.0,
-        }
-    }
-}
-
-impl Default for ObsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            port_range_start: 58090,
-            port_range_end: 58099,
         }
     }
 }
@@ -533,6 +513,9 @@ impl AppConfig {
         string_environment!("LVS_AI_STT_MODEL", self.ai.stt_model);
         string_environment!("LVS_AI_MESH_MODEL", self.ai.mesh_model);
         string_environment!("LVS_AI_SAM2_MODEL", self.ai.sam2_model);
+        parse_environment!("LVS_AI_SAM2_POINTS_PER_BATCH", self.ai.sam2_points_per_batch, u32);
+        parse_environment!("LVS_AI_SAM2_PRED_IOU_THRESHOLD", self.ai.sam2_pred_iou_threshold, f32);
+        parse_environment!("LVS_AI_SAM2_STABILITY_THRESHOLD", self.ai.sam2_stability_threshold, f32);
         string_environment!("LVS_COMFY_WORKFLOW_DIR", self.comfy.workflow_dir);
         parse_environment!("LVS_AI_IMAGE_DENOISE", self.ai.image_denoise, f32);
         parse_environment!("LVS_AI_BLINK_DENOISE", self.ai.blink_denoise, f32);
@@ -594,9 +577,6 @@ impl AppConfig {
         );
         parse_environment!("LVS_VAD_MIN_SECONDS", self.vad.min_seconds, f32);
         parse_environment!("LVS_VAD_MAX_SECONDS", self.vad.max_seconds, f32);
-        parse_environment!("LVS_OBS_ENABLED", self.obs.enabled, bool);
-        parse_environment!("LVS_OBS_PORT_RANGE_START", self.obs.port_range_start, u16);
-        parse_environment!("LVS_OBS_PORT_RANGE_END", self.obs.port_range_end, u16);
         Ok(())
     }
 
@@ -655,11 +635,7 @@ impl AppConfig {
             apply_optional(&mut self.vad.min_seconds, vad.min_seconds);
             apply_optional(&mut self.vad.max_seconds, vad.max_seconds);
         }
-        if let Some(obs) = file.obs {
-            apply_optional(&mut self.obs.enabled, obs.enabled);
-            apply_optional(&mut self.obs.port_range_start, obs.port_range_start);
-            apply_optional(&mut self.obs.port_range_end, obs.port_range_end);
-        }
+        let _ = file.obs;
         if let Some(value) = file.pipeline {
             self.pipeline = value;
         }
@@ -692,6 +668,9 @@ impl AppConfig {
             || !self.comfy.unload_before_mesh
             || !(0.0..=1.0).contains(&self.ai.image_denoise)
             || !(0.0..=1.0).contains(&self.ai.blink_denoise)
+            || !(1..=64).contains(&self.ai.sam2_points_per_batch)
+            || !(0.0..=1.0).contains(&self.ai.sam2_pred_iou_threshold)
+            || !(0.0..=1.0).contains(&self.ai.sam2_stability_threshold)
         {
             return Err(ConfigError::Validation("AI/ComfyUI設定が範囲外です".into()));
         }
@@ -761,9 +740,6 @@ impl AppConfig {
             || self.vad.max_seconds < self.vad.min_seconds
         {
             return Err(ConfigError::Validation("vad設定が範囲外です".into()));
-        }
-        if self.obs.port_range_start > self.obs.port_range_end {
-            return Err(ConfigError::Validation("obsポート範囲が逆です".into()));
         }
         Ok(())
     }
@@ -892,19 +868,17 @@ mod tests {
     }
 
     #[test]
-    fn persists_avatar_lipsync_vad_and_obs_settings() {
+    fn persists_avatar_lipsync_and_vad_settings() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.json");
         let mut config = AppConfig::default();
         config.avatar.crossfade_ms = 240;
         config.lipsync.smoothing_frames = 6;
         config.vad.max_seconds = 8.0;
-        config.obs.enabled = true;
         config.save(&path).unwrap();
         let loaded = AppConfig::load_with_environment(&path, |_| None).unwrap();
         assert_eq!(loaded.avatar.crossfade_ms, 240);
         assert_eq!(loaded.lipsync.smoothing_frames, 6);
         assert_eq!(loaded.vad.max_seconds, 8.0);
-        assert!(loaded.obs.enabled);
     }
 }

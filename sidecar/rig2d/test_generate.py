@@ -19,19 +19,29 @@ class RigCreationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest = root / "manifest.json"
+            parts_dir = root / "parts"
+            parts_dir.mkdir()
             parts = [
-                {"name": name, "z_index": index}
+                {
+                    "name": name,
+                    "z_index": index,
+                    "pivot": [0.5, 0.5],
+                    "path": f"parts/{name}.png",
+                }
                 for index, name in enumerate(sorted(MODULE.REQUIRED_PARTS))
             ]
+            for part in parts:
+                (root / part["path"]).write_bytes(b"png")
             manifest.write_text(
                 json.dumps({"canvas": {"width": 80, "height": 120}, "parts": parts}),
                 encoding="utf-8",
             )
-            output = MODULE.create_rig(manifest, root / "rig.json")
+            output = MODULE.create_rig(manifest, root / "output" / "rig.json")
             rig = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(rig["profile"], "lvs-anime25d-v1")
             self.assertEqual(set(rig["draw_order"]), MODULE.REQUIRED_PARTS)
             self.assertFalse(Path(rig["layers_manifest"]).is_absolute())
+            self.assertTrue((root / "output" / "parts" / "mouth_open.png").is_file())
 
     def test_rejects_missing_parts(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -18,6 +18,9 @@
 | `ai.llm_model` | string | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | `LVS_AI_LLM_MODEL` | 空文字不可 | 次回会話 |
 | `ai.mesh_model` | string | `triposr` | `LVS_AI_MESH_MODEL` | 空文字不可 | 次回生成 |
 | `ai.sam2_model` | string | `sam2.1-hiera-tiny` | `LVS_AI_SAM2_MODEL` | 空文字不可 | 次回レイヤー分解 |
+| `ai.sam2_points_per_batch` | u32 | 8 | `LVS_AI_SAM2_POINTS_PER_BATCH` | 1〜64。探索点総数・原画解像度は変えない | 次回レイヤー分解 |
+| `ai.sam2_pred_iou_threshold` | f32 | 0.7 | `LVS_AI_SAM2_PRED_IOU_THRESHOLD` | 0〜1。候補生成時の予測IoU閾値 | 次回レイヤー分解 |
+| `ai.sam2_stability_threshold` | f32 | 0.85 | `LVS_AI_SAM2_STABILITY_THRESHOLD` | 0〜1。候補生成時の安定性閾値 | 次回レイヤー分解 |
 | `ai.models_dir` | path | `models` | `LVS_AI_MODELS_DIR` | 相対または絶対 | 次回実行 |
 | `ai.stt_model` | string | `ggml-small.bin` | `LVS_AI_STT_MODEL` | 空文字不可 | 次回認識 |
 | `avatar.blink_duration_ms` | u32 | 140 | `LVS_AVATAR_BLINK_DURATION_MS` | 50〜2000 | 即時 |
@@ -56,9 +59,6 @@
 | `lipsync.smoothing_frames` | u32 | 4 | `LVS_LIPSYNC_SMOOTHING_FRAMES` | 1〜30 | 即時 |
 | `lipsync.volume_gate_db` | f32 | -40.0 | `LVS_LIPSYNC_VOLUME_GATE_DB` | -100〜0 | 即時 |
 | `lipsync.window_samples` | u32 | 512 | `LVS_LIPSYNC_WINDOW_SAMPLES` | 64以上の2の累乗 | 再接続時 |
-| `obs.enabled` | bool | false | `LVS_OBS_ENABLED` | true / false | 即時 |
-| `obs.port_range_end` | u16 | 58099 | `LVS_OBS_PORT_RANGE_END` | 開始以上 | 再起動時 |
-| `obs.port_range_start` | u16 | 58090 | `LVS_OBS_PORT_RANGE_START` | 終了以下 | 再起動時 |
 | `pipeline.atlas_resolution` | u32 | 2048 | `LVS_PIPELINE_ATLAS_RESOLUTION` | 64〜8192 | 次回生成 |
 | `pipeline.capture_resolution` | u32 | 1024 | `LVS_PIPELINE_CAPTURE_RESOLUTION` | 64〜4096 | 次回生成 |
 | `pipeline.keep_intermediates` | bool | true | `LVS_PIPELINE_KEEP_INTERMEDIATES` | true固定 | 次回生成 |
