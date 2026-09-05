@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from PIL import Image
 
 
 MODULE_PATH = Path(__file__).with_name("generate.py")
@@ -26,14 +27,15 @@ class RigCreationTests(unittest.TestCase):
                     "name": name,
                     "z_index": index,
                     "pivot": [0.5, 0.5],
+                    "bbox": [0, 0, 80, 120],
                     "path": f"parts/{name}.png",
                 }
                 for index, name in enumerate(sorted(MODULE.REQUIRED_PARTS))
             ]
             for part in parts:
-                (root / part["path"]).write_bytes(b"png")
+                Image.new("RGBA", (80, 120), (100, 90, 80, 255)).save(root / part["path"])
             manifest.write_text(
-                json.dumps({"canvas": {"width": 80, "height": 120}, "parts": parts}),
+                json.dumps({"schema_version": 2, "canvas": {"width": 80, "height": 120}, "parts": parts}),
                 encoding="utf-8",
             )
             output = MODULE.create_rig(manifest, root / "output" / "rig.json")
@@ -42,13 +44,34 @@ class RigCreationTests(unittest.TestCase):
             self.assertEqual(set(rig["draw_order"]), MODULE.REQUIRED_PARTS)
             self.assertFalse(Path(rig["layers_manifest"]).is_absolute())
             self.assertTrue((root / "output" / "parts" / "mouth_open.png").is_file())
+            original = output.read_bytes()
+            for defect in ("empty", "size", "corrupt", "duplicate", "outside"):
+                with self.subTest(defect=defect):
+                    data = json.loads(manifest.read_text(encoding="utf-8"))
+                    target = root / parts[-1]["path"]
+                    Image.new("RGBA", (80, 120), (100, 90, 80, 255)).save(target)
+                    if defect == "empty":
+                        Image.new("RGBA", (80, 120)).save(target)
+                    elif defect == "size":
+                        Image.new("RGBA", (40, 60), (1, 2, 3, 255)).save(target)
+                    elif defect == "corrupt":
+                        target.write_bytes(b"png")
+                    elif defect == "duplicate":
+                        data["parts"].append(data["parts"][0])
+                    else:
+                        data["parts"][-1]["path"] = "../outside.png"
+                    manifest.write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertRaises((ValueError, OSError)):
+                        MODULE.create_rig(manifest, output)
+                    self.assertEqual(output.read_bytes(), original)
+                    manifest.write_text(json.dumps({"schema_version": 2, "canvas": {"width": 80, "height": 120}, "parts": parts}), encoding="utf-8")
 
     def test_rejects_missing_parts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest = root / "manifest.json"
             manifest.write_text(
-                json.dumps({"canvas": {"width": 1, "height": 1}, "parts": []}),
+                json.dumps({"schema_version": 2, "canvas": {"width": 1, "height": 1}, "parts": []}),
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "必須部位"):

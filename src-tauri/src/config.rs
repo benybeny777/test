@@ -157,7 +157,7 @@ pub struct DisplayConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ConfigFile {
-    ai: Option<AiConfig>,
+    ai: Option<AiConfigFile>,
     avatar: Option<AvatarConfigFile>,
     comfy: Option<ComfyConfig>,
     display: Option<DisplayConfigFile>,
@@ -168,6 +168,21 @@ struct ConfigFile {
     // OBS機能廃止前の設定ファイルを壊さず読み捨てる。
     obs: Option<serde_json::Value>,
     pipeline: Option<PipelineConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct AiConfigFile {
+    models_dir: Option<String>,
+    llm_model: Option<String>,
+    stt_model: Option<String>,
+    image_denoise: Option<f32>,
+    blink_denoise: Option<f32>,
+    mesh_model: Option<String>,
+    sam2_model: Option<String>,
+    sam2_points_per_batch: Option<u32>,
+    sam2_pred_iou_threshold: Option<f32>,
+    sam2_stability_threshold: Option<f32>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -582,7 +597,16 @@ impl AppConfig {
 
     fn apply_file(&mut self, file: ConfigFile) {
         if let Some(value) = file.ai {
-            self.ai = value;
+            apply_optional(&mut self.ai.models_dir, value.models_dir);
+            apply_optional(&mut self.ai.llm_model, value.llm_model);
+            apply_optional(&mut self.ai.stt_model, value.stt_model);
+            apply_optional(&mut self.ai.image_denoise, value.image_denoise);
+            apply_optional(&mut self.ai.blink_denoise, value.blink_denoise);
+            apply_optional(&mut self.ai.mesh_model, value.mesh_model);
+            apply_optional(&mut self.ai.sam2_model, value.sam2_model);
+            apply_optional(&mut self.ai.sam2_points_per_batch, value.sam2_points_per_batch);
+            apply_optional(&mut self.ai.sam2_pred_iou_threshold, value.sam2_pred_iou_threshold);
+            apply_optional(&mut self.ai.sam2_stability_threshold, value.sam2_stability_threshold);
         }
         if let Some(avatar) = file.avatar {
             apply_optional(&mut self.avatar.crossfade_ms, avatar.crossfade_ms);
@@ -806,7 +830,7 @@ mod tests {
         };
         saved.save(&path).unwrap();
 
-        // The file is loaded after environment defaults, so it remains authoritative.
+        // 永続ファイルは環境変数の後に読み込み、指定したキーを優先する。
         let loaded = AppConfig::load_with_environment(&path, |key| match key {
             "LVS_DISPLAY_PREVIEW_FPS" => Some("24".into()),
             "LVS_DISPLAY_LANGUAGE" => Some("en".into()),
@@ -827,6 +851,20 @@ mod tests {
         })
         .unwrap();
         assert_eq!(loaded.display.preview_fps, 48);
+    }
+
+    #[test]
+    fn partial_ai_file_preserves_unspecified_environment_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        std::fs::write(&path, r#"{"ai":{"sam2_points_per_batch":4}}"#).unwrap();
+        let loaded = AppConfig::load_with_environment(&path, |key| match key {
+            "LVS_AI_SAM2_POINTS_PER_BATCH" => Some("16".into()),
+            "LVS_AI_SAM2_STABILITY_THRESHOLD" => Some("0.91".into()),
+            _ => None,
+        }).unwrap();
+        assert_eq!(loaded.ai.sam2_points_per_batch, 4);
+        assert_eq!(loaded.ai.sam2_stability_threshold, 0.91);
     }
 
     #[test]

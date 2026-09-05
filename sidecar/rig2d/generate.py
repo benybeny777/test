@@ -7,7 +7,9 @@ import json
 import logging
 import os
 import shutil
+import math
 from pathlib import Path
+from PIL import Image
 
 
 LOGGER = logging.getLogger("local_vtuber_studio.rig2d")
@@ -29,14 +31,58 @@ REQUIRED_PARTS = {
 }
 
 
+def validate_layers(manifest: dict, directory: Path) -> dict:
+    """コピー前に全素材を検査する。読めることと見た目の合格は分ける。"""
+    if manifest.get("schema_version") != 2:
+        raise ValueError("未対応のレイヤー形式です。分解工程を再実行してください")
+    canvas = manifest.get("canvas", {})
+    size = (canvas.get("width"), canvas.get("height"))
+    if any(type(value) is not int or value <= 0 for value in size):
+        raise ValueError("キャンバス寸法が不正です")
+    parts = {}
+    for part in manifest.get("parts", []):
+        name = part.get("name")
+        if name not in REQUIRED_PARTS or name in parts:
+            raise ValueError(f"部位名が不正または重複しています: {name}")
+        parts[name] = part
+    missing = sorted(REQUIRED_PARTS - parts.keys())
+    if missing:
+        raise ValueError(f"2.5Dリグの必須部位がありません: {', '.join(missing)}")
+    for name, part in parts.items():
+        relative = part.get("path")
+        if not isinstance(relative, str) or not relative:
+            raise ValueError(f"部位画像のパスがありません: {name}")
+        source = (directory / relative).resolve()
+        if not source.is_relative_to(directory.resolve()):
+            raise ValueError(f"部位画像がレイヤーディレクトリ外です: {name}")
+        with Image.open(source) as opened:
+            opened.load()
+            if opened.format != "PNG" or opened.mode != "RGBA" or opened.size != size:
+                raise ValueError(f"部位画像の形式または寸法が不正です: {name}")
+            if opened.getchannel("A").getbbox() is None:
+                raise ValueError(f"部位画像が全透明です: {name}")
+        for field, length in (("pivot", 2), ("bbox", 4)):
+            values = part.get(field)
+            if not isinstance(values, list) or len(values) != length or any(
+                isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                for value in values
+            ):
+                raise ValueError(f"部位の{field}が不正です: {name}")
+        left, top, right, bottom = part["bbox"]
+        if not (0 <= left < right <= size[0] and 0 <= top < bottom <= size[1]):
+            raise ValueError(f"部位のbboxがキャンバス外または空です: {name}")
+        if any(not 0 <= value <= 1 for value in part["pivot"]):
+            raise ValueError(f"部位のpivotが範囲外です: {name}")
+        if type(part.get("z_index")) is not int:
+            raise ValueError(f"部位の重なり順が不正です: {name}")
+    return parts
+
+
 def create_rig(manifest_path: Path, output_path: Path) -> Path:
     """レイヤーを検証し、T11で変形定義を追加できるリグJSONを保存する。"""
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    parts = {part["name"]: part for part in manifest.get("parts", [])}
-    missing = sorted(REQUIRED_PARTS - parts.keys())
-    if missing:
-        raise ValueError(f"2.5Dリグの必須部位がありません: {', '.join(missing)}")
+    parts = validate_layers(manifest, manifest_path.parent)
     output_parts = output_path.parent / "parts"
     output_parts.mkdir(parents=True, exist_ok=True)
     for name, part in parts.items():

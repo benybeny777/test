@@ -20,6 +20,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 - isolate は元のキャンバスを保つ。入力に明示された透過があれば保持し、不透明画像には背景除去を実行する。
 - decompose は監査済み固定版 SAM 2.1 Hiera Tiny の候補と画素解析から部位・目口位置を求める。
 - rig2d は manifest の座標と差分を lvs-anime25d-v1 へ引き継ぐ。schema_version 2 の必須中立画像と実測座標を確認する。
+- rig2d のコピー前検査でPNG/RGBA、原寸キャンバス、非空アルファ、部位名の重複、格納先、bbox・pivot・重なり順を検証する。メタデータの充足や候補スコアを見た目の合格に代用しない。
 - モデル候補を独断で変更しない。旧3D工程へ戻さない。
 - 診断用の個別スクリプト出力を製品成果物へ昇格しない。
 - GPU生成は1件ずつ行い、比較診断も同時実行しない。
