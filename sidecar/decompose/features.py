@@ -78,9 +78,12 @@ def repair_patch(rgba, box, support=None, target=None, protected=None):
         # 暗い髪・まつげを肌の境界条件へ流し込まない。周辺の実画素を使う。
         luminance=samples.mean(axis=2)
         valid=(~mask) & support[t:b,l:r] & (crop[:,:,3]>0)
+        if protected is not None:
+            valid &= ~protected[t:b,l:r]
         if valid.any():
             values=luminance[valid]
-            cutoff=np.quantile(values,.65)
+            median=np.median(values)
+            cutoff=median-max(12,2.5*np.median(np.abs(values-median)))
             donors=valid & (luminance>=cutoff)
             nearest=ndimage.distance_transform_edt(~donors,return_distances=False,return_indices=True)
             samples=np.where((luminance<cutoff)[...,None],samples[tuple(nearest)],samples)

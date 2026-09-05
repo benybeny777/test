@@ -6,7 +6,7 @@
 
 > **現在は2D/2.5D経路への移行中です。** `isolate → decompose → rig2d` で、原画・部位・目口差分と首/襟を分解し、schema_version 3 の `lvs-anime25d-v1` リグを生成します。テクスチャは原寸のまま透過余白だけを切り詰めます。目口の実測座標、口の2軸変形、小角度の動きを実装中です。**ひより相当の品質や機能単位の分割は未達・検証中**です。詳細は [docs/TASKS.md](docs/TASKS.md) T11/T12を参照してください。
 
-ローカルの[原画・描画比較ページ](ui/check.html)は、リポジトリを `sidecar/.venv/Scripts/python.exe -m http.server 8791 --bind 127.0.0.1` で配信して `/ui/check.html` を開きます。正規pipeline-probeで生成した3キャラを切り替え、左右の閉眼・口の2軸・顔向き・顔の拡大を確認できます。GitHub上では動的プレビューは動きません。
+ローカルの[原画・描画比較ページ](ui/check.html)は、`sidecar/.venv/Scripts/python.exe tools/preview_server.py` を起動して `http://127.0.0.1:8791/ui/check.html` を開きます。スマホからは信頼できるLAN内で `--lan` を付け、PCのIPアドレスの8791番へ接続します。配信対象は確認画面と検証用キャラだけです。正規pipeline-probeで生成した3キャラを切り替え、左右の閉眼・口の2軸・顔向き・顔の拡大を確認できます。GitHub上では動的プレビューは動きません。
 
 ## できること
 
