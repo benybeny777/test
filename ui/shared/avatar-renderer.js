@@ -33,14 +33,15 @@ export function createAvatarRenderer(canvas) {
     const token=++revision;
     if(next.rigUrl!==state.rigUrl || !rig) {
       const incoming=await loadLocalJson(next.rigUrl);
-      if(incoming.schema_version!==2) throw new Error("旧リグです。分解工程から再生成してください");
+      if(incoming.schema_version!==3) throw new Error("旧リグです。リグ工程から再生成してください");
       const loaded=await Promise.all(["neutral","left_eye_closed","right_eye_closed","mouth_open"].map(async name=>{
         const layer=incoming.layers[name];
         if(!layer) throw new Error(`必須レイヤーがありません: ${name}`);
         const src=next.partUrls?.[name] ?? layer.url;
         const asset=localAssetUrl(src);
         const image=new Image();image.src=asset.href;await image.decode();
-        if(image.naturalWidth!==incoming.canvas.width || image.naturalHeight!==incoming.canvas.height) throw new Error(`レイヤー寸法が一致しません: ${name}`);
+        const box=layer.texture_box;
+        if(!box || image.naturalWidth!==box[2]-box[0] || image.naturalHeight!==box[3]-box[1]) throw new Error(`切詰めレイヤー寸法が一致しません: ${name}`);
         return [name,image];
       }));
       if(disposed || token!==revision) return;
@@ -62,15 +63,16 @@ export function createAvatarRenderer(canvas) {
     lastAppearance=key;
     ctx.clearRect(0,0,sheet.width,sheet.height);
     // 重複部位の半透明画素を重ねず、中立は原画のアルファを完全保持する。
-    ctx.drawImage(images.get("neutral"),0,0);
+    const drawLayer=name=>{const box=rig.layers[name].texture_box;ctx.drawImage(images.get(name),box[0],box[1]);};
+    drawLayer("neutral");
     for(const [name,alpha] of [["left_eye_closed",left],["right_eye_closed",right]]) {
-      ctx.globalAlpha=alpha;ctx.drawImage(images.get(name),0,0);
+      ctx.globalAlpha=alpha;drawLayer(name);
     }
     ctx.globalAlpha=1;
     if(open>0) {
       // 下地は変形させず、元の口を消した同じ座標へ合成する。
       ctx.globalAlpha=Math.min(1,open*8);
-      ctx.drawImage(images.get("mouth_open"),0,0);ctx.globalAlpha=1;
+      drawLayer("mouth_open");ctx.globalAlpha=1;
       const layer=rig.layers.mouth_open;
       const box=layer.feature_box;
       if(!box) throw new Error("口の実測座標がありません");
@@ -100,7 +102,8 @@ export function createAvatarRenderer(canvas) {
       appearance(state.eyeLOpen===undefined?blink:1-clamp(state.eyeLOpen,0,1),
         state.eyeROpen===undefined?blink:1-clamp(state.eyeROpen,0,1),open,form);
       const w=sheet.width,h=sheet.height,face=rig.layers.face.bbox;
-      const neck=face ? face[3] : h*.25;
+      const neckBox=rig.layers.neck?.bbox;
+      const neck=neckBox ? neckBox[3] : face[3];
       const cx=face ? (face[0]+face[2])/2 : w/2;
       const wave=Math.sin(now/(state.idleSwayPeriodMs ?? 4200)*Math.PI*2);
       const sway=(state.idleSwayDegrees ?? .7)*wave;
@@ -108,7 +111,7 @@ export function createAvatarRenderer(canvas) {
       // 全パーツを同じ連続変位場へ通す。首・肩に独立回転の裂け目を作らない。
       for(let i=0;i<positions.count;i++) {
         const x=uv.getX(i)*w,y=(1-uv.getY(i))*h;
-        const head=1-smooth(neck*.75,neck*1.4,y);
+        const head=1-smooth(face[3],Math.max(face[3]+1,neck),y);
         let dx=head*clamp(state.yaw ?? 0,-30,30)*w*.00055;
         let dy=head*clamp(state.pitch ?? 0,-30,30)*h*.00035;
         dx+=(h-y)/h*sway*w*.002;

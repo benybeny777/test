@@ -33,7 +33,9 @@ class RigCreationTests(unittest.TestCase):
                 for index, name in enumerate(sorted(MODULE.REQUIRED_PARTS))
             ]
             for part in parts:
-                Image.new("RGBA", (80, 120), (100, 90, 80, 255)).save(root / part["path"])
+                image=Image.new("RGBA", (80, 120))
+                image.paste((100,90,80,255),(11,17,25,32))
+                image.save(root / part["path"])
             manifest.write_text(
                 json.dumps({"schema_version": 2, "canvas": {"width": 80, "height": 120}, "parts": parts}),
                 encoding="utf-8",
@@ -41,6 +43,11 @@ class RigCreationTests(unittest.TestCase):
             output = MODULE.create_rig(manifest, root / "output" / "rig.json")
             rig = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(rig["profile"], "lvs-anime25d-v1")
+            self.assertEqual(rig['schema_version'],3)
+            self.assertEqual(rig['layers']['neutral']['texture_box'],[11,17,25,32])
+            with Image.open(root/'output/parts/neutral.png') as image:
+                self.assertEqual(image.size,(14,15))
+                self.assertEqual(image.getpixel((0,0)),(100,90,80,255))
             self.assertEqual(set(rig["draw_order"]), MODULE.REQUIRED_PARTS)
             self.assertFalse(Path(rig["layers_manifest"]).is_absolute())
             self.assertTrue((root / "output" / "parts" / "mouth_open.png").is_file())

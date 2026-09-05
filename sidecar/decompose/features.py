@@ -53,7 +53,7 @@ def locate_features(rgba, face):
     return boxes
 
 
-def repair_patch(rgba, box):
+def repair_patch(rgba, box, support=None, target=None):
     """楕円内だけを周辺画素の調和補間で埋める。矩形の単色塗りをしない。"""
     l,t,r,b = box
     margin = max(3, round((r-l)*.15))
@@ -63,9 +63,27 @@ def repair_patch(rgba, box):
     h,w = crop.shape[:2]
     yy,xx = np.mgrid[:h,:w]
     mask = ((xx-(w-1)/2)/(w*.46))**2+((yy-(h-1)/2)/(h*.46))**2<1
+    if target is not None:
+        # 目口の実マスクだけを補完し、矩形内の髪を肌で消さない。
+        mask=ndimage.binary_dilation(target[t:b,l:r],iterations=max(1,round((r-l)*.04)))
     mask[[0,-1],:]=False
     mask[:,[0,-1]]=False
     coords=np.argwhere(mask)
+    if not len(coords):
+        raise ValueError("表情補完の対象領域が空です")
+    samples=crop[:,:,:3].astype(float)
+    if support is not None:
+        # 暗い髪・まつげを肌の境界条件へ流し込まない。周辺の実画素を使う。
+        luminance=samples.mean(axis=2)
+        valid=(~mask) & support[t:b,l:r] & (crop[:,:,3]>0)
+        if valid.any():
+            values=luminance[valid]
+            cutoff=np.quantile(values,.65)
+            donors=valid & (luminance>=cutoff)
+            nearest=ndimage.distance_transform_edt(~donors,return_distances=False,return_indices=True)
+            samples=np.where((luminance<cutoff)[...,None],samples[tuple(nearest)],samples)
+        else:
+            raise ValueError("肌の補完に使える周辺画素がありません")
     ids=np.full(mask.shape,-1,int)
     ids[mask]=np.arange(len(coords))
     rows=[]; cols=[]; vals=[]
@@ -76,16 +94,16 @@ def repair_patch(rgba, box):
             ny,nx=y+dy,x+dx
             if mask[ny,nx]:
                 rows.append(i);cols.append(ids[ny,nx]);vals.append(-1.)
-            else: rhs[i]+=crop[ny,nx,:3]
+            else: rhs[i]+=samples[ny,nx]
     matrix=sparse.csr_matrix((vals,(rows,cols)),shape=(len(coords),len(coords)))
     crop[mask,:3]=np.clip(spsolve(matrix,rhs),0,255).astype(np.uint8)
     # 元画像と同じ境界画素を保持するので合成時の矩形境界が生じない。
     return crop,(l,t,r,b)
 
 
-def expression_patch(rgba, box, kind):
+def expression_patch(rgba, box, kind, support=None, target=None):
     """目口の下地を補完し、原画の線色・唇色を使った局所差分を作る。"""
-    crop,bounds=repair_patch(rgba,box)
+    crop,bounds=repair_patch(rgba,box,support,target)
     l,t,r,b=bounds
     x0,y0,x1,y1=box
     source=rgba[y0:y1,x0:x1,:3]
@@ -97,8 +115,15 @@ def expression_patch(rgba, box, kind):
     w=x1-x0
     color=tuple(int(v) for v in dark)+(255,)
     if kind=='eye':
-        points=[(cx+w*(u-.5),cy+w*.08*(1-(2*u-1)**2)) for u in np.linspace(0,1,max(8,w))]
-        draw.line(points,fill=color,width=max(1,round(w*.055)))
+        # 原寸画素で曲線の被覆率を計算し、補間拡大せず階段状の閉眼線を避ける。
+        yy,xx=np.mgrid[:crop.shape[0],:crop.shape[1]]
+        u=(xx+.5-(cx-w/2))/w
+        curve=cy+w*.08*(1-(2*u-1)**2)
+        coverage=np.clip(max(1,w*.055)/2+.5-np.abs(yy+.5-curve),0,1)
+        coverage*=((u>=0)&(u<=1))
+        pixels=np.asarray(image).copy()
+        pixels[:,:,:3]=np.rint(pixels[:,:,:3]*(1-coverage[:,:,None])+dark*coverage[:,:,None]).astype(np.uint8)
+        image=Image.fromarray(pixels)
     elif kind != 'mouth':
         raise ValueError(f"未対応の差分種別です: {kind}")
     result=np.zeros_like(rgba)

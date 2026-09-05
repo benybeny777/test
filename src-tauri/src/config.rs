@@ -12,6 +12,8 @@ pub const SETTING_KEYS: &[&str] = &[
     "ai.mesh_model",
     "ai.models_dir",
     "ai.sam2_model",
+    "ai.grounding_model",
+    "ai.grounding_threshold",
     "ai.sam2_points_per_batch",
     "ai.sam2_pred_iou_threshold",
     "ai.sam2_stability_threshold",
@@ -112,6 +114,8 @@ pub struct AiConfig {
     pub blink_denoise: f32,
     pub mesh_model: String,
     pub sam2_model: String,
+    pub grounding_model: String,
+    pub grounding_threshold: f32,
     pub sam2_points_per_batch: u32,
     pub sam2_pred_iou_threshold: f32,
     pub sam2_stability_threshold: f32,
@@ -180,6 +184,8 @@ struct AiConfigFile {
     blink_denoise: Option<f32>,
     mesh_model: Option<String>,
     sam2_model: Option<String>,
+    grounding_model: Option<String>,
+    grounding_threshold: Option<f32>,
     sam2_points_per_batch: Option<u32>,
     sam2_pred_iou_threshold: Option<f32>,
     sam2_stability_threshold: Option<f32>,
@@ -300,6 +306,8 @@ impl Default for AiConfig {
             blink_denoise: 0.85,
             mesh_model: "triposr".into(),
             sam2_model: "sam2.1-hiera-tiny".into(),
+            grounding_model: "grounding-dino-base".into(),
+            grounding_threshold: 0.20,
             sam2_points_per_batch: 8,
             sam2_pred_iou_threshold: 0.7,
             sam2_stability_threshold: 0.85,
@@ -528,9 +536,27 @@ impl AppConfig {
         string_environment!("LVS_AI_STT_MODEL", self.ai.stt_model);
         string_environment!("LVS_AI_MESH_MODEL", self.ai.mesh_model);
         string_environment!("LVS_AI_SAM2_MODEL", self.ai.sam2_model);
-        parse_environment!("LVS_AI_SAM2_POINTS_PER_BATCH", self.ai.sam2_points_per_batch, u32);
-        parse_environment!("LVS_AI_SAM2_PRED_IOU_THRESHOLD", self.ai.sam2_pred_iou_threshold, f32);
-        parse_environment!("LVS_AI_SAM2_STABILITY_THRESHOLD", self.ai.sam2_stability_threshold, f32);
+        string_environment!("LVS_AI_GROUNDING_MODEL", self.ai.grounding_model);
+        parse_environment!(
+            "LVS_AI_GROUNDING_THRESHOLD",
+            self.ai.grounding_threshold,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_SAM2_POINTS_PER_BATCH",
+            self.ai.sam2_points_per_batch,
+            u32
+        );
+        parse_environment!(
+            "LVS_AI_SAM2_PRED_IOU_THRESHOLD",
+            self.ai.sam2_pred_iou_threshold,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_SAM2_STABILITY_THRESHOLD",
+            self.ai.sam2_stability_threshold,
+            f32
+        );
         string_environment!("LVS_COMFY_WORKFLOW_DIR", self.comfy.workflow_dir);
         parse_environment!("LVS_AI_IMAGE_DENOISE", self.ai.image_denoise, f32);
         parse_environment!("LVS_AI_BLINK_DENOISE", self.ai.blink_denoise, f32);
@@ -604,9 +630,20 @@ impl AppConfig {
             apply_optional(&mut self.ai.blink_denoise, value.blink_denoise);
             apply_optional(&mut self.ai.mesh_model, value.mesh_model);
             apply_optional(&mut self.ai.sam2_model, value.sam2_model);
-            apply_optional(&mut self.ai.sam2_points_per_batch, value.sam2_points_per_batch);
-            apply_optional(&mut self.ai.sam2_pred_iou_threshold, value.sam2_pred_iou_threshold);
-            apply_optional(&mut self.ai.sam2_stability_threshold, value.sam2_stability_threshold);
+            apply_optional(&mut self.ai.grounding_model, value.grounding_model);
+            apply_optional(&mut self.ai.grounding_threshold, value.grounding_threshold);
+            apply_optional(
+                &mut self.ai.sam2_points_per_batch,
+                value.sam2_points_per_batch,
+            );
+            apply_optional(
+                &mut self.ai.sam2_pred_iou_threshold,
+                value.sam2_pred_iou_threshold,
+            );
+            apply_optional(
+                &mut self.ai.sam2_stability_threshold,
+                value.sam2_stability_threshold,
+            );
         }
         if let Some(avatar) = file.avatar {
             apply_optional(&mut self.avatar.crossfade_ms, avatar.crossfade_ms);
@@ -694,6 +731,7 @@ impl AppConfig {
             || !(0.0..=1.0).contains(&self.ai.blink_denoise)
             || !(1..=64).contains(&self.ai.sam2_points_per_batch)
             || !(0.0..=1.0).contains(&self.ai.sam2_pred_iou_threshold)
+            || !(0.0..=1.0).contains(&self.ai.grounding_threshold)
             || !(0.0..=1.0).contains(&self.ai.sam2_stability_threshold)
         {
             return Err(ConfigError::Validation("AI/ComfyUI設定が範囲外です".into()));
@@ -703,6 +741,7 @@ impl AppConfig {
             || self.ai.stt_model.trim().is_empty()
             || self.ai.mesh_model.trim().is_empty()
             || self.ai.sam2_model.trim().is_empty()
+            || self.ai.grounding_model.trim().is_empty()
             || self.comfy.workflow_dir.trim().is_empty()
         {
             return Err(ConfigError::Validation(
@@ -862,7 +901,8 @@ mod tests {
             "LVS_AI_SAM2_POINTS_PER_BATCH" => Some("16".into()),
             "LVS_AI_SAM2_STABILITY_THRESHOLD" => Some("0.91".into()),
             _ => None,
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(loaded.ai.sam2_points_per_batch, 4);
         assert_eq!(loaded.ai.sam2_stability_threshold, 0.91);
     }

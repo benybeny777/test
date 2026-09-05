@@ -40,6 +40,15 @@ class FeatureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '測定できません'):
             locate_features(image, face)
 
+    def test_target_mask_does_not_paint_unrelated_hair(self):
+        image,face=self.fixture()
+        target=np.zeros(face.shape,dtype=bool);target[75:83,45:70]=True
+        image[70:74,40:45,:3]=10
+        patch,(l,t,r,b)=repair_patch(image,[45,75,70,83],face,target)
+        original=image[t:b,l:r]
+        protected=original[:,:,:3].mean(axis=2)==10
+        np.testing.assert_array_equal(patch[protected],original[protected])
+
     def test_mouth_tracks_changed_art_instead_of_fixed_canvas_position(self):
         image, face = self.fixture()
         before = locate_features(image, face)['mouth']

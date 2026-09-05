@@ -565,6 +565,14 @@ impl PipelineContext {
         let directory = self.character_dir(&manifest.character_id)?;
         let args = vec![
             OsString::from(self.repository_root.join("sidecar/decompose/generate.py")),
+            "--grounding-model".into(),
+            OsString::from(
+                self.repository_root
+                    .join(&config.ai.models_dir)
+                    .join(&config.ai.grounding_model),
+            ),
+            "--grounding-threshold".into(),
+            config.ai.grounding_threshold.to_string().into(),
             "--input".into(),
             OsString::from(directory.join("source/isolated.png")),
             "--output".into(),
@@ -588,7 +596,10 @@ impl PipelineContext {
                 let _ = app.emit("pipeline-progress", value);
             }
         })?;
-        Ok("SAM 2.1候補から部位・表情差分・原画レイヤーを生成しました".into())
+        Ok(
+            "Grounding DINOとSAM 2.1から部位・表情差分・原画レイヤーを生成しました（品質は未承認）"
+                .into(),
+        )
     }
 
     fn run_rig2d(

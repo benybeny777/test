@@ -18,8 +18,8 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 - 工程を isolate → decompose → rig2d の順に実行し、前段をディスクへ確定してから次へ進む。
 - source/input.png は上書き・削除しない。
 - isolate は元のキャンバスを保つ。入力に明示された透過があれば保持し、不透明画像には背景除去を実行する。
-- decompose は監査済み固定版 SAM 2.1 Hiera Tiny の候補と画素解析から部位・目口位置を求める。
-- rig2d は manifest の座標と差分を lvs-anime25d-v1 へ引き継ぐ。schema_version 2 の必須中立画像と実測座標を確認する。
+- decompose は承認済み固定版Grounding DINO baseで意味領域を検出し、SAM 2.1 Hiera Tinyで原寸マスクを求める。`cargo xtask setup grounding`で取得し、モデルを逐次ロードする。未検出を固定座標で補わない。analysis.jsonに候補と選別結果を保存する。
+- rig2d は版2 manifestの座標と差分を lvs-anime25d-v1 の版3リグへ引き継ぐ。必須中立画像、実測座標、原寸で切詰めたtexture_boxを確認する。版2リグは再生成する。
 - rig2d のコピー前検査でPNG/RGBA、原寸キャンバス、非空アルファ、部位名の重複、格納先、bbox・pivot・重なり順を検証する。メタデータの充足や候補スコアを見た目の合格に代用しない。
 - モデル候補を独断で変更しない。旧3D工程へ戻さない。
 - 診断用の個別スクリプト出力を製品成果物へ昇格しない。
@@ -28,6 +28,8 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 ## 再実行と診断
 
 入力を変えたら新キャラとして全工程を実行する。部位分類・目口検出・差分生成を変えたら decompose 以降を、リグ定義だけなら rig2d を再実行する。古いリグが新方式へ黙って混在しないよう形式版を検証する。
+
+意味解析はanalysis/に署名とマスクを保存する。入力画素・モデル・解析コード・閾値・依存版が一致する場合だけ再利用し、差分補完のみの再実行ではGPU解析を重複させない。キャッシュのハッシュと寸法を検査し、不正データを成功扱いしない。
 
 一時診断は temp/ に限る。候補マスクの診断だけは decompose の --keep-candidates を使ってよいが、その出力を完成品にしない。SAM候補の有無と、部位名への割り当ての失敗を区別する。
 

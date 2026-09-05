@@ -42,7 +42,7 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
     parts = {}
     for part in manifest.get("parts", []):
         name = part.get("name")
-        if name not in REQUIRED_PARTS or name in parts:
+        if name not in REQUIRED_PARTS | {"neck", "collar"} or name in parts:
             raise ValueError(f"部位名が不正または重複しています: {name}")
         parts[name] = part
     missing = sorted(REQUIRED_PARTS - parts.keys())
@@ -89,9 +89,14 @@ def create_rig(manifest_path: Path, output_path: Path) -> Path:
         source = manifest_path.parent / part["path"]
         if not source.is_file():
             raise ValueError(f"2.5D部位画像がありません: {name}")
-        shutil.copy2(source, output_parts / f"{name}.png")
+        with Image.open(source) as opened:
+            bounds=opened.getchannel('A').getbbox()
+            if bounds is None:
+                raise ValueError(f"2.5D部位画像が全透明です: {name}")
+            opened.crop(bounds).save(output_parts / f"{name}.png")
+            part['texture_box']=list(bounds)
     rig = {
-        "schema_version": 2,
+        "schema_version": 3,
         "profile": "lvs-anime25d-v1",
         "material_readiness": manifest.get("material_readiness", {
             "status": "incomplete", "note": "素材分割の充足が未検証です"}),
@@ -108,6 +113,7 @@ def create_rig(manifest_path: Path, output_path: Path) -> Path:
                 "url": f"/assets/rig2d/parts/{name}.png",
                 "pivot": parts[name]["pivot"],
                 "bbox": parts[name].get("bbox"),
+                "texture_box": parts[name]['texture_box'],
                 "feature_box": parts[name].get("feature_box"),
                 "line_color": parts[name].get("line_color"),
                 "z_index": parts[name]["z_index"],

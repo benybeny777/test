@@ -1,0 +1,52 @@
+import {createAvatarRenderer} from './shared/avatar-renderer.js?v=grounded-rig3';
+import {loadLocalJson} from './shared/local-assets.js';
+
+// 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
+const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト']];
+const select=document.querySelector('#character'),status=document.querySelector('#status');
+for(const [id,name] of fixtures)select.add(new Option(name,id));
+const renderer=createAvatarRenderer(document.querySelector('#avatar'));
+let state={},generation=0,currentRig,faceView=false;
+const inputs=new Map();
+for(const [key,title,min,max,value] of [['mouthOpenY','開き',0,1,0],['mouthForm','横幅・丸み',-1,1,0],['eyeLOpen','左目',0,1,1],['eyeROpen','右目',0,1,1],['yaw','顔左右',-15,15,0],['pitch','顔上下',-15,15,0]]) {
+  const label=document.createElement('label');label.append(title);
+  const input=document.createElement('input');input.type='range';input.min=min;input.max=max;input.step=(max-min)/100;input.value=value;
+  input.addEventListener('input',()=>{state[key]=Number(input.value);apply();});
+  label.append(input);document.querySelector('#controls').append(label);inputs.set(key,input);
+}
+function reset(){state={...state,mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,idleSwayDegrees:0};for(const [key,input] of inputs)input.value=state[key];}
+async function apply(){try{await renderer.applyState(state);return true;}catch(error){status.textContent=error.message;return false;}}
+async function load(){
+  const token=++generation;status.textContent='読込中';
+  document.querySelector('#avatar').style.visibility='hidden';
+  document.querySelectorAll('button,input').forEach(element=>element.disabled=true);
+  try {
+    const base=`../temp/t7-characters/${encodeURIComponent(select.value)}/`;
+    const character=await loadLocalJson(base+'character.json?read='+Date.now());
+    if(character.stages?.rig2d?.status!=='complete')throw new Error('このキャラのリグ再生成は未完了です');
+    const version=encodeURIComponent(character.stages.rig2d.updatedAtIso);
+    const rigUrl=base+'rig2d/rig.json?v='+version;const rig=await loadLocalJson(rigUrl);
+    if(token!==generation)return;
+    currentRig=rig;state={rigUrl,partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};reset();faceView=false;document.querySelector('#source').style.transform='';
+    document.querySelector('#source').src=base+'source/input.png';if(!await apply())return;
+    document.querySelector('#avatar').style.visibility='visible';
+    status.textContent=`素材充足: ${rig.material_readiness?.status ?? '未検査'} ／ 見た目: 未承認。動作の成立と品質の合格は別です。`;
+  }catch(error){if(token===generation)status.textContent=error.message;}
+  finally{if(token===generation)document.querySelectorAll('button,input').forEach(element=>element.disabled=false);}
+}
+select.addEventListener('change',load);
+document.querySelector('#neutral').addEventListener('click',()=>{reset();apply();});
+document.querySelector('#blink').addEventListener('click',()=>{delete state.eyeLOpen;delete state.eyeROpen;apply();});
+function focusFace(){
+  if(!currentRig)return;
+  const canvas=document.querySelector('#avatar'),source=document.querySelector('#source');
+  if(!faceView){state.scale=1;state.offsetX=state.offsetY=0;source.style.transform='';apply();return;}
+  const {width:w,height:h}=currentRig.canvas,[l,t,r,b]=currentRig.layers.face.bbox;
+  const fit=Math.min(canvas.clientWidth/w,canvas.clientHeight/h),zoom=canvas.clientHeight/((b-t)*2*fit);
+  state.scale=zoom;state.offsetX=(w/2-(l+r)/2)*fit*zoom;state.offsetY=(h/2-(t+b)/2)*fit*zoom;
+  source.style.transform=`translate(${state.offsetX}px,${state.offsetY}px) scale(${zoom})`;apply();
+}
+document.querySelector('#face').addEventListener('click',()=>{faceView=!faceView;focusFace();});
+addEventListener('resize',focusFace);
+addEventListener('beforeunload',()=>{++generation;renderer.dispose();},{once:true});
+await load();

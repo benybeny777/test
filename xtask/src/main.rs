@@ -46,6 +46,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("sidecar") => setup_sidecar(),
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
         "setup" if args.get(1).map(String::as_str) == Some("sam2") => setup_sam2(),
+        "setup" if args.get(1).map(String::as_str) == Some("grounding") => setup_grounding(),
         "setup" if args.get(1).map(String::as_str) == Some("engines") => setup_engines(),
         "expression" => run_expression(&args[1..]),
         "expression-import" => run_expression_import(&args[1..]),
@@ -70,7 +71,7 @@ fn main() -> Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup sam2|setup engines>"
+                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup sam2|setup grounding|setup engines>"
             );
             Ok(())
         }
@@ -241,7 +242,58 @@ fn setup_models() -> Result<()> {
         &dino.join("config.json"),
         DINO_CONFIG_SHA256,
     )?;
-    setup_sam2()
+    setup_sam2()?;
+    setup_grounding()
+}
+
+fn setup_grounding() -> Result<()> {
+    let root = root()?;
+    check_cuda_gpu(&root)?;
+    let destination = root.join("models/grounding-dino-base");
+    std::fs::create_dir_all(&destination)?;
+    let base = "https://huggingface.co/IDEA-Research/grounding-dino-base/resolve/12bdfa3120f3e7ec7b434d90674b3396eccf88eb";
+    for (name, hash) in [
+        (
+            "README.md",
+            "a0d03193076262a585dcb1edfe4b3b72fac678055008b688feb188cceb7f977d",
+        ),
+        (
+            "config.json",
+            "eda416dae6f49419ff831b1c190ec430a060b19aae688dbaf2425a075b650608",
+        ),
+        (
+            "model.safetensors",
+            "5548f844c928c4b6f411fa8cbcc2bfa8dbbba437cb1d513975519f93c2a9ed21",
+        ),
+        (
+            "preprocessor_config.json",
+            "8454179ba95e2ad22947835aad7b45862a601fc0055ab88bf1ee70892d3aea60",
+        ),
+        (
+            "special_tokens_map.json",
+            "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+        ),
+        (
+            "tokenizer.json",
+            "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        ),
+        (
+            "tokenizer_config.json",
+            "d40ab645b68211910b9170d22433d43186a6ec8ee6fd10ba170524b25bf4fb56",
+        ),
+        (
+            "vocab.txt",
+            "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+        ),
+    ] {
+        download_verified(
+            &root,
+            &format!("{base}/{name}?download=true"),
+            &destination.join(name),
+            hash,
+        )?;
+    }
+    Ok(())
 }
 
 fn setup_sam2() -> Result<()> {

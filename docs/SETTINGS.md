@@ -19,6 +19,8 @@
 | `ai.llm_model` | string | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | `LVS_AI_LLM_MODEL` | 空文字不可 | 次回会話 |
 | `ai.mesh_model` | string | `triposr` | `LVS_AI_MESH_MODEL` | 空文字不可 | 次回生成 |
 | `ai.sam2_model` | string | `sam2.1-hiera-tiny` | `LVS_AI_SAM2_MODEL` | 空文字不可 | 次回レイヤー分解 |
+| `ai.grounding_model` | string | `grounding-dino-base` | `LVS_AI_GROUNDING_MODEL` | 空文字不可。models_dir内のモデル配置 | 次回レイヤー分解 |
+| `ai.grounding_threshold` | f32 | 0.20 | `LVS_AI_GROUNDING_THRESHOLD` | 0〜1。領域・語句の検出閾値 | 次回レイヤー分解 |
 | `ai.sam2_points_per_batch` | u32 | 8 | `LVS_AI_SAM2_POINTS_PER_BATCH` | 1〜64。探索点総数・原画解像度は変えない | 次回レイヤー分解 |
 | `ai.sam2_pred_iou_threshold` | f32 | 0.7 | `LVS_AI_SAM2_PRED_IOU_THRESHOLD` | 0〜1。候補生成時の予測IoU閾値 | 次回レイヤー分解 |
 | `ai.sam2_stability_threshold` | f32 | 0.85 | `LVS_AI_SAM2_STABILITY_THRESHOLD` | 0〜1。候補生成時の安定性閾値 | 次回レイヤー分解 |

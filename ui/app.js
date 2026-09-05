@@ -1,4 +1,4 @@
-import { createAvatarRenderer } from "/shared/avatar-renderer.js";
+import { createAvatarRenderer } from "/shared/avatar-renderer.js?v=grounded-rig3";
 
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
@@ -64,6 +64,8 @@ async function action(operation) {
 async function refresh() {
   const config = await invoke("get_config");
   $("#sam-batch").value = config.ai.sam2_points_per_batch;
+  $("#grounding-model").value = config.ai.grounding_model;
+  $("#grounding-threshold").value = config.ai.grounding_threshold;
   $("#sam-iou").value = config.ai.sam2_pred_iou_threshold;
   $("#sam-stability").value = config.ai.sam2_stability_threshold;
   characters = await invoke("list_characters");
@@ -283,7 +285,10 @@ $("#save-sam-batch").addEventListener("click", () => action(async () => {
   if (!Number.isInteger(value) || value < 1 || value > 64) throw new Error("同時処理点数は1〜64の整数です");
   const config = await invoke("get_config");
   config.ai.sam2_points_per_batch = value;
-  for (const [id,key] of [["sam-iou","sam2_pred_iou_threshold"],["sam-stability","sam2_stability_threshold"]]) {
+  const model = $("#grounding-model").value.trim();
+  if (!model) throw new Error("意味解析モデルの保存先を指定してください");
+  config.ai.grounding_model = model;
+  for (const [id,key] of [["grounding-threshold","grounding_threshold"],["sam-iou","sam2_pred_iou_threshold"],["sam-stability","sam2_stability_threshold"]]) {
     const threshold = Number($("#"+id).value);
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) throw new Error("候補閾値は0〜1で指定してください");
     config.ai[key] = threshold;

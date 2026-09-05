@@ -336,6 +336,8 @@ def decompose_image(
     points_per_batch: int = 8,
     pred_iou_threshold: float = .7,
     stability_threshold: float = .85,
+    grounding_model: Path | None = None,
+    grounding_threshold: float = .20,
 ) -> Path:
     """入力画像を意味レイヤーへ分解し、manifestのパスを返す。"""
 
@@ -345,7 +347,16 @@ def decompose_image(
     subject = rgba[:, :, 3] >= 128
     if not subject.any():
         raise ValueError("入力画像に不透明な被写体がありません")
-    if candidate_masks_dir is not None:
+    grounded_result = None
+    if grounding_model is not None:
+        if model_path is None:
+            raise ValueError("SAM2モデルの指定が必要です")
+        from grounded import analyse_cached
+        grounded_result = analyse_cached(source, grounding_model, model_path, grounding_threshold,
+                                         _emit, output_dir.parent / 'analysis')
+        candidates = list(grounded_result[0].values())
+        method = "grounding-dino-base+sam2.1"
+    elif candidate_masks_dir is not None:
         candidates = load_candidate_masks(candidate_masks_dir, source.size)
         method = "fixture"
     elif model_path is not None:
@@ -367,9 +378,28 @@ def decompose_image(
                 diagnostics / f"{index:03}.png"
             )
 
-    parts, scores = classify_semantic_parts(subject, candidates)
     from features import locate_features, expression_patch
-    features = locate_features(rgba, parts['face'])
+    if grounded_result is None:
+        parts, scores = classify_semantic_parts(subject, candidates)
+        features = locate_features(rgba, parts['face'])
+    else:
+        masks, features, analysis = grounded_result
+        if 'left_arm' not in masks or 'right_arm' not in masks:
+            raise ValueError("左右の腕を識別できません。未検出を固定領域で補いません")
+        hair=masks['hair'];face=masks['face'];neck=masks['neck'] & ~face
+        parts={'neutral':subject,'back_hair':hair,'face':face,
+               'left_arm':masks['left_arm'],'right_arm':masks['right_arm'],
+               'front_hair':hair,'side_hair':hair,'neck':neck}
+        parts['body']=subject & ~face & ~hair & ~neck & ~parts['left_arm'] & ~parts['right_arm']
+        if 'collar' in masks:
+            collar=masks['collar'] & ~face & ~neck & ~hair
+            if collar.any():parts['collar']=collar
+        if any(not mask.any() for mask in parts.values()):
+            raise ValueError("意味分離後に空の必須素材が残りました")
+        scores={spec.name:0.0 for spec in PART_SPECS}
+        scores.update(neck=analysis['selected']['neck']['score'],collar=analysis['selected'].get('collar',{}).get('score',0.0))
+        output_dir.mkdir(parents=True,exist_ok=True)
+        (output_dir/'analysis.json').write_text(json.dumps(analysis,ensure_ascii=False,indent=2),encoding='utf-8')
     for feature, box in features.items():
         mask = np.zeros(subject.shape, dtype=bool)
         l,t,r,b = box
@@ -381,13 +411,17 @@ def decompose_image(
     parts_dir.mkdir(parents=True, exist_ok=True)
     layer_paths: list[tuple[str, Path]] = []
     manifest_parts: list[dict[str, object]] = []
-    for spec in PART_SPECS:
+    specs = list(PART_SPECS)
+    specs.extend(PartSpec(name,z,(.5,.5)) for name,z in [('neck',35),('collar',36)] if name in parts)
+    for spec in specs:
         mask = parts[spec.name]
         box = list(_bbox(mask))
         color = None
         if spec.name in {'left_eye_closed','right_eye_closed','mouth_open'}:
             layer, box, color = expression_patch(
-                rgba, box, 'mouth' if spec.name=='mouth_open' else 'eye')
+                rgba, box, 'mouth' if spec.name=='mouth_open' else 'eye',
+                parts['face'] if grounded_result is not None else None,
+                masks[spec.name.rsplit('_',1)[0]] if grounded_result is not None else None)
         else:
             layer = rgba.copy()
             if spec.name != "neutral":
@@ -445,6 +479,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--points-per-batch", type=int, default=8)
     parser.add_argument("--pred-iou-threshold", type=float, default=.7)
     parser.add_argument("--stability-threshold", type=float, default=.85)
+    parser.add_argument("--grounding-model", type=Path)
+    parser.add_argument("--grounding-threshold", type=float, default=.20)
     return parser
 
 
@@ -463,6 +499,8 @@ def main() -> int:
             points_per_batch=args.points_per_batch,
             pred_iou_threshold=args.pred_iou_threshold,
             stability_threshold=args.stability_threshold,
+            grounding_model=args.grounding_model,
+            grounding_threshold=args.grounding_threshold,
         )
     except Exception as error:
         LOGGER.exception("レイヤー分解に失敗しました")

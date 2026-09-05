@@ -473,7 +473,9 @@ mod network_tests {
                     // 同一オリジン検査とリダイレクト拒否を持つ資産読込だけを許可する。
                     if path == root.join("ui/shared/local-assets.js") && *token == "fetch(" {
                         assert!(text.contains("url.origin !== location.origin"));
-                        assert!(text.contains("fetch(localAssetUrl(source), {redirect: \"error\"})"));
+                        assert!(
+                            text.contains("fetch(localAssetUrl(source), {redirect: \"error\"})")
+                        );
                         continue;
                     }
                     assert!(
