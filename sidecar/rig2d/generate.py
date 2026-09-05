@@ -78,6 +78,17 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
             raise ValueError(f"部位のpivotが範囲外です: {name}")
         if type(part.get("z_index")) is not int:
             raise ValueError(f"部位の重なり順が不正です: {name}")
+    seam = parts['mouth_closed'].get('lip_seam')
+    if not isinstance(seam, list) or len(seam) < 3:
+        raise ValueError("唇の分割境界がありません。分解工程を再実行してください")
+    previous_x = -1
+    for point in seam:
+        if not isinstance(point, list) or len(point) != 2 or any(type(v) not in (int,float) or not math.isfinite(v) for v in point):
+            raise ValueError("唇の分割境界が不正です")
+        x,y=point
+        if not previous_x < x <= size[0] or not 0 <= y <= size[1]:
+            raise ValueError("唇の分割境界が交差またはキャンバス外です")
+        previous_x=x
     return parts
 
 
@@ -108,6 +119,7 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
             part['texture_box']=list(bounds)
     rig = {
         "schema_version": 3,
+        "lip_rig_version": 1,
         "profile": "lvs-anime25d-v1",
         "material_readiness": manifest.get("material_readiness", {
             "status": "incomplete", "note": "素材分割の充足が未検証です"}),
@@ -127,6 +139,7 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
                 "texture_box": parts[name]['texture_box'],
                 "feature_box": parts[name].get("feature_box"),
                 "line_color": parts[name].get("line_color"),
+                "lip_seam": parts[name].get("lip_seam"),
                 "z_index": parts[name]["z_index"],
             }
             for name in parts

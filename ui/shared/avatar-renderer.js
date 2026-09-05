@@ -1,8 +1,7 @@
 import * as THREE from "./vendor/three/three.module.min.js";
 import {localAssetUrl, loadLocalJson} from "./local-assets.js";
-import {drawMouth} from "./mouth-geometry.js";
+import {drawTexturedMouth,lipMesh,MOUTH_PRESETS as MOUTHS} from "./mouth-geometry.js";
 
-const MOUTHS = { close: [0,0], a:[1,0], i:[.28,.9], u:[.5,-.9], e:[.55,.65], o:[.9,-.7] };
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
 const smooth = (a,b,x) => { const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
 
@@ -35,7 +34,9 @@ export function createAvatarRenderer(canvas) {
     if(next.rigUrl!==state.rigUrl || !rig) {
       const incoming=await loadLocalJson(next.rigUrl);
       if(incoming.schema_version!==3) throw new Error("旧リグです。リグ工程から再生成してください");
-      const loaded=await Promise.all(["neutral","left_eye_closed","right_eye_closed","mouth_open"].map(async name=>{
+      if(incoming.lip_rig_version!==1)throw new Error('唇の分割がない旧リグです。分解工程から再生成してください');
+      lipMesh(incoming.layers?.mouth_closed,0,0);
+      const loaded=await Promise.all(["neutral","left_eye_closed","right_eye_closed","mouth_open","mouth_closed"].map(async name=>{
         const layer=incoming.layers[name];
         if(!layer) throw new Error(`必須レイヤーがありません: ${name}`);
         const src=next.partUrls?.[name] ?? layer.url;
@@ -77,7 +78,7 @@ export function createAvatarRenderer(canvas) {
       const layer=rig.layers.mouth_open;
       const box=layer.feature_box;
       if(!box) throw new Error("口の実測座標がありません");
-      drawMouth(ctx,box,open,form,layer.line_color);
+      drawTexturedMouth(ctx,images.get('mouth_closed'),rig.layers.mouth_closed,open,form,layer.line_color);
     }
     texture.needsUpdate=true;
   }

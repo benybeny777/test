@@ -29,6 +29,7 @@ class RigCreationTests(unittest.TestCase):
                     "pivot": [0.5, 0.5],
                     "bbox": [0, 0, 80, 120],
                     "path": f"parts/{name}.png",
+                    "lip_seam": [[12,20],[18,20],[24,20]] if name == 'mouth_closed' else None,
                 }
                 for index, name in enumerate(sorted(MODULE.REQUIRED_PARTS))
             ]
@@ -52,7 +53,7 @@ class RigCreationTests(unittest.TestCase):
             self.assertFalse(Path(rig["layers_manifest"]).is_absolute())
             self.assertTrue((root / "output" / "parts" / "mouth_open.png").is_file())
             original = output.read_bytes()
-            for defect in ("empty", "size", "corrupt", "duplicate", "outside"):
+            for defect in ("empty", "size", "corrupt", "duplicate", "outside", "seam"):
                 with self.subTest(defect=defect):
                     data = json.loads(manifest.read_text(encoding="utf-8"))
                     target = root / parts[-1]["path"]
@@ -65,6 +66,8 @@ class RigCreationTests(unittest.TestCase):
                         target.write_bytes(b"png")
                     elif defect == "duplicate":
                         data["parts"].append(data["parts"][0])
+                    elif defect == "seam":
+                        next(part for part in data['parts'] if part['name']=='mouth_closed')['lip_seam']=[[12,20],[11,20],[24,20]]
                     else:
                         data["parts"][-1]["path"] = "../outside.png"
                     manifest.write_text(json.dumps(data), encoding="utf-8")

@@ -20,6 +20,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 - isolate は元のキャンバスを保つ。入力に明示された透過があれば保持し、不透明画像には背景除去を実行する。
 - decompose は承認済み固定版Grounding DINO baseで意味領域を検出し、SAM 2.1 Hiera Tinyで原寸マスクを求める。`cargo xtask setup grounding`で取得し、モデルを逐次ロードする。未検出を固定座標で補わない。analysis.jsonに候補と選別結果を保存する。
 - rig2d は版2 manifestの座標と差分を lvs-anime25d-v1 の版3リグへ引き継ぐ。必須中立画像、実測座標、原寸で切詰めたtexture_boxを確認する。版2リグは再生成する。
+- 唇の分割にはmouth_closed.lip_seamとlip_rig_version: 1が必要。旧リグはdecomposeから再生成する。原画の唇は拡大素材や塗り直した色面へ差し替えず、上下メッシュの中立座標が原画と一致することを検査する。
 - rig2d のコピー前検査でPNG/RGBA、原寸キャンバス、非空アルファ、部位名の重複、格納先、bbox・pivot・重なり順を検証する。メタデータの充足や候補スコアを見た目の合格に代用しない。
 - モデル候補を独断で変更しない。旧3D工程へ戻さない。
 - 診断用の個別スクリプト出力を製品成果物へ昇格しない。

@@ -395,6 +395,7 @@ def _decompose_image(
             )
 
     from features import locate_features, expression_patch
+    from lips import trace_lip_seam
     if grounded_result is None:
         parts, scores = classify_semantic_parts(subject, candidates)
         features = locate_features(rgba, parts['face'])
@@ -423,6 +424,7 @@ def _decompose_image(
         suffixes = ('closed','open')
         for suffix in suffixes:
             parts[f'{feature}_{suffix}'] = mask
+    lip_seam = trace_lip_seam(rgba, features['mouth'])
     parts_dir = output_dir / "parts"
     parts_dir.mkdir(parents=True, exist_ok=True)
     layer_paths: list[tuple[str, Path]] = []
@@ -439,6 +441,14 @@ def _decompose_image(
                 parts['face'] if grounded_result is not None else None,
                 masks[spec.name.rsplit('_',1)[0]] if grounded_result is not None else None,
                 masks['hair'] if grounded_result is not None else None)
+        elif spec.name == 'mouth_closed':
+            # 唇の周囲を含む原画を残す。変形しても端の肌は元の位置へ固定する。
+            x0,y0,x1,y1=features['mouth']
+            margin=max(3,round((x1-x0)*.6))
+            box=[max(0,x0-margin),max(0,y0-margin),min(source.width,x1+margin),min(source.height,y1+margin)]
+            layer=np.zeros_like(rgba)
+            l,t,r,b=box
+            layer[t:b,l:r]=rgba[t:b,l:r]
         else:
             layer = rgba.copy()
             if spec.name != "neutral":
@@ -457,6 +467,7 @@ def _decompose_image(
                 "pivot": center,
                 "feature_box": features.get(spec.name.rsplit('_',1)[0]),
                 "line_color": color,
+                "lip_seam": lip_seam if spec.name == 'mouth_closed' else None,
                 "candidate_score": round(scores[spec.name], 6),
                 "generated_variant": spec.name
                 in {"left_eye_closed", "right_eye_closed", "mouth_open"},

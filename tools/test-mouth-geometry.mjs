@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mouthGeometry,drawMouth} from '../ui/shared/mouth-geometry.js';
+import {mouthGeometry,drawMouth,lipMesh} from '../ui/shared/mouth-geometry.js';
 
 test('2軸の全域で輪郭と口角が有限で上下が交差しない',()=>{
   for(let o=0;o<=100;o++)for(let f=-100;f<=100;f++) {
@@ -24,4 +24,21 @@ test('不正な測定値を固定座標で補わない',()=>{
   for(const box of [null,[0,0,0,0],[0,0,NaN,10]])assert.throws(()=>mouthGeometry(box,0,0));
   assert.throws(()=>mouthGeometry([0,0,30,10],NaN,0));
   assert.throws(()=>drawMouth({},[0,0,30,10],0,0,null));
+});
+
+test('上下唇メッシュは中立時に原画と一致し、外周を動かさない',()=>{
+  const layer={texture_box:[0,0,70,60],feature_box:[20,20,50,40],lip_seam:[[20,29],[35,31],[50,29]]};
+  const neutral=lipMesh(layer,0,0);
+  for(let i=0;i<neutral.source.length;i++) {
+    assert.deepEqual(neutral.upper[i],neutral.source[i].slice(0,2));
+    assert.deepEqual(neutral.lower[i],neutral.source[i].slice(1));
+  }
+  for(const form of [-1,0,1])for(const open of [0,.5,1]) {
+    const mesh=lipMesh(layer,open,form);
+    for(let i=0;i<mesh.source.length;i++) {
+      assert.deepEqual(mesh.upper[i][0],mesh.source[i][0]);
+      assert.deepEqual(mesh.lower[i][1],mesh.source[i][2]);
+      assert.ok(mesh.upper[i][1][1]<=mesh.lower[i][0][1]);
+    }
+  }
 });

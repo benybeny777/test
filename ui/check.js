@@ -1,5 +1,6 @@
 import {createAvatarRenderer} from './shared/avatar-renderer.js?v=grounded-rig3';
 import {loadLocalJson} from './shared/local-assets.js';
+import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
 // 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
 const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト']];
@@ -7,16 +8,19 @@ const select=document.querySelector('#character'),status=document.querySelector(
 for(const [id,name] of fixtures)select.add(new Option(name,id));
 const renderer=createAvatarRenderer(document.querySelector('#avatar'));
 let state={},generation=0,currentRig,faceView=false;
+let demoFrame=0,demoStarted=0;
+function stopDemo(){cancelAnimationFrame(demoFrame);demoFrame=0;document.querySelector('#mouth-demo').textContent='口パク動作テスト（無音）';document.querySelector('#mouth-preset').textContent='';}
 const inputs=new Map();
 for(const [key,title,min,max,value] of [['mouthOpenY','開き',0,1,0],['mouthForm','横幅・丸み',-1,1,0],['eyeLOpen','左目',0,1,1],['eyeROpen','右目',0,1,1],['yaw','顔左右',-15,15,0],['pitch','顔上下',-15,15,0]]) {
   const label=document.createElement('label');label.append(title);
   const input=document.createElement('input');input.type='range';input.min=min;input.max=max;input.step=(max-min)/100;input.value=value;
-  input.addEventListener('input',()=>{state[key]=Number(input.value);state.preserveOriginalMouth=false;apply();});
+  input.addEventListener('input',()=>{stopDemo();state[key]=Number(input.value);state.preserveOriginalMouth=false;apply();});
   label.append(input);document.querySelector('#controls').append(label);inputs.set(key,input);
 }
 function reset(){state={...state,mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,idleSwayDegrees:0,preserveOriginalMouth:false};for(const [key,input] of inputs)input.value=state[key];}
 async function apply(){try{await renderer.applyState(state);return true;}catch(error){status.textContent=error.message;return false;}}
 async function load(){
+  stopDemo();
   const token=++generation;status.textContent='読込中';
   document.querySelector('#avatar').style.visibility='hidden';
   document.querySelectorAll('button,input').forEach(element=>element.disabled=true);
@@ -35,8 +39,23 @@ async function load(){
   finally{if(token===generation)document.querySelectorAll('button,input').forEach(element=>element.disabled=false);}
 }
 select.addEventListener('change',load);
-document.querySelector('#neutral').addEventListener('click',()=>{reset();state.preserveOriginalMouth=true;apply();});
+document.querySelector('#neutral').addEventListener('click',()=>{stopDemo();reset();state.preserveOriginalMouth=true;apply();});
 document.querySelector('#blink').addEventListener('click',()=>{delete state.eyeLOpen;delete state.eyeROpen;apply();});
+document.querySelector('#mouth-demo').addEventListener('click',()=>{
+  if(demoFrame){stopDemo();return;}
+  const presets=Object.entries(MOUTH_PRESETS);
+  demoStarted=performance.now();document.querySelector('#mouth-demo').textContent='口パクテストを停止';
+  function tick(now){
+    const phase=(now-demoStarted)/650,index=Math.floor(phase)%presets.length;
+    const [name,to]=presets[index],from=presets[(index+presets.length-1)%presets.length][1];
+    const t=Math.min(1,(phase-Math.floor(phase))*3),smooth=t*t*(3-2*t);
+    state.mouthOpenY=from[0]+(to[0]-from[0])*smooth;state.mouthForm=from[1]+(to[1]-from[1])*smooth;state.preserveOriginalMouth=false;
+    inputs.get('mouthOpenY').value=state.mouthOpenY;inputs.get('mouthForm').value=state.mouthForm;
+    document.querySelector('#mouth-preset').textContent=`検証口形: ${name}`;
+    apply();demoFrame=requestAnimationFrame(tick);
+  }
+  demoFrame=requestAnimationFrame(tick);
+});
 function focusFace(){
   if(!currentRig)return;
   const canvas=document.querySelector('#avatar'),source=document.querySelector('#source');
@@ -48,5 +67,5 @@ function focusFace(){
 }
 document.querySelector('#face').addEventListener('click',()=>{faceView=!faceView;focusFace();});
 addEventListener('resize',focusFace);
-addEventListener('beforeunload',()=>{++generation;renderer.dispose();},{once:true});
+addEventListener('beforeunload',()=>{stopDemo();++generation;renderer.dispose();},{once:true});
 await load();
