@@ -12,6 +12,12 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 ### 意味解析候補の比較
 
+承認済みQwenの比較準備は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/download.py`を使う。`models.json`の5ファイルだけを固定版で取得し、SHA-256を照合してから`models/qwen-eval/`へ公開する。途中ファイルは`temp/qwen-download/`に置き、Rangeの範囲・長さを検査して再開する。各取得ファイルの応答を4個までに制限し、全重みをメモリへ蓄積しない。
+
+比較実行は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/run.py layered --character temp/t7-characters/<ID> --output temp/<新規比較名> --comfy <本アプリ管理ComfyUI>`。もう一方は`layered`を`edit`へ変更する。既定は同じ原寸1024pxの頭/首ROI、50step、seed777。`--view full`は比較専用の長辺1024px以下への縮小で、拡大は行わない。`--prompt`で比較条件を明示的に変えられる。既定のEditは髪除去と隠れた顔/首/服の補完、Layeredは内容記述から4レイヤーへ分解する。**用途が異なるため、出力枚数を品質の順位と扱わない。**
+
+専用localhostポートでComfyUIを起動し、APIノード/カスタムノード/Hub通信を無効化する。生成は逐次、DynamicVRAMで非量子化重みを必要時に読み込む。入力範囲、原画SHA、ワークフロー、全出力（Layeredの0枚目の全体再生成も含む）、ログ、プロセスRAMとGPU全体使用量の時系列を保存し、終了/失敗時に起動したプロセスツリーを回収する。GPU全体使用量には他アプリを含み、プロセス専用VRAMと混同しない。品質判定後も診断素材を正規リグへ無断で昇格しない。
+
 `tools/semantic-eval/inspect-components.py`は正規解析で保存した衣服の検出矩形を同じSAMへ渡し、最大連結領域と全領域を比較する。原寸マスクと上位の成分画像・面積を`temp/clothing-components/`へ保存する。左右に離れた衣服をノイズとして捨てていないかを確認する診断であり、その画像を製品へコピーしない。
 
 正規出力の透明度保持は `sidecar/.venv/Scripts/python.exe tools/verify-scene-alpha.py temp/t7-characters/<ID> ...` で検査する。全キャンバスの `scene_*` 部位をsource-over合成し、背景除去原画との差があれば失敗する。これは原寸アルファ検査であり、RGB同一性・画面のフィルタリング・動作時の品質は別途確認する。
