@@ -89,7 +89,20 @@ def assemble_hidden(rig, parts, source, masks, bald, side, region, settings,
                                     bundle['refined_hair'], features, source_ears, generated_ears, bundle['radius_px'])
         full_repair[t:b, l:r] = repair['rgba']
         old_ears[t:b, l:r] = repair['remove_original_ear']
-        hair[t:b, l:r][repair['allowed_visible_change']] = False
+        # 可視耳の外形を広げる画素だけを髪から移す。下地の補修範囲全体は露出させない。
+        # 原画で見えた耳の輪郭帯だけを直す。生成耳が大きくても横髪全体を剥がさない。
+        hair[t:b, l:r][repair['revealed_hair'] & repair['remove_original_ear']] = False
+        ear_distance = ndimage.distance_transform_edt(~source_ears)
+        full_repair[t:b, l:r][ear_distance > bundle['radius_px'], 3] = 0
+        # 大きな生成耳は元の髪の下へ保持する。中立で見える耳を大きくはしない。
+        hidden_ears = generated_ears & hair[t:b, l:r] & (source[t:b, l:r, 3] > 0)
+        for feature in features:
+            hidden_ears &= ~feature
+        full_hidden[t:b, l:r][hidden_ears] = side[hidden_ears]
+        full_hidden[t:b, l:r, 3][hidden_ears] = source[t:b, l:r, 3][hidden_ears]
+        bundle['hidden_mask'] |= hidden_ears
+        # 原画alpha254等の髪の下へ可視顔を重ねない。隠れ下地は独立素材で露出時だけ描く。
+        full_repair[hair, 3] = 0
     for node in rig['scene_graph']:
         name = node['layer']; sl, st, sr, sb = crop_box(rig['layers'][name], size)
         owned = hair[st:sb, sl:sr]; pixels = parts[name].copy()

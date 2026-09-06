@@ -71,7 +71,7 @@ class ControllerTests(unittest.TestCase):
         self.args.hair_edge_band_ratio=.015;self.args.hair_edge_gain=40
         self.args.workflow=self.root/'workflow.json';self.args.workflow.write_text(json.dumps(self.workflow))
         original=self.root/'original.png';self.prepared.save(original)
-        mask=np.zeros((64,64),bool);mask[10:50,10:50]=True
+        mask=np.zeros((64,64),bool);mask[10:50,10:20]=True
         masks={name:np.zeros_like(mask) for name in ('left_eye','right_eye','mouth')};masks['hair']=mask
         masks['left_eye'][20:22,22:24]=True;masks['right_eye'][20:22,40:42]=True;masks['mouth'][40:42,30:34]=True
         base=self.root/'rig2d-base';(base/'parts').mkdir(parents=True)
@@ -81,7 +81,8 @@ class ControllerTests(unittest.TestCase):
         rig['layers']['face']={'bbox':[16,16,48,48]}
         self.args.base_rig.write_text(json.dumps(rig))
         self.prepared.convert('RGBA').save(base/'parts/scene_face.png')
-        self.prepared.convert('RGBA').save(base/'parts/scene_hair.png')
+        hair_pixels=np.array(self.prepared.convert('RGBA'));hair_pixels[~mask,3]=0
+        Image.fromarray(hair_pixels).save(base/'parts/scene_hair.png')
         (self.root/'source').mkdir();self.prepared.convert('RGBA').save(self.root/'source/isolated.png')
         def segment(image,detector,sam,threshold,context,source_reference,emit):
             events.append('original' if source_reference else 'generated')
@@ -138,8 +139,8 @@ class ControllerTests(unittest.TestCase):
     def test_previous_mask_version_is_not_adopted_as_new_generation(self):
         self.run_edits()
         marker=self.root/'completion-hidden-source/manifest.json'
-        record=json.loads(marker.read_text());self.assertEqual(record['identity']['masked_generation_version'],2)
-        record['identity']['masked_generation_version']=1;marker.write_text(json.dumps(record))
+        record=json.loads(marker.read_text());self.assertEqual(record['identity']['masked_generation_version'],3)
+        record['identity']['masked_generation_version']=2;marker.write_text(json.dumps(record))
         self.run_edits();self.assertEqual(self.calls,['hidden-face','side-ears','hidden-face'])
 
     def test_ear_cache_checks_input_and_releases_engine_before_segment(self):

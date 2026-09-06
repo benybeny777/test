@@ -40,7 +40,9 @@ def semantic_identity(identity,kind,*,requested=False):
         signature(identity['workflow']);signature(identity['overlay'])
         if not identity['resolved_workflow'] or not identity['comfy_code']:raise ValueError('実workflowとエンジン署名が必要です')
     else:
-        if identity['version']!=1 or identity['masked_generation_version'] not in ((2,) if requested else (1,2)) or identity['job']!=kind or set(parameters)!=common:
+        latest=3 if kind=='hidden-face' else 2
+        supported=(latest,) if requested else tuple(range(1,latest+1))
+        if identity['version']!=1 or type(identity['masked_generation_version'])!=int or identity['masked_generation_version'] not in supported or identity['job']!=kind or set(parameters)!=common:
             raise ValueError('未対応の隠れ素材生成版です')
         for name in ('prepared_input_sha256','mask_sha256','overlay_sha256'):signature(identity[name])
         if identity['upscaled'] is not False or identity['output_adoption']!='measured-hidden-or-ear-region-only':

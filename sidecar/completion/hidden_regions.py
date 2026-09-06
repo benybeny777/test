@@ -55,11 +55,29 @@ def scene_support(rig,parts,source,masks):
     return face,surface,hair
 
 
-def hidden_edit_masks(source,surface,hair,features,ears,band):
+def hidden_support(source,face,hair,features,radius):
+    """原寸の隠れ下地支持を、生成マスクと抽出で共有する。"""
+    if not isinstance(radius,int) or radius<1:raise ValueError('隠れ補完の半径が不正です')
+    if source.dtype!=np.uint8 or source.ndim!=3 or source.shape[2]!=4:
+        raise ValueError('隠れ補完の原寸RGBAが必要です')
+    if len(features)!=3 or any(mask.dtype!=bool or mask.shape!=source.shape[:2] for mask in [face,hair,*features]):
+        raise ValueError('隠れ補完の原寸マスクが不正です')
+    rows=np.nonzero(face)[0]
+    if not rows.size:raise ValueError('原画の顔が空です')
+    distance=ndimage.distance_transform_edt(~face)
+    result=(distance>0)&(distance<=radius)&hair&(source[:,:,3]>0)
+    result &= ~np.logical_or.reduce(features)
+    result[rows.max()+1:]=False
+    return result
+
+
+def hidden_edit_masks(source,surface,hair,features,ears,band,face,radius):
     protected=np.logical_or.reduce(features)
     hair=hair|enclosed_hair_regions(hair,protected,source[:,:,3]>0)
     boundary=hair_boundary_candidates(source,surface,hair,features,band)
     if ears.dtype!=bool or ears.shape!=hair.shape:raise ValueError('原画耳が原寸ではありません')
     allowed=(source[:,:,3]>0)&~protected
-    return {'hidden-face':np.where((hair|boundary)&allowed,255,0).astype(np.uint8),
+    # 再分類は顔を減らすだけ。旧髪上の新支持は元支持の部分集合であり、新髪はboundary内。
+    support=hidden_support(source,face&~hair,hair,features,radius)
+    return {'hidden-face':np.where((support|boundary)&allowed,255,0).astype(np.uint8),
             'side-ears':np.where((hair|boundary|ears)&allowed,255,0).astype(np.uint8)}

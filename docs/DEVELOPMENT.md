@@ -1,12 +1,14 @@
 # DEVELOPMENT.md — 開発・ビルド・配布
 
+`cargo xtask verify`はRust・Pythonに加え、作業用Nodeで共通描画とsnapshotのCPU検査も実行する。製品のビルド・起動・セットアップにはNodeを要求しない。
+
 ## 通常の局所補完
 
 通常完成リグは`rig-generations/g_<ID>/`へ同期し、`rig-current.json`だけを原子的に置換する。読者はWindows OSロック付きleaseで1世代を保持する。current・previous（直前1世代）・生存読者の世代を残し、不要世代と終了leaseを回収する。Windows起動時もRustだけで参照と回収を処理し、Pythonを無条件起動しない。旧参照がないlegacy形式に限り、Python互換の集合/キャラbyte0排他を取得して欠落したrig2dを退避版から復旧する。別プロセス稼働中は警告し、pendingの昇格や工程状態の変更をしない。全工程の起動時復旧ではない。旧比較`rig2d/`は移動・削除しない。
 
 ブラウザ確認は固定世代のNDJSON snapshotを逐次受信し、素材SHA・PNG/RGBA・原寸・URL・終了レコードを検証してBlob URLを共通レンダラーへ渡す。配信中断ではleaseと未採用Blobを解放し、旧表示・選択名を保持する。既定上限はレコード0.096 MB、チャンク0.048 MB、1素材32 MB、合計256 MB、256素材、辺長8192px。`display.snapshot_*`の保存値を読み、上限超過を縮小で通さない。サーバーの全体応答bufferを避けるが、ブラウザのBlob・デコード・WebGLメモリは別に必要で、全体の省メモリ実測は未完了。WebGL構築失敗・コンテキスト消失からの復旧までは保証しない。
 
-最終補完版4は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。追加編集はマスク版2のscene髪所有・閉領域・限定境界（横髪/耳は測定原画耳を加える）と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。両側の原画耳が測れない場合は可視輪郭の描き直しを抑止し、partialと画面の警告を残す。生成耳が両側測れなければ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
+最終補完版4は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。隠れ顔はマスク版3の肌支持帯と限定境界、横髪/耳は版2のscene髪所有・閉領域・限定境界・測定原画耳と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。両側の原画耳が測れない場合は可視輪郭の描き直しを抑止し、partialと画面の警告を残す。生成耳が両側測れなければ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
 
 作業用の`tools/capture-character-gallery.mjs <characterId> <temp内の出力先>`は起動済み8791の共通確認画面をChromeで撮影する。Node/Playwrightは開発作業用だけで製品依存ではない。既存Playwrightを使う場合は`LVS_PLAYWRIGHT_MODULE`へその`index.mjs`を指定する。中立・左右閉眼・母音・小角度・連続動作と撮影ハッシュを保存し、撮影用Chromeを終了する。ハッシュ差を品質合格と扱わず実画像を目視する。
 
@@ -33,7 +35,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> co
 
 設定画面の「Qwen局所補完の設定」から保存し、次回の補完で読む。全キー・範囲・既定値は[SETTINGS.md](SETTINGS.md)を正本とする。原寸頭部ROIの目マスクだけを編集し、拡大素材を採用しない。このPCの比較実測では閉眼1体約15〜18分、RSS最大約16.3 GB・GPU全体最大約7.6 GB。通常入口の実走・全キャラ品質の証明とは分ける。
 
-`completion-source/{edited.png,manifest.json}`と隠れ顔/耳の2rawは、生成署名と抽出署名を分離する。閉眼生成版3・隠れマスク版2を維持する。実入力PNG/マスク・原寸ROI・原画2SHA・モデル・ComfyUIコード/依存版・確定workflow・全条件が厳密一致すれば、解析2SHAだけの変更では再推論しない。元raw manifest全バイトと実生成時source4SHAを保持し、今回のsource4SHAと別に完成証跡へ記録する。RawLeaseが画像とmanifestの取得時SHAを固定し、後工程後・読込時・公開直前に再照合する。原画/解析/基底/コードの実行中変更は拒否する。既知eye1/2・隠れmask1は完全性検査後に新版不一致として再生成、未知版/破損は明示失敗。実入力準備や推論の意味を変えた場合だけ生成版を上げる。
+`completion-source/{edited.png,manifest.json}`と隠れ顔/耳の2rawは、生成署名と抽出署名を分離する。閉眼生成版3・隠れ顔マスク版3・横髪/耳マスク版2を使う。実入力PNG/マスク・原寸ROI・原画2SHA・モデル・ComfyUIコード/依存版・確定workflow・全条件が厳密一致すれば、解析2SHAだけの変更では再推論しない。元raw manifest全バイトと実生成時source4SHAを保持し、今回のsource4SHAと別に完成証跡へ記録する。RawLeaseが画像とmanifestの取得時SHAを固定し、後工程後・読込時・公開直前に再照合する。原画/解析/基底/コードの実行中変更は拒否する。既知eye1/2・隠れ顔mask1/2・横髪耳mask1は完全性検査後に新版不一致として再生成、未知版/破損は明示失敗。実入力準備や推論の意味を変えた場合だけ生成版を上げる。
 
 公開世代の`completion.json`には最終版4の現在source4SHA・基底・元rawの出自/画像SHA・抽出コード・完成素材SHAを記録する。公開前SHA検査を外さない。成功後は処理専用一時ディレクトリを除去し、失敗時は診断と成功済みrawを保持する。partialは`rig.local_completion.hidden.warning`へ保存し、最終cache再利用時も画面へ警告する。初回移行で旧mutable rig2dを新方式の完成cacheとして採用せず、検証済みrawから抽出して世代公開する。
 

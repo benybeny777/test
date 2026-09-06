@@ -1,7 +1,7 @@
 """原寸の限定境界だけを編集し、白合成を編集差と誤認しないことを検査する。"""
 import unittest
 import numpy as np
-from hidden_regions import hidden_edit_masks,hair_boundary_candidates,white_reference,scene_support
+from hidden_regions import hidden_edit_masks,hair_boundary_candidates,white_reference,scene_support,hidden_support
 from hidden_materials import refine_side_hair
 
 class BoundaryTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class BoundaryTests(unittest.TestCase):
         source,face,hair,features=self.fixture();source[30,21,3]=0;before=source.copy()
         candidate=hair_boundary_candidates(source,face,hair,features,3)
         self.assertTrue(candidate.any());self.assertFalse((candidate&hair).any())
-        masks=hidden_edit_masks(source,face,hair,features,np.zeros_like(hair),3)
+        masks=hidden_edit_masks(source,face,hair,features,np.zeros_like(hair),3,face,4)
         for mask in masks.values():
             self.assertTrue(np.all(mask[candidate]==255))
             self.assertTrue(np.all(mask[np.logical_or.reduce(features)]==0))
@@ -30,9 +30,9 @@ class BoundaryTests(unittest.TestCase):
         self.assertTrue(np.array_equal(result,hair))
     def test_native_geometry_is_translation_invariant(self):
         source,face,hair,features=self.fixture();ear=np.zeros_like(hair)
-        original=hidden_edit_masks(source,face,hair,features,ear,3)
+        original=hidden_edit_masks(source,face,hair,features,ear,3,face,4)
         pad=((9,11),(7,13));shifted=hidden_edit_masks(np.pad(source,(*pad,(0,0))),np.pad(face,pad),np.pad(hair,pad),
-                   [np.pad(mask,pad) for mask in features],np.pad(ear,pad),3)
+                   [np.pad(mask,pad) for mask in features],np.pad(ear,pad),3,np.pad(face,pad),4)
         for key in original:self.assertTrue(np.array_equal(original[key],shifted[key][9:73,7:71]))
     def test_scene_hair_boundary_is_shared_not_only_semantic_hair(self):
         source,face,hair,features=self.fixture();scenehair=hair.copy();scenehair[30,20]=True
@@ -45,5 +45,17 @@ class BoundaryTests(unittest.TestCase):
         self.assertTrue(owned[30,20]);self.assertTrue(np.array_equal(surface,face))
         parts['scene_hair']=parts['scene_hair'][:-1]
         with self.assertRaises(ValueError):scene_support(rig,parts,source,{'hair':hair})
+
+    def test_band_contains_every_possible_side_refinement_support(self):
+        source,face,hair,features=self.fixture()
+        boundary=hair_boundary_candidates(source,face,hair,features,3)
+        masks=hidden_edit_masks(source,face,hair,features,np.zeros_like(hair),3,face,4)
+        generator=np.random.default_rng(777)
+        for selected in [np.zeros_like(hair),boundary,*[boundary&(generator.random(hair.shape)>.5) for _ in range(20)]]:
+            refined=hair|selected
+            adopted=hidden_support(source,face&~refined,refined,features,4)
+            self.assertTrue(np.all(masks['hidden-face'][adopted]==255))
+        self.assertTrue(np.all(masks['hidden-face'][:,10:15]==0))
+        np.testing.assert_array_equal(masks['side-ears']>0,(hair|boundary)&~np.logical_or.reduce(features))
 
 if __name__=='__main__':unittest.main()

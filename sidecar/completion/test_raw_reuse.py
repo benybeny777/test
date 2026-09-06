@@ -13,7 +13,7 @@ def identity(kind):
         common['parameters'].update(resolution=1024,mask_margin_ratio=.2,mask_core_ratio=.5)
     else:
         common.update(version=1,job=kind,prepared_input_sha256=sha(b'input'),mask_sha256=sha(b'mask'),
-            overlay_sha256=sha(b'overlay'),masked_generation_version=2,upscaled=False,output_adoption='measured-hidden-or-ear-region-only')
+            overlay_sha256=sha(b'overlay'),masked_generation_version=3 if kind=='hidden-face' else 2,upscaled=False,output_adoption='measured-hidden-or-ear-region-only')
     return common
 
 class ReuseTests(unittest.TestCase):
@@ -108,6 +108,20 @@ class ReuseTests(unittest.TestCase):
             return real(path)
         with patch.object(Path,'lstat',attributes):
             with self.assertRaisesRegex(ValueError,'reparse'):open_raw(cache,wanted,'eye')
+
+    def test_hidden_v2_regenerates_but_side_v2_keeps_its_contract(self):
+        cache,wanted=self.save('hidden-face');marker=cache/'manifest.json'
+        record=json.loads(marker.read_bytes());record['identity']['masked_generation_version']=2
+        marker.write_text(json.dumps(record));before=marker.read_bytes()
+        self.assertIsNone(open_raw(cache,wanted,'hidden-face'))
+        self.assertEqual(marker.read_bytes(),before)
+        (cache/'edited.png').write_bytes(b'corrupt')
+        with self.assertRaises(ValueError):open_raw(cache,wanted,'hidden-face')
+        side,requested=self.save('side-ears');self.assertIsNotNone(open_raw(side,requested,'side-ears'))
+        requested['masked_generation_version']=3
+        with self.assertRaises(ValueError):open_raw(side,requested,'side-ears')
+        wanted['masked_generation_version']=4
+        with self.assertRaises(ValueError):open_raw(cache,wanted,'hidden-face')
 
     @unittest.skipUnless(os.name=='nt','Windowsの実junction検査')
     def test_real_junction_ancestor_rejects_existing_and_new_raw(self):

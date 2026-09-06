@@ -54,7 +54,7 @@ def prepare_hidden(args, white, region, source, generation, guard, infer, emit, 
     for name in names:
         with Image.open(args.base_rig.parent/f'parts/{name}.png') as image:parts[name]=np.array(image.convert('RGBA'))
     with Image.open(args.character/'source/isolated.png') as image:isolated=np.array(image.convert('RGBA'))
-    _,surface,hair=scene_support(base_rig,parts,isolated,masks)
+    face,surface,hair=scene_support(base_rig,parts,isolated,masks)
     roi=isolated[t:b,l:r]
     if not np.array_equal(np.array(white.convert('RGB')),white_reference(roi)[:,:,:3]):
         raise ValueError('髪境界判定と生成の白合成入力が不一致です')
@@ -62,7 +62,8 @@ def prepare_hidden(args, white, region, source, generation, guard, infer, emit, 
     face_box=base_rig['layers']['face']['bbox']
     band=max(1,round((face_box[2]-face_box[0])*args.hair_edge_band_ratio))
     original_ears = original[0][0] | original[0][1]
-    edit_masks=hidden_edit_masks(roi,surface[t:b,l:r],hair[t:b,l:r],features,original_ears,band)
+    radius=max(1,round((face_box[2]-face_box[0])*args.hidden_band_ratio))
+    edit_masks=hidden_edit_masks(roi,surface[t:b,l:r],hair[t:b,l:r],features,original_ears,band,face[t:b,l:r],radius)
     workflow = json.loads(args.workflow.read_text(encoding='utf-8'))
     results = hidden_edits(args,white.convert('RGB'),source,region,generation['models'],runtime,
                           workflow,guard,infer_serial,ensure_stopped,emit,edit_masks)

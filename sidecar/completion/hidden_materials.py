@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
-from hidden_regions import enclosed_hair_regions, hair_boundary_candidates, white_reference
+from hidden_regions import enclosed_hair_regions, hair_boundary_candidates, white_reference, hidden_support
 
 def separate_hair_pixels(pixels, hair, is_hair):
     """独立移動する髪との重複を、顔以外の未分類素材からも除く。"""
@@ -30,14 +30,7 @@ def hidden_material(source, generated, face, hair, feature_masks, radius):
     for feature in feature_masks:skin &= ~ndimage.binary_dilation(feature,iterations=3)
     skin &= source[:,:,3]>0
     if skin.sum()<16:raise ValueError('色合わせ用の可視肌が不足しています')
-    distance=ndimage.distance_transform_edt(~face)
-    hidden=(distance>0)&(distance<=radius)&hair&(source[:,:,3]>0)
-    # 原画の目口と髪が競合した画素には、新しい肌を追加しない。
-    for feature in feature_masks:hidden &= ~feature
-    # 検出の下端より下へ顔の肌を延ばして襟を覆わない。
-    rows=np.nonzero(face)[0]
-    if not rows.size:raise ValueError('原画の顔が空です')
-    hidden[rows.max()+1:]=False
+    hidden=hidden_support(source,face,hair,feature_masks,radius)
     if not hidden.any():raise ValueError('髪の下に補完領域がありません')
     sigma=max(1,radius)
     denominator=ndimage.gaussian_filter(skin.astype(float),sigma)

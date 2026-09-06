@@ -59,7 +59,7 @@ def hidden_edits(args, prepared, source, region, model_identity, runtime_identit
             graph['13']['inputs']['filename_prefix'] = job
             parameters = {'steps': args.steps, 'seed': args.seed, 'fast_disk': args.fast_disk, 'prompt': prompt}
             identity = generation_identity(job, source, region, input_sha, model_identity, graph, runtime_identity, parameters)
-            identity.update(masked_generation_version=2,mask_sha256=mask_sha,overlay_sha256=digest(args.overlay))
+            identity.update(masked_generation_version=3 if job=='hidden-face' else 2,mask_sha256=mask_sha,overlay_sha256=digest(args.overlay))
             cache = args.character/plan['cache_directory']
             if cache.is_symlink() or cache.resolve().parent != args.character.resolve():
                 raise ValueError('追加補完キャッシュの保存先が不正です')

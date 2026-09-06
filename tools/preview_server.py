@@ -1,4 +1,4 @@
-"""確認画面と検証用キャラクターだけを配信する読み取り専用サーバー。"""
+"""確認資産を配信する。素材は変更せず、公開世代の読者leaseと終了時GCだけを管理する。"""
 import argparse
 import http.server
 import json
