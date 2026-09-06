@@ -3,11 +3,28 @@ import tempfile
 import unittest
 import re
 import posixpath
+import json
 from pathlib import Path
-from preview_server import resolve_asset,ROOT,STATIC
+from preview_server import resolve_asset,ROOT,STATIC,comparisons
 
 
 class PreviewServerTests(unittest.TestCase):
+    def test_comparison_exposes_only_reported_images(self):
+        parent=ROOT/'temp/tests';parent.mkdir(parents=True,exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as folder:
+            root=Path(folder);directory=root/'temp/qwen-eval-layered-test';(directory/'output').mkdir(parents=True)
+            (directory/'reference.png').write_bytes(b'fixture')
+            (directory/'output/candidate_00001_.png').write_bytes(b'fixture')
+            (directory/'comfy.log').write_text('not public')
+            (directory/'report.json').write_text(json.dumps({'mode':'layered','status':'complete','images':['output/candidate_00001_.png']}))
+            rows,_=comparisons(root)
+            self.assertIn('全体再生成',rows[0]['images'][1]['label'])
+            self.assertEqual(resolve_asset('/temp/qwen-eval-layered-test/reference.png',root),directory/'reference.png')
+            self.assertIsNone(resolve_asset('/temp/qwen-eval-layered-test/comfy.log',root))
+            self.assertIsNone(resolve_asset('/temp/qwen-eval-layered-test/report.json',root))
+            (directory/'report.json').write_text(json.dumps({'mode':'edit','status':'complete','images':['../../secret.png']}))
+            self.assertEqual(comparisons(root)[0][0]['status'],'invalid')
+
     def test_static_module_imports_are_served(self):
         for url in STATIC:
             if not url.endswith('.js'):continue

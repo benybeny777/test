@@ -159,7 +159,7 @@ def main():
                             with Image.open(path) as image:
                                 if image.size!=size:raise ValueError('生成寸法が一致しません')
                                 if args.mode=='layered' and image.mode!='RGBA':raise ValueError('RGBAレイヤーではありません')
-                            report['images'].append(str(path.relative_to(output)))
+                            report['images'].append(path.relative_to(output).as_posix())
                         verify_source(args.character,source)
                         report['status']='complete';break
                 time.sleep(5)

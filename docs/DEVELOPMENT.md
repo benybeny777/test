@@ -20,6 +20,8 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 完了出力は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/analyze.py temp/<比較名> --character temp/t7-characters/<ID>`で解析する。生成時の原画/透過原画/解析/マスクのSHAが一致しない場合は拒否する。Layeredの全体再生成と残りレイヤーの合成誤差、入力との差、目口等の可視画素差、メモリピークを`metrics.json`に保存する。画素差は形状や造形の良否を証明しないため、見た目の判定は別に行う。
 
+ブラウザで見せる比較の出力名は`temp/qwen-eval-<英小文字・数字・ハイフン>`にする。確認サーバーの`/ui/qwen-check.html`は、その範囲のreport.jsonに記載されたPNGとreference/recomposedだけを配信する。Layeredの0枚目を「全体再生成」と表示し、原画や独立素材へ誤分類しない。任意のtempファイル、重み、ログ、レポートそのものは公開しない。新しい結果は「結果を更新」で読み直す。
+
 `tools/semantic-eval/inspect-components.py`は正規解析で保存した衣服の検出矩形を同じSAMへ渡し、最大連結領域と全領域を比較する。原寸マスクと上位の成分画像・面積を`temp/clothing-components/`へ保存する。左右に離れた衣服をノイズとして捨てていないかを確認する診断であり、その画像を製品へコピーしない。
 
 正規出力の透明度保持は `sidecar/.venv/Scripts/python.exe tools/verify-scene-alpha.py temp/t7-characters/<ID> ...` で検査する。全キャンバスの `scene_*` 部位をsource-over合成し、背景除去原画との差があれば失敗する。これは原寸アルファ検査であり、RGB同一性・画面のフィルタリング・動作時の品質は別途確認する。
