@@ -34,7 +34,15 @@
 
 ## 女性A
 
-同じ通常工程での再生成と比較を進めています。新規通常出力の検査が終わるまでは、この欄に旧候補を新しい成果として掲載しません。
+1254×1254の原画から同じ4工程で完走しました。顔周辺は原寸256×256の領域を使い、画像全体を256へ縮小したものではありません。原画SHA一致を検査済みです。
+
+[![女性Aの全体比較](character-gallery-25d/female-a/full.png)](character-gallery-25d/female-a/full.png)
+
+| 半閉眼 | 完全閉眼 |
+|---|---|
+| [![半閉眼](character-gallery-25d/female-a/half.png)](character-gallery-25d/female-a/half.png) | [![完全閉眼](character-gallery-25d/female-a/closed.png)](character-gallery-25d/female-a/closed.png) |
+
+目の上下に細い境界・残片があるため最終品質は未合格です。顔を大きく表示した際の原画自体の解像感も確認できます。原画を補間拡大した素材へ置き換えてはいません。
 
 ## 動かして確認する
 

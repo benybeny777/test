@@ -31,7 +31,7 @@ client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
 VERSION = 2
 # 推論や入力準備の意味を変えた場合に上げる。抽出だけの変更ではGPUを再実行しない。
-IMAGE_GENERATION_VERSION = 1
+IMAGE_GENERATION_VERSION = 2
 PROMPT = ('Close both eyes naturally, preserving the original character identity and original rendering style. '
           'Relaxed closed eyelids with a thin natural eyelash line. Edit only the eyes within the mask. '
           'Preserve the original hair, eyebrows, nose, mouth, skin texture, lighting, pose and image framing. '

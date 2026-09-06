@@ -101,7 +101,7 @@ cargo xtask dev
 
 中心資産は `layers/manifest.json`、`layers/parts/`、`rig2d/rig.json` です。`character.json` で各工程の状態を管理し、未着手は `pending`、実行後は `running / complete / failed` と理由を保存します。
 
-未補完の中間リグは`rig2d-base/`へ保存し、`complete`の成功で`rig2d/`へ公開します。Qwenの局所閉眼はこのPCの比較実測で1体約15〜18分かかります。通常入口へ統合した実走の検証は継続中です。設定画面の「Qwen局所補完の設定」で推論条件を変更でき、次回補完から再起動なしで反映します。初回のモデル配置は[開発手順](docs/DEVELOPMENT.md#通常の局所補完)を参照してください。
+未補完の中間リグは`rig2d-base/`へ保存し、`complete`の成功で`rig2d/`へ公開します。このPCで通常4工程はPico実写が約19分08秒、むぎが約25分24秒、女性Aが約19分41秒で完走しました。これは生成処理の成立であり、髪際・閉眼境界などの品質検証と隠れ部分の通常補完は継続中です。[実画面ギャラリー](docs/CHARACTER_GALLERY.md)に未達点も掲載しています。設定画面の「Qwen局所補完の設定」で推論条件を変更でき、次回補完から再起動なしで反映します。初回のモデル配置は[開発手順](docs/DEVELOPMENT.md#通常の局所補完)を参照してください。
 
 ```text
 characters/<characterId>/

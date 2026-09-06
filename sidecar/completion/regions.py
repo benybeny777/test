@@ -13,7 +13,9 @@ def eye_edit_mask(eyes,hair,alpha,margin_ratio):
         margin=max(2,round((int(xs.max())-int(xs.min())+1)*margin_ratio))
         expanded=ndimage.binary_dilation(eye,iterations=margin)&~hair&(alpha>0)
         if not np.any(expanded&eye):raise ValueError('可視の目が編集範囲にありません')
-        region=np.maximum(region,np.clip(ndimage.distance_transform_edt(expanded)/max(1,margin/2),0,1))
+        # 目そのものは確実に編集し、減衰は目の外側だけに置く。髪の近さで目を弱編集にしない。
+        weight=np.clip(1-ndimage.distance_transform_edt(~eye)/margin,0,1)*expanded
+        region=np.maximum(region,weight)
     return np.rint(region*255).astype(np.uint8)
 
 

@@ -57,6 +57,26 @@ class CompletionTests(unittest.TestCase):
         with generation_lock(b):
             pass
 
+    def test_eye_core_is_full_strength_even_next_to_protected_hair(self):
+        eye = np.zeros((64, 96), bool); eye[20:40, 30:65] = True
+        hair = np.zeros_like(eye); hair[:, 28:32] = True
+        alpha = np.full(eye.shape, 255, np.uint8); alpha[25:27, 40:44] = 0
+        mask = eye_edit_mask([eye], hair, alpha, .2)
+        core = eye & ~hair & (alpha > 0)
+        self.assertTrue(np.all(mask[core] == 255))
+        self.assertTrue(np.all(mask[hair | (alpha == 0)] == 0))
+        self.assertTrue(np.any((mask > 0) & (mask < 255) & ~eye))
+        self.assertEqual(mask.shape, eye.shape)
+
+    def test_edit_mask_translation_preserves_native_pixels(self):
+        eye = np.zeros((64, 96), bool); eye[20:40, 30:65] = True
+        hair = np.zeros_like(eye); hair[:, 28:32] = True
+        alpha = np.full(eye.shape, 255, np.uint8)
+        original = eye_edit_mask([eye], hair, alpha, .2)
+        pad = ((7, 9), (11, 13))
+        shifted = eye_edit_mask([np.pad(eye, pad)], np.pad(hair, pad), np.pad(alpha, pad), .2)
+        self.assertTrue(np.array_equal(original, shifted[7:71, 11:107]))
+
     def test_native_roi_never_resizes_to_fit_limit(self):
         bounds = measured_head_region([300, 250, 500, 450], [340, 440, 470, 510], (1000, 1200), 1024)
         self.assertEqual((bounds[2]-bounds[0]) % 16, 0)
