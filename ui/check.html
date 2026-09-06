@@ -5,10 +5,10 @@
 body{margin:0;background:#20252c;color:#eee;font:15px system-ui}header{padding:16px}label{display:inline-block;margin:6px}button,select{font:inherit;padding:6px}main{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px}figure{margin:0;min-width:0}figcaption{padding:8px}.stage{height:72vh;background:repeating-conic-gradient(#aaa 0% 25%,#ddd 0% 50%) 0/24px 24px;overflow:hidden}canvas,img{width:100%;height:100%;object-fit:contain;display:block}#status{white-space:pre-wrap;color:#ffc97c}@media(max-width:600px){main{grid-template-columns:1fr}.stage{height:65vh}}
 </style>
 <header><h1>2.5D品質確認（未承認の試作）</h1>
-<label>キャラ<select id="character"></select></label><button id="neutral">原画と同じ中立状態</button><button id="blink">自動まばたき</button><button id="face">顔の拡大検査</button>
+<label>キャラ<select id="character"></select></label><button id="neutral">中立状態へ戻す</button><button id="blink">自動まばたき</button><button id="face">顔の拡大検査</button>
 <button id="mouth-demo">口パク動作テスト（無音）</button><span id="mouth-preset"></span>
 <button id="motion-demo">待機動作テスト</button>
 <label><input id="hidden-material" type="checkbox" checked>補完下地を表示（候補のみ）</label>
 <div id="controls"></div><p id="status" role="status">読込中</p></header>
 <main><figure><figcaption>原画（変更しない入力）</figcaption><div class="stage"><img id="source" alt="原画"></div></figure><figure><figcaption>本体と共通のレンダラー</figcaption><div class="stage"><canvas id="avatar"></canvas></div></figure></main>
-<script type="module" src="./check.js?v=hidden-preview2"></script></html>
+<script type="module" src="./check.js?v=hidden-preview16"></script></html>

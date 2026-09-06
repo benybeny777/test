@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset} from '../ui/shared/rig-motion.js';
+import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from '../ui/shared/rig-motion.js';
+
+test('耳境界の補修は中立と比較オフでゼロ、指定角度で上限になる',()=>{
+  const profile={repair_layer:'scene_ear_repair',angle_limit:15};
+  assert.equal(hiddenRepairAmount(profile,0,0),0);
+  assert.equal(hiddenRepairAmount(profile,15,0,false),0);
+  assert.equal(hiddenRepairAmount(profile,7.5,0),.5);
+  assert.equal(hiddenRepairAmount(profile,-30,0),1);
+  assert.equal(hiddenRepairAmount(undefined,15,15),0);
+});
 
 test('補完比較は中立と未補完領域を固定し、不正な変位定義を拒否する',()=>{
   const profile={version:1,weights:[0,.5,1],angle_limit:15,x_limit_px:10,y_limit_px:5};

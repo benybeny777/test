@@ -24,9 +24,13 @@ export function headDisplacement(x,y,face,neck,width,height,yaw,pitch,roll){
 export function validateHiddenMotion(profile,count){
   if(profile===undefined)return;
   if(profile.version!==1||!Array.isArray(profile.weights)||profile.weights.length!==count||
+     (profile.repair_layer!==undefined&&profile.repair_layer!=='scene_ear_repair')||
      profile.weights.some(v=>!Number.isFinite(v)||v<0||v>1)||
      !['angle_limit','x_limit_px','y_limit_px'].every(k=>Number.isFinite(profile[k])&&profile[k]>0))
     throw new Error('補完比較の変位定義が不正です');
+}
+export function hiddenRepairAmount(profile,yaw,pitch,visible=true){
+  return profile?.repair_layer&&visible?clamp(Math.max(Math.abs(yaw),Math.abs(pitch))/profile.angle_limit,0,1):0;
 }
 export function hiddenOffset(profile,index,yaw,pitch){
   const bound=value=>Math.max(-1,Math.min(1,value/profile.angle_limit));

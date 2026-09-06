@@ -3,7 +3,7 @@ import {localAssetUrl,loadLocalJson} from './local-assets.js';
 import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js';
 import {eyeAperture,drawBlink} from './eye-geometry.js';
 import {bleedTransparentRgb} from './texture-alpha.js';
-import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset} from './rig-motion.js';
+import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=ear-repair1';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
@@ -39,6 +39,7 @@ export function createAvatarRenderer(canvas){
       for(const side of ['left','right'])eyeAperture(incoming.layers?.[side+'_eye_base'],1);
       const names=[...graph.map(p=>p.layer),'mouth_open','mouth_closed',...['left','right'].flatMap(side=>
         ['eye_iris','eye_backplate','eye_base','eyelid_upper'].map(part=>side+'_'+part))];
+      if(incoming.hidden_motion?.repair_layer)names.push(incoming.hidden_motion.repair_layer);
       const loaded=await Promise.all(names.map(async name=>{
         const layer=incoming.layers[name];if(!layer)throw new Error('必須素材がありません: '+name);
         const image=new Image();image.src=localAssetUrl(next.partUrls?.[name]??layer.url).href;await image.decode();
@@ -78,11 +79,14 @@ export function createAvatarRenderer(canvas){
     state={...next};
   }
   function appearance(left,right,open,form){
-    const key=[left,right,open,form,state.preserveOriginalMouth?1:0].map(v=>v.toFixed(3)).join(',');
+    const repair=rig.hidden_motion?.repair_layer;
+    const repairAmount=hiddenRepairAmount(rig.hidden_motion,state.yaw??0,state.pitch??0,state.showHiddenMaterial!==false);
+    const key=[left,right,open,form,state.preserveOriginalMouth?1:0,repairAmount].map(v=>v.toFixed(3)).join(',');
     if(key===lastAppearance)return;lastAppearance=key;
     const box=rig.layers.scene_face.texture_box;
     ctx.save();ctx.clearRect(0,0,faceCanvas.width,faceCanvas.height);ctx.translate(-box[0],-box[1]);
     ctx.drawImage(images.get('scene_face'),box[0],box[1]);
+    if(repairAmount>0){const bounds=rig.layers[repair].texture_box;ctx.globalAlpha=repairAmount;ctx.drawImage(images.get(repair),bounds[0],bounds[1]);ctx.globalAlpha=1;}
     drawBlink(ctx,images,rig,'left',left);drawBlink(ctx,images,rig,'right',right);
     if(open>0||form!==0){const base=rig.layers.mouth_open.texture_box;ctx.drawImage(images.get('mouth_open'),base[0],base[1]);
       drawTexturedMouth(ctx,images.get('mouth_closed'),rig.layers.mouth_closed,open,form,rig.layers.mouth_open.line_color);}
