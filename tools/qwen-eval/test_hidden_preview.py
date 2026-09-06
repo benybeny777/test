@@ -3,10 +3,20 @@ import unittest
 import tempfile
 from pathlib import Path
 import numpy as np
-from build_preview import hidden_material,baseline_hashes,ROOT
+from build_preview import hidden_material,baseline_hashes,separate_hair_pixels,ROOT
 
 
 class HiddenPreviewTests(unittest.TestCase):
+    def test_hair_pixels_are_not_left_in_residual_or_face(self):
+        pixels=np.full((4,4,4),255,dtype=np.uint8)
+        hair=np.zeros((4,4),bool);hair[:,0]=True
+        for is_hair in [False,True]:
+            result=separate_hair_pixels(pixels,hair,is_hair)
+            expected=hair if is_hair else ~hair
+            self.assertTrue(np.array_equal(result[:,:,3]>0,expected))
+            self.assertTrue(np.all(result[:,:,:3]==255))
+        self.assertTrue(np.all(pixels==255))
+
     def test_baseline_fingerprint_includes_part_images(self):
         parent=ROOT/'temp/tests';parent.mkdir(parents=True,exist_ok=True)
         with tempfile.TemporaryDirectory(dir=parent) as folder:

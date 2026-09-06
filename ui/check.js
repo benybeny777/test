@@ -3,7 +3,7 @@ import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
 // 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
-const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_8e08e4cae01f','むぎ・原画固定＋補完候補']];
+const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_46f929d3d046','むぎ・原画固定＋補完候補']];
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 for(const [id,name] of fixtures)select.add(new Option(name,id));
 const renderer=createAvatarRenderer(document.querySelector('#avatar'));

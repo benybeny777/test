@@ -25,6 +25,14 @@ def baseline_hashes(character):
             for path in [directory/'rig.json',*sorted((directory/'parts').glob('*.png'))]}
 
 
+def separate_hair_pixels(pixels, hair, is_hair):
+    """独立移動する髪との重複を、顔以外の未分類素材からも除く。"""
+    if pixels.shape[:2]!=hair.shape:raise ValueError('髪の所有領域と素材寸法が一致しません')
+    result=pixels.copy()
+    result[~hair if is_hair else hair,3]=0
+    return result
+
+
 def hidden_material(source, generated, face, hair, feature_masks, radius):
     """原画の不透明な髪の下だけへ補完する。可視領域は一切上書きしない。"""
     if source.shape != generated.shape or face.shape != source.shape[:2]:
@@ -81,7 +89,7 @@ def build(character,comparison,band_ratio=.08,motion_ratio=.35):
     face=full_face[top:bottom,left:right]
     face_box=rig['layers']['face']['bbox'];radius=max(1,round((face_box[2]-face_box[0])*band_ratio))
     pixels,hidden=hidden_material(source[top:bottom,left:right],generated,face,hair,features,radius)
-    identity={'version':3,'source':report['source'],'generated_sha256':digest(generated_path),
+    identity={'version':4,'source':report['source'],'generated_sha256':digest(generated_path),
               'baseline_assets_sha256':baseline,'band_ratio':band_ratio,'motion_ratio':motion_ratio}
     identifier='c_'+hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()[:12]
     destination=ROOT/'temp/t7-characters'/identifier
@@ -98,13 +106,11 @@ def build(character,comparison,band_ratio=.08,motion_ratio=.35):
     if bounds is None:raise ValueError('補完下地が空です')
     # 独立移動時に二重線となる、不透明な髪/顔の境界共有だけを整理する。
     overrides={}
-    for name in ('scene_face','scene_hair'):
+    for name in (part['layer'] for part in rig['scene_graph']):
         b=rig['layers'][name]['texture_box']
         with Image.open(character/'rig2d/parts'/f'{name}.png') as opened:part=np.array(opened)
         owned=full_hair[b[1]:b[3],b[0]:b[2]]
-        if name=='scene_face':part[owned,3]=0
-        else:part[~owned,3]=0
-        overrides[name]=Image.fromarray(part)
+        overrides[name]=Image.fromarray(separate_hair_pixels(part,owned,name=='scene_hair'))
     # 中立で既存合成を変えないことを全画素で検証する。
     def composite(with_hidden):
         result=Image.new('RGBA',(width,height))
@@ -115,6 +121,7 @@ def build(character,comparison,band_ratio=.08,motion_ratio=.35):
                 result.alpha_composite(overrides.get(part['layer'],opened) if with_hidden else opened,(b[0],b[1]))
         return np.asarray(result)
     before=composite(False);after=composite(True)
+    if not np.array_equal(before,source):raise ValueError('元リグの中立合成が原画と一致しません')
     if not np.array_equal(before,after):raise ValueError('補完下地が中立の可視画素を変えました')
     with directory_output(destination) as pending:
         (pending/'source').mkdir();shutil.copy2(character/'source/input.png',pending/'source/input.png')
