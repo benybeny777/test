@@ -56,11 +56,14 @@ try{
     await capture(key+'-closed');
     await page.getByRole('slider',{name:label,exact:true}).fill('1');
   }
+  // 首・襟・腕の確認では顔拡大を解除し、接続部を画面内に収める。
+  await page.getByRole('button',{name:'顔の拡大検査',exact:true}).click();
   for(const [key,label,value] of [['pitch','顔上下','12'],['roll','首の傾き','12'],['arms','腕を寄せる','10']]){
     await page.getByRole('slider',{name:label,exact:true}).fill(value);
     await capture(key);
     await page.getByRole('slider',{name:label,exact:true}).fill('0');
   }
+  await page.getByRole('button',{name:'顔の拡大検査',exact:true}).click();
   await page.getByRole('button',{name:'口パク動作テスト（無音）',exact:true}).click();
   await page.getByRole('button',{name:'自動まばたき',exact:true}).click();
   // 一巡を複数時点で保存する。ハッシュ差は動作の証拠で、造形の合格判定ではない。

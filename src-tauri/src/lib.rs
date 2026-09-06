@@ -280,18 +280,50 @@ fn load_preview_assets(
         .pipeline
         .character_dir(&character_id)
         .map_err(error_text)?;
+    read_consistent_preview(&directory, |path| fs::read(path))
+}
+
+fn preview_generation(bytes: &[u8]) -> Result<(String, String), String> {
+    let manifest: CharacterManifest = serde_json::from_slice(bytes).map_err(error_text)?;
+    let name = if manifest.model.contains_key("rig2d_base") {
+        "complete"
+    } else {
+        "rig2d"
+    };
+    let stage = manifest
+        .stages
+        .get(name)
+        .filter(|stage| stage.status == "complete" && !stage.updated_at_iso.is_empty())
+        .ok_or_else(|| {
+            "リグ生成・局所補完が未完了です。完了後に再読み込みしてください".to_owned()
+        })?;
+    Ok((name.to_owned(), stage.updated_at_iso.clone()))
+}
+
+fn read_consistent_preview(
+    directory: &Path,
+    mut read: impl FnMut(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<PreviewAssets, String> {
+    // 正規probeは公開前に状態を失効する。別プロセスでも世代を前後照合する。
+    // character.jsonを更新しない診断サイドカーの直接公開はこの保証に含まない。
+    let manifest_path = directory.join("character.json");
+    let before = preview_generation(&read(&manifest_path).map_err(error_text)?)?;
     let mut parts = BTreeMap::new();
     for name in RIG2D_PARTS {
         parts.insert(
             (*name).to_owned(),
-            fs::read(directory.join("rig2d/parts").join(format!("{name}.png")))
-                .map_err(error_text)?,
+            read(&directory.join("rig2d/parts").join(format!("{name}.png"))).map_err(error_text)?,
         );
     }
-    Ok(PreviewAssets {
-        rig: fs::read(directory.join("rig2d/rig.json")).map_err(error_text)?,
+    let assets = PreviewAssets {
+        rig: read(&directory.join("rig2d/rig.json")).map_err(error_text)?,
         parts,
-    })
+    };
+    let after = preview_generation(&read(&manifest_path).map_err(error_text)?)?;
+    if before != after {
+        return Err("読み込み中に生成世代が変わりました。完了後に再読み込みしてください".into());
+    }
+    Ok(assets)
 }
 
 #[tauri::command]
@@ -434,6 +466,74 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("LocalVTuberStudio の初期化に失敗しました");
     application.run(|_, _| {});
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    fn manifest(stage: &str, status: &str, timestamp: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1, "characterId": "fixture", "displayName": "確認",
+            "createdAtIso": "first", "updatedAtIso": timestamp,
+            "personaPrompt": "", "identityTags": "", "expressions": [], "framings": {},
+            "model": if stage == "complete" { serde_json::json!({"rig2d_base":"rig2d-base/rig.json"}) } else { serde_json::json!({}) },
+            "stages": {stage: {"status":status,"message":"","updatedAtIso":timestamp}}
+        })).unwrap()
+    }
+
+    #[test]
+    fn preview_accepts_consistent_legacy_and_completed_generations() {
+        for stage in ["rig2d", "complete"] {
+            let mut state_reads = 0;
+            let assets = read_consistent_preview(Path::new("fixture"), |path| {
+                if path.file_name().unwrap() == "character.json" {
+                    state_reads += 1;
+                    Ok(manifest(stage, "complete", "generation-1"))
+                } else {
+                    Ok(b"original material".to_vec())
+                }
+            })
+            .unwrap();
+            assert_eq!(state_reads, 2);
+            assert_eq!(assets.parts.len(), RIG2D_PARTS.len());
+            assert_eq!(assets.rig, b"original material");
+        }
+    }
+
+    #[test]
+    fn preview_rejects_publication_during_material_reads() {
+        for (stage, status, timestamp) in [
+            ("complete", "running", "generation-2"),
+            ("complete", "failed", "generation-2"),
+            ("complete", "complete", "generation-2"),
+            ("rig2d", "complete", "generation-1"),
+        ] {
+            let mut state_reads = 0;
+            let result = read_consistent_preview(Path::new("fixture"), |path| {
+                if path.file_name().unwrap() == "character.json" {
+                    state_reads += 1;
+                    Ok(if state_reads == 1 {
+                        manifest("complete", "complete", "generation-1")
+                    } else {
+                        manifest(stage, status, timestamp)
+                    })
+                } else {
+                    Ok(b"potentially mixed material".to_vec())
+                }
+            });
+            assert!(result.is_err(), "{stage}/{status}/{timestamp}");
+        }
+    }
+
+    #[test]
+    fn preview_rejects_incomplete_state_before_opening_materials() {
+        let result = read_consistent_preview(Path::new("fixture"), |path| {
+            assert_eq!(path.file_name().unwrap(), "character.json");
+            Ok(manifest("complete", "running", "generation-2"))
+        });
+        assert!(result.is_err());
+    }
 }
 
 #[cfg(test)]

@@ -24,6 +24,8 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> co
 
 WindowsのPythonサイドカーは停止状態で起動し、所有するJob Objectへ所属させてから再開する。Jobのkill-on-closeにより正常終了・中断・Drop・不正JSON時にComfyUIを含む子孫も回収する。起動からJob所属までの極短区間にアプリをOS強制終了すると、停止中Pythonだけが残る可能性はある（GPU初期化前）。既存利用者プロセスを名前で一括終了しない。
 
+本体プレビューは同一アプリ内の生成ロックに加え、全素材取得前後で最終工程・完了状態・更新時刻を照合する。別プロセスの正規pipeline-probeで更新された場合も混在素材を表示へ返さない。character.jsonを更新しない直接sidecar実行にはこの保証がないため、診断は別出力へ限定し、正規出力更新にはPipelineContextを使う。
+
 以下の補完候補の節は比較履歴の再現手順であり、生成済み候補を通常完成出力へ手動コピーする入口ではない。通常入口の検証では同条件で複数原画を通し、原画保持、半閉眼、口パク、首・襟、透過を実表示で確認する。
 
 Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを行う。Node.js は不要。
