@@ -1,9 +1,9 @@
-import {createAvatarRenderer} from './shared/avatar-renderer.js?v=hidden-preview6';
+import {createAvatarRenderer} from './shared/avatar-renderer.js?v=hidden-preview8';
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
 // 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
-const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_b4b936129f4d','むぎ・耳輪郭修正候補']];
+const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_2379190bb3b3','むぎ・耳輪郭修正候補'],['c_df28cf7d4d11','むぎ・耳＋閉眼修正候補']];
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 for(const [id,name] of fixtures)select.add(new Option(name,id));
 const renderer=createAvatarRenderer(document.querySelector('#avatar'));
@@ -41,6 +41,7 @@ async function load(){
     document.querySelector('#avatar').style.visibility='visible';
     status.textContent=`素材充足: ${rig.material_readiness?.status ?? '未検査'} ／ 見た目: 未承認。動作の成立と品質の合格は別です。`;
     if(rig.experimental_hidden)status.textContent+=rig.experimental_hidden.redraw_ear_contour?'\n耳輪郭の修正比較: 原画ファイルは保持し、可動モデルの耳・頬の境界を修正しています。既存むぎと切り替えて比較してください。':'\n補完比較: 中立の原画を保持。動作時は耳・頬の境界だけを補修します。補完表示のオン/オフで比較できます。';
+    if(rig.experimental_closed_eyes)status.textContent+='\n閉眼素材の比較: 全開は原画の目を保持し、編集画像から測定した閉眼曲線へ連続して閉じます。目以外の編集結果は採用していません。';
   }catch(error){if(token===generation)status.textContent=error.message;}
   finally{if(token===generation)document.querySelectorAll('button,input').forEach(element=>element.disabled=false);}
 }

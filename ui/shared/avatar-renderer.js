@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three/three.module.min.js';
 import {localAssetUrl,loadLocalJson} from './local-assets.js';
 import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js';
-import {eyeAperture,drawBlink} from './eye-geometry.js';
+import {eyeAperture,drawBlink} from './eye-geometry.js?v=closed-curve2';
 import {bleedTransparentRgb} from './texture-alpha.js';
 import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=ear-repair1';
 

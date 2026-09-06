@@ -7,6 +7,15 @@ from build_preview import hidden_material,baseline_hashes,separate_hair_pixels,r
 
 
 class HiddenPreviewTests(unittest.TestCase):
+    def test_hidden_skin_matching_excludes_dark_face_outline(self):
+        source=np.full((40,40,4),180,dtype=np.uint8);source[:,:,3]=255
+        generated=source.copy();generated[:,:,:3]=120
+        face=np.zeros((40,40),bool);face[10:30,10:30]=True
+        source[10:30,10,:3]=20;source[10:30,29,:3]=20
+        source[10,10:30,:3]=20;source[29,10:30,:3]=20
+        result,hidden=hidden_material(source,generated,face,~face,[],6)
+        self.assertTrue(np.all(result[hidden,:3]==180))
+
     def test_enclosed_accessory_keeps_whole_shape_and_protects_face_holes(self):
         hair=np.ones((20,20),bool);hair[2:6,2:6]=False;hair[8:18,8:18]=False
         protected=np.zeros_like(hair);protected[10,10]=True

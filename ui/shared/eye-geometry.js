@@ -4,12 +4,17 @@ export function eyeAperture(layer, openness) {
   if(!Array.isArray(aperture)||aperture.length<2||!Number.isFinite(openness))throw new Error('まぶたの実測境界がありません。分解から再生成してください');
   let previous=-Infinity;
   const open=Math.min(1,Math.max(0,openness));
-  return aperture.map(point=>{
+  const curve=layer.closed_curve;
+  if(layer.closed_material===true&&curve===undefined)throw new Error('編集閉眼の曲線がありません');
+  if(curve!==undefined&&(!Array.isArray(curve)||curve.length!==aperture.length||!curve.every(Number.isFinite)||layer.closed_material!==true))throw new Error('比較用閉眼曲線が不正です');
+  return aperture.map((point,index)=>{
     if(!Array.isArray(point)||point.length!==4||!point.every(Number.isFinite))throw new Error('まぶたの実測境界が不正です');
     const [x,top,bottom,closed]=point;
     if(x<=previous||top>bottom)throw new Error('まぶたの実測境界が交差しています');
     previous=x;
-    return [x,closed+(top-closed)*open,closed+(bottom-closed)*open,closed];
+    // フォールバック許可: 比較情報のない既存素材は、保存済みの従来閉眼曲線を使う。
+    const target=curve?.[index]??closed;
+    return [x,target+(top-target)*open,target+(bottom-target)*open,closed];
   });
 }
 

@@ -50,7 +50,8 @@ def hidden_material(source, generated, face, hair, feature_masks, radius):
     """原画の不透明な髪の下だけへ補完する。可視領域は一切上書きしない。"""
     if source.shape != generated.shape or face.shape != source.shape[:2]:
         raise ValueError('比較素材の寸法が一致しません')
-    skin=face.copy()
+    # 輪郭の黒線・髪色を肌色の基準へ混ぜると、補完帯に灰色の筋が生じる。
+    skin=ndimage.binary_erosion(face,iterations=max(1,round(radius/6)))
     for feature in feature_masks:skin &= ~ndimage.binary_dilation(feature,iterations=3)
     skin &= source[:,:,3]==255
     if skin.sum()<16:raise ValueError('色合わせ用の可視肌が不足しています')
@@ -68,7 +69,7 @@ def hidden_material(source, generated, face, hair, feature_masks, radius):
         delta=(source[:,:,channel].astype(float)-generated[:,:,channel])*skin
         correction[:,:,channel]=ndimage.gaussian_filter(delta,sigma)/np.maximum(denominator,1e-8)
     # 正規化畳み込みで連続した色差を延ばし、最近傍領域の境界を作らない。
-    corrected=np.clip(generated[:,:,:3].astype(float)+correction,0,255).astype(np.uint8)
+    corrected=np.rint(np.clip(generated[:,:,:3].astype(float)+correction,0,255)).astype(np.uint8)
     result=np.zeros_like(source);result[:,:,:3]=corrected;result[:,:,3]=hidden*255
     return result,hidden
 
@@ -159,7 +160,7 @@ def build(character,comparison,band_ratio=.08,motion_ratio=.35,side_comparison=N
         if old_ear_mask.dtype!=bool or old_ear_mask.shape!=face.shape or not old_ear_mask.any():raise ValueError('元の可視耳マスクが不正です')
         old_ear_mask=ndimage.binary_dilation(old_ear_mask,iterations=1)
         ear_identity['original_mask_sha256']=digest(old_ear_path)
-    identity={'version':17,'source':report['source'],'generated_sha256':digest(generated_path),'side_comparison':side_identity,'redraw_ear_contour':redraw_ear_contour,'ear_segmentation':ear_identity,
+    identity={'version':19,'source':report['source'],'generated_sha256':digest(generated_path),'side_comparison':side_identity,'redraw_ear_contour':redraw_ear_contour,'ear_segmentation':ear_identity,
               'baseline_assets_sha256':baseline,'band_ratio':band_ratio,'motion_ratio':motion_ratio}
     identifier='c_'+hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()[:12]
     destination=ROOT/'temp/t7-characters'/identifier
