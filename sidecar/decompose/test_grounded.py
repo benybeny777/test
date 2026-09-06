@@ -1,10 +1,20 @@
 """意味候補の包含関係と未検出時の扱いを固定する。"""
 import unittest
 import numpy as np
-from grounded import select_boxes, iris_white_points, coarse_pupil_box, eye_context
+from grounded import select_boxes, iris_white_points, coarse_pupil_box, eye_context, semantic_components
 
 
 class GroundedSelectionTests(unittest.TestCase):
+    def test_disconnected_clothing_is_not_discarded(self):
+        mask=np.zeros((20,30),bool);mask[3:15,2:9]=True;mask[3:14,20:26]=True
+        retained,info=semantic_components(mask,'clothes')
+        np.testing.assert_array_equal(retained,mask)
+        self.assertEqual(info['discarded_pixels'],0)
+        single,info=semantic_components(mask,'face')
+        self.assertEqual(int(single.sum()),84)
+        self.assertEqual(info['discarded_pixels'],66)
+        with self.assertRaises(ValueError):semantic_components(np.zeros_like(mask),'clothes')
+
     def test_eye_context_preserves_source_coordinates(self):
         self.assertEqual(eye_context([20,30,40,50],(100,100),.5),[10,20,50,60])
         self.assertEqual(eye_context([27,41,47,61],(107,111),.5),[17,31,57,71])

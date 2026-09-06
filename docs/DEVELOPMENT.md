@@ -12,6 +12,10 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 ### 意味解析候補の比較
 
+`tools/semantic-eval/inspect-components.py`は正規解析で保存した衣服の検出矩形を同じSAMへ渡し、最大連結領域と全領域を比較する。原寸マスクと上位の成分画像・面積を`temp/clothing-components/`へ保存する。左右に離れた衣服をノイズとして捨てていないかを確認する診断であり、その画像を製品へコピーしない。
+
+正規出力の透明度保持は `sidecar/.venv/Scripts/python.exe tools/verify-scene-alpha.py temp/t7-characters/<ID> ...` で検査する。全キャンバスの `scene_*` 部位をsource-over合成し、背景除去原画との差があれば失敗する。これは原寸アルファ検査であり、RGB同一性・画面のフィルタリング・動作時の品質は別途確認する。
+
 `segment.py --roles eyes --box-context 0.5`は、検出矩形の各辺へ幅/高さの50%を足した原寸ROIを同じSAMへ入力する局所解析の比較である。出力を`box-context-0.5/`へ分離し、sampling_regionを記録する。候補矩形や元画像を変更せず、モデル内部の解析解像度と最終素材の原寸を混同しない。全頭部解析と原寸マスクを比較し、背景/髪の混入も調べてから通常経路への採否を判断する。
 
 細部比較では`tools/semantic-eval/evaluate.py dino --model-path models/grounding-dino-base --run-name <診断名> --labels eyebrow "eye pupil" --view head --measured-head`を使える。`--measured-head`は正規解析の顔座標を参照し、頭部比率の固定切り出しを使わない。候補の語句・座標・スコア・クロップ・所要時間を診断JSONに残す。`segment.py --run-name <同じ診断名> --roles eyebrow "eye pupil"`で既存SAM2へ渡す比較ができる。左右の細部を確定できない場合は明示失敗にし、未検出の原画を成功扱いしない。これらは比較専用で、検出候補を製品リグへ自動採用しない。

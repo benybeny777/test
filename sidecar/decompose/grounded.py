@@ -117,6 +117,16 @@ def eye_context(box,size,margin):
     return [max(0,int(np.floor(l-mx))),max(0,int(np.floor(t-my))),min(size[0],int(np.ceil(r+mx))),min(size[1],int(np.ceil(b+my)))]
 
 
+def semantic_components(mask,role):
+    """衣服は離れた複数部品を持つ。単一物体の島除去を流用しない。"""
+    labels,count=ndimage.label(mask)
+    if not count:raise ValueError(f'部位のマスクが空です: {role}')
+    sizes=np.bincount(labels.ravel());sizes[0]=0
+    retained=mask.copy() if role=='clothes' else labels==sizes.argmax()
+    return retained,{'components_count':count,'component_policy':'all_clothing' if role=='clothes' else 'largest_connected',
+                     'discarded_pixels':int(mask.sum()-retained.sum())}
+
+
 def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin):
     """2モデルを逐次ロードし、画像と同じ座標系の意味情報を返す。"""
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
@@ -200,9 +210,8 @@ def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin)
             with torch.inference_mode():prediction=model._single_frame_forward(**inputs)
             small=processor.post_process_masks(prediction.pred_masks.cpu().unsqueeze(0),inputs['original_sizes'].cpu())[0].reshape(-1,im.height,im.width)[0].numpy().astype(bool)
             mask=np.zeros(subject.shape,bool);mask[crop[1]:crop[3],crop[0]:crop[2]]=small;mask &= subject
-            labels,count=ndimage.label(mask)
-            if not count:raise ValueError(f'部位のマスクが空です: {role}')
-            sizes=np.bincount(labels.ravel());sizes[0]=0;masks[role]=labels==sizes.argmax()
+            masks[role],components=semantic_components(mask,role)
+            item.update(components)
             item['sam_score']=float(prediction.iou_scores.max().cpu())
             emit('progress',stage='grounded_sam',progress=.4+.4*(index+1)/len(chosen))
     finally:
