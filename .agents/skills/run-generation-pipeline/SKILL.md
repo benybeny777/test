@@ -24,7 +24,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 - 目のSAM局所ROIはai.eye_context_marginから求める。解析署名の版2とsampling_regionを確認し、余白変更後に旧マスクを再利用しない。原寸のまつげ・髪・肌の境界を比較する。
 - rig2d は版2 manifestの座標と差分を lvs-anime25d-v1 の版3リグへ引き継ぐ。必須中立画像、実測座標、原寸で切詰めたtexture_boxを確認する。版2リグは再生成する。
 - rig2dの出力先はrig2d-base/とし、未補完リグを完成扱いしない。completeで利用者採用承認済みQwen-Image-Edit-2511を管理下ComfyUIで実行し、原寸の目だけを局所編集してrig2d/へ公開する。DINO/SAMと承認済みの口は維持し、Layeredや別モデルへ無断変更しない。
-- completeはsidecar/completion/generate.pyをRust経由で呼び、ai.completion_*と既存comfy設定を次回処理時に読む。モデル固定SHA、マスク外画素保持、入力原画/解析/基底リグの公開前SHAを検査する。completion.jsonの入力・条件・出力署名が一致する場合だけキャッシュを再利用する。出力欠損・改変は失敗にする。
+- completeはsidecar/completion/generate.pyをRust経由で呼び、ai.completion_*と既存comfy設定を次回処理時に読む。モデル固定SHA、マスク外画素保持、入力原画/解析/基底リグの公開前SHAを検査する。completion-sourceの生成署名と完成completion.jsonの抽出署名を分け、抽出だけの変更でGPUを再実行しない。入力準備・推論の意味を変えたらIMAGE_GENERATION_VERSIONを上げる。出力欠損・改変は失敗にする。
 - 比較実測の閉眼1体約15〜18分を通常入口の実走実績に読み替えない。実走・目視の状態を分けて記録する。
 - 唇の分割にはmouth_closed.lip_seamとlip_rig_version: 1が必要。旧リグはdecomposeから再生成する。原画の唇は拡大素材や塗り直した色面へ差し替えず、上下メッシュの中立座標が原画と一致することを検査する。
 - 目にはeye_rig_version: 3、左右のeye_base/eyelid_upperとeye_aperture、eye_iris/eye_remainder/eye_backplateが必要。相補分割と白目補完の可視画素保持を検査する。旧リグはdecomposeから再生成する。

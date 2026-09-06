@@ -173,9 +173,10 @@ fn add_expression(
     prompt: String,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
-    let _execution = state.execution.try_lock().map_err(|_| {
-        "生成中のため表情を変更できません。完了後に再実行してください".to_owned()
-    })?;
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため表情を変更できません。完了後に再実行してください".to_owned())?;
     state
         .pipeline
         .add_expression(&character_id, label, prompt)
@@ -188,9 +189,10 @@ fn remove_expression(
     key: String,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
-    let _execution = state.execution.try_lock().map_err(|_| {
-        "生成中のため表情を変更できません。完了後に再実行してください".to_owned()
-    })?;
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため表情を変更できません。完了後に再実行してください".to_owned())?;
     state
         .pipeline
         .remove_expression(&character_id, &key)
@@ -205,9 +207,10 @@ async fn import_expression(
     key: String,
     state: State<'_, StudioState>,
 ) -> Result<(), String> {
-    let _execution = state.execution.try_lock().map_err(|_| {
-        "生成中のため表情を取り込めません。完了後に再実行してください".to_owned()
-    })?;
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため表情を取り込めません。完了後に再実行してください".to_owned())?;
     let pipeline = state.pipeline.clone();
     let config = state
         .config
@@ -228,9 +231,10 @@ fn update_framing(
     framing: Framing,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
-    let _execution = state.execution.try_lock().map_err(|_| {
-        "生成中のため構図を保存できません。完了後に再実行してください".to_owned()
-    })?;
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため構図を保存できません。完了後に再実行してください".to_owned())?;
     state
         .pipeline
         .update_framing(&character_id, "green_screen", framing)
@@ -507,9 +511,9 @@ mod network_tests {
                     // 同一オリジン検査とリダイレクト拒否を持つ資産読込だけを許可する。
                     if path == root.join("ui/shared/local-assets.js") && *token == "fetch(" {
                         assert!(text.contains("url.origin !== location.origin"));
-                        assert!(
-                            text.contains("fetch(localAssetUrl(source), {redirect: \"error\", signal, cache})")
-                        );
+                        assert!(text.contains(
+                            "fetch(localAssetUrl(source), {redirect: \"error\", signal, cache})"
+                        ));
                         continue;
                     }
                     assert!(

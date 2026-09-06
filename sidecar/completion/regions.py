@@ -29,6 +29,3 @@ def measured_head_region(face,neck,size,limit):
     x=max(0,min(size[0]-extent,round((left+right-extent)/2)))
     y=max(0,min(size[1]-extent,round((top+bottom-extent)/2)))
     return x,y,x+extent,y+extent
-
-
-

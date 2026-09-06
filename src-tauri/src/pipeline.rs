@@ -689,6 +689,9 @@ impl PipelineContext {
         self.run_sidecar(args, |value| {
             if let Some(app) = app {
                 let _ = app.emit("pipeline-progress", value);
+            } else {
+                // 正規CLIでも長時間の補完が無言にならないよう進捗を中継する。
+                println!("{value}");
             }
         })?;
         Ok("Qwenの原寸局所閉眼補完を反映しました（見た目の最終確認は別途必要です）".into())
@@ -888,10 +891,10 @@ fn validate_stage_input(manifest: &CharacterManifest, stage: &str) -> Result<(),
         _ => None,
     };
     if let Some(required) = prerequisite {
-        if !manifest
+        if manifest
             .stages
             .get(required)
-            .is_some_and(|state| state.status == "complete")
+            .is_none_or(|state| state.status != "complete")
         {
             return Err(PipelineError::Invalid(format!(
                 "前工程{required}が完了していません。保存された旧成果物では{stage}を実行できません"

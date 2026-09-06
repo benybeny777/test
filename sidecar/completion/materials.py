@@ -112,6 +112,3 @@ def validate_masked_pixels(edited,original,mask):
     if not outside.any():raise ValueError('マスク外の保護領域がありません')
     if np.any(np.abs(edited[:,:,:3].astype(np.int16)-original[:,:,:3].astype(np.int16))[outside]>1):
         raise ValueError('編集マスク外の画素が変わっています。構図不一致の候補を公開しません')
-
-
-

@@ -47,9 +47,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let source = arguments.first().ok_or("入力画像が必要です")?;
         let id = arguments.get(1).map(String::as_str).unwrap_or("female");
         let identity = arguments.get(2).cloned().unwrap_or_default();
+        let display_name = arguments
+            .get(3)
+            .cloned()
+            .unwrap_or_else(|| format!("女性キャラクター{id}"));
         (
             context.create_character(NewCharacter {
-                display_name: format!("女性キャラクター{id}"),
+                display_name,
                 source_path: source.clone(),
                 persona_prompt: "明るく親しみやすい女性VTuber".into(),
                 identity_tags: identity,

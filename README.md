@@ -113,6 +113,10 @@ characters/<characterId>/
 │  ├─ source.psd
 │  ├─ manifest.json
 │  └─ parts/*.png
+├─ rig2d-base/             未補完の基底リグ
+├─ completion-source/      原寸の局所編集結果と生成署名
+│  ├─ edited.png
+│  └─ manifest.json
 └─ rig2d/
    ├─ rig.json
    ├─ completion.json
@@ -120,6 +124,8 @@ characters/<characterId>/
 ```
 
 上流工程を再実行すると、その工程以降だけを無効化します。たとえば②をやり直すと、下流の完了状態を失効させて②から作り直します。旧成果物は新出力の検証・公開が成功するまで保持します。生成に失敗した場合は `character.json` を `failed` にし、壊れた成果物へ黙って進みません。
+
+局所編集の生成結果と素材抽出を別々に保存します。抽出処理だけを修正した場合は、検証済みの`completion-source/edited.png`から再構成でき、GPU推論を繰り返しません。原画・マスク・推論条件が変われば再生成します。モデルSHAの検査は再利用時にも実行します。
 
 顔をAIで細かく立体化せず、滑らかな共通頭部へ原画の顔を投影する方式の初回試作は、[顔テンプレート投影の試作結果](docs/TEMPLATE_FACE_PROTOTYPE.md)で正面・斜め・横の実レンダーを確認できます。この試作は方式比較用であり、採用決定や完成品質を示すものではありません。
 

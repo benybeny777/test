@@ -29,7 +29,9 @@ from regions import eye_edit_mask, measured_head_region
 spec = importlib.util.spec_from_file_location('completion_comfy_client', HERE.parent/'expression/generate.py')
 client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
-VERSION = 1
+VERSION = 2
+# 推論や入力準備の意味を変えた場合に上げる。抽出だけの変更ではGPUを再実行しない。
+IMAGE_GENERATION_VERSION = 1
 PROMPT = ('Close both eyes naturally, preserving the original character identity and original rendering style. '
           'Relaxed closed eyelids with a thin natural eyelash line. Edit only the eyes within the mask. '
           'Preserve the original hair, eyebrows, nose, mouth, skin texture, lighting, pose and image framing. '
@@ -96,6 +98,23 @@ def cache_valid(output, identity):
     if current != record['outputs']:
         raise ValueError('補完キャッシュの素材が改変または欠落しています')
     return True
+
+
+def cached_edit(cache, identity, original, mask):
+    """生成済み原寸画像だけを再利用する。素材抽出の合格とは区別する。"""
+    marker = cache/'manifest.json'
+    if not marker.exists():
+        return None
+    record = json.loads(marker.read_text(encoding='utf-8'))
+    if record['identity'] != identity:
+        return None
+    image = cache/'edited.png'
+    if cache.is_symlink() or image.is_symlink() or not image.is_file() or digest(image) != record['edited_sha256']:
+        raise ValueError('生成済み補完画像のSHA不一致または欠落があります')
+    with Image.open(image) as opened:
+        edited = np.array(opened.convert('RGBA'))
+    validate_masked_pixels(edited, original, mask)
+    return image
 
 
 def stop_owned(process):
@@ -170,6 +189,8 @@ def complete_locked(args):
         raise ValueError('補完元リグと完成出力を分離してください')
     if args.output == args.character or not args.output.is_relative_to(args.character):
         raise ValueError('完成出力はキャラクター内の専用ディレクトリに限定します')
+    if args.output == args.character/'completion-source' or args.output.is_relative_to(args.character/'completion-source'):
+        raise ValueError('補完画像キャッシュを完成リグ出力で上書きできません')
     if args.port == 8188 or not 1024 <= args.port <= 65535:
         raise ValueError('管理専用ポートを指定してください')
     if (args.comfy/'extra_model_paths.yaml').exists():
@@ -182,22 +203,21 @@ def complete_locked(args):
     for item in models['files']:
         path = args.models/Path(item['path']).relative_to('split_files')
         print(json.dumps({'event': 'completion_checking_model', 'file': path.name}), flush=True)
+        if not path.is_file():
+            raise ValueError(f'補完モデルがありません: {path.name}。cargo xtask setup completion を実行してください')
         if digest(path) != item['sha256']:
             raise ValueError(f'補完モデルの固定SHAが一致しません: {path.name}')
     source = source_hashes(args.character)
     baseline = tree_hashes(base)
+    extraction_code = {p.name: digest(p) for p in HERE.glob('*.py') if not p.name.startswith('test_')}
     comfy_code = {p.relative_to(args.comfy).as_posix(): digest(p) for folder in ('comfy', 'comfy_extras')
                   for p in sorted((args.comfy/folder).rglob('*.py'))}
     comfy_code['main.py'] = digest(args.comfy/'main.py')
-    identity = {'version': VERSION, 'source': source, 'base': baseline, 'models': models,
-                'code': {p.name: digest(p) for p in HERE.glob('*.py') if not p.name.startswith('test_')},
+    generation_identity = {'version': IMAGE_GENERATION_VERSION, 'source': source, 'models': models,
                 'comfy_code': comfy_code,
                 'runtime': {name: importlib.metadata.version(name) for name in ('numpy', 'scipy', 'Pillow', 'torch', 'transformers')},
                 'workflow': digest(args.workflow), 'overlay': digest(args.overlay),
                 'parameters': {k: getattr(args, k) for k in ('steps', 'seed', 'resolution', 'mask_margin_ratio', 'prompt', 'fast_disk')}}
-    if cache_valid(args.output, identity):
-        print(json.dumps({'event': 'completion_cached', 'output': str(args.output)}), flush=True)
-        return
     rig = json.loads(args.base_rig.read_text(encoding='utf-8'))
     metadata = json.loads((args.character/'analysis/analysis.json').read_text(encoding='utf-8'))
     with Image.open(args.character/'source/isolated.png') as opened:
@@ -223,8 +243,34 @@ def complete_locked(args):
     workflow['7']['inputs']['prompt'] = args.prompt
     workflow['13']['inputs']['images'] = ['16', 0]
     inputs = tree_hashes(run/'input')
+    generation_identity.update(inputs=inputs, source_region=list(bounds), resolved_workflow=workflow)
+    cache = args.character/'completion-source'
+    succeeded = False
     try:
-        edited_path = generate_image(args, run, workflow)
+        edited_path = cached_edit(cache, generation_identity, np.array(white), mask)
+        if edited_path is None:
+            generated_path = generate_image(args, run, workflow)
+            with Image.open(generated_path) as opened:
+                validate_masked_pixels(np.array(opened.convert('RGBA')), np.array(white), mask)
+            with directory_output(cache) as pending:
+                shutil.copy2(generated_path, pending/'edited.png')
+                record = {'identity': generation_identity, 'edited_sha256': digest(pending/'edited.png'),
+                          'status': 'generated', 'material_quality': 'unverified'}
+                (pending/'manifest.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
+                if source_hashes(args.character) != source or tree_hashes(run/'input') != inputs:
+                    raise ValueError('補完画像公開の直前に原画・解析・編集入力が変更されました')
+            edited_path = cache/'edited.png'
+        else:
+            print(json.dumps({'event': 'completion_edit_cached', 'output': str(cache)}), flush=True)
+        identity = {'version': VERSION, 'source': source, 'base': baseline, 'generation': generation_identity,
+                    'edited_sha256': digest(edited_path),
+                    'code': extraction_code}
+        if cache_valid(args.output, identity):
+            if source_hashes(args.character) != source or tree_hashes(base) != baseline:
+                raise ValueError('再利用の直前に原画・解析・元リグが変更されました')
+            print(json.dumps({'event': 'completion_cached', 'output': str(args.output)}), flush=True)
+            succeeded = True
+            return
         with Image.open(edited_path) as opened:
             edited = np.array(opened.convert('RGBA'))
         validate_masked_pixels(edited, np.array(white), mask)
@@ -245,14 +291,19 @@ def complete_locked(args):
             (pending/'completion.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
             if source_hashes(args.character) != source or tree_hashes(base) != baseline:
                 raise ValueError('完成公開の直前に原画・解析・元リグが変更されました')
+            current_code = {p.name: digest(p) for p in HERE.glob('*.py') if not p.name.startswith('test_')}
+            if digest(edited_path) != identity['edited_sha256'] or current_code != extraction_code:
+                raise ValueError('完成公開の直前に補完画像または抽出コードが変更されました')
         print(json.dumps({'event': 'completion_complete', 'output': str(args.output)}), flush=True)
+        succeeded = True
     except BaseException as error:
         (run/'failure.json').write_text(json.dumps({'error': str(error)}, ensure_ascii=False), encoding='utf-8')
         raise
-    else:
-        if run.is_symlink() or run.resolve().parent != (args.character/'temp').resolve():
-            raise ValueError('補完一時出力の削除範囲が不正です')
-        shutil.rmtree(run)
+    finally:
+        if succeeded:
+            if run.is_symlink() or run.resolve().parent != (args.character/'temp').resolve():
+                raise ValueError('補完一時出力の削除範囲が不正です')
+            shutil.rmtree(run)
 
 
 def complete(args):
