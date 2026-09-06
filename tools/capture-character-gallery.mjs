@@ -4,7 +4,9 @@ import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-const [id,output='temp/character-captures']=process.argv.slice(2);
+const args=process.argv.slice(2),video=args.includes('--video');
+if(args.some(arg=>arg.startsWith('--')&&arg!=='--video'))throw new Error('未対応の撮影オプションです');
+const [id,output='temp/character-captures']=args.filter(arg=>arg!=='--video');
 if(!/^c_[0-9a-f]{12}$/.test(id??''))throw new Error('確認対象のキャラIDを指定してください');
 const destination=resolve(output);
 const tempRoot=resolve('temp');
@@ -13,8 +15,9 @@ const packagePath=process.env.LVS_PLAYWRIGHT_MODULE;
 const {chromium}=await import(packagePath?pathToFileURL(packagePath).href:'playwright');
 await mkdir(destination,{recursive:true});
 const browser=await chromium.launch({channel:'chrome',headless:true});
+let page;
 try{
-  const page=await browser.newPage({viewport:{width:1440,height:1050},deviceScaleFactor:1});
+  page=await browser.newPage({viewport:{width:1440,height:1050},deviceScaleFactor:1});
   const errors=[];
   const captures=[];
   page.on('pageerror',error=>errors.push(error.message));
@@ -71,10 +74,54 @@ try{
   await page.getByRole('button',{name:'顔の拡大検査',exact:true}).click();
   await page.getByRole('button',{name:'口パク動作テスト（無音）',exact:true}).click();
   await page.getByRole('button',{name:'自動まばたき',exact:true}).click();
+  let recording;
+  if(video){
+    // 新しい描画面を作らず、表示中の共通レンダラーの画素だけを録画する。
+    const result=await page.evaluate(async()=>{
+      const canvas=document.querySelector('#avatar');
+      if(!(canvas instanceof HTMLCanvasElement)||!canvas.captureStream||typeof MediaRecorder==='undefined')throw new Error('ChromeのCanvas録画機能が利用できません');
+      const mimeType=['video/webm;codecs=vp8','video/webm'].find(type=>MediaRecorder.isTypeSupported(type));
+      if(!mimeType)throw new Error('WebM録画形式が利用できません');
+      const stream=canvas.captureStream(20),chunks=[];
+      let recorder,timer,watchdog;
+      const started=performance.now();
+      try{
+        recorder=new MediaRecorder(stream,{mimeType,videoBitsPerSecond:1800000});
+        const stopped=new Promise((done,fail)=>{
+          recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
+          recorder.onerror=event=>fail(new Error(event.error?.message??'Canvas録画に失敗しました'));
+          recorder.onstop=done;
+          watchdog=setTimeout(()=>fail(new Error('Canvas録画の終了がタイムアウトしました')),12000);
+        });
+        recorder.start(500);
+        timer=setTimeout(()=>recorder.stop(),8000);
+        await stopped;
+        const durationMs=performance.now()-started;
+        const blob=new Blob(chunks,{type:mimeType});
+        if(!blob.size)throw new Error('録画データが空です');
+        const dataUrl=await new Promise((done,fail)=>{
+          const reader=new FileReader();reader.onload=()=>done(reader.result);reader.onerror=()=>fail(new Error('録画データの読出しに失敗しました'));reader.readAsDataURL(blob);
+        });
+        return {dataUrl,mimeType,durationMs,width:canvas.width,height:canvas.height,requestedFps:20};
+      }finally{
+        clearTimeout(timer);clearTimeout(watchdog);
+        if(recorder&&recorder.state!=='inactive')recorder.stop();
+        for(const track of stream.getTracks())track.stop();
+      }
+    });
+    if(errors.length)throw new Error(errors.join('\n'));
+    const status=await page.locator('#status').textContent();
+    if(!status.startsWith('素材充足:'))throw new Error('録画中の描画状態が異常です: '+status);
+    const bytes=Buffer.from(result.dataUrl.split(',')[1],'base64');
+    await writeFile(resolve(destination,'motion.webm'),bytes);
+    const {dataUrl,...metadata}=result;
+    recording={file:'motion.webm',...metadata,sha256:createHash('sha256').update(bytes).digest('hex'),status,audio:false,quality:'unverified',source:'共通レンダラーの実canvas.captureStream'};
+    console.log(JSON.stringify({character:id,video:recording.file,durationMs:recording.durationMs}));
+  }
   // 一巡を複数時点で保存する。ハッシュ差は動作の証拠で、造形の合格判定ではない。
   for(let index=0;index<8;index++){
     await page.waitForTimeout(450);
     await capture('motion-'+index);
   }
-  await writeFile(resolve(destination,'capture-report.json'),JSON.stringify({character:id,viewport:{width:1440,height:1050},captures,errors},null,2));
-} finally {await browser.close();}
+  await writeFile(resolve(destination,'capture-report.json'),JSON.stringify({character:id,viewport:{width:1440,height:1050},captures,errors,...(recording?{recording}:{})},null,2));
+} finally {try{if(page)await page.close();}finally{await browser.close();}}
