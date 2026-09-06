@@ -79,7 +79,7 @@ export function lipMesh(layer, opening, form) {
     const bulge=interior?Math.pow(Math.max(0,Math.sin(Math.PI*u)),.8-.3*roundness):0;
     // 中央の開口を深くする。すぼめ・横引きへ滑らかに減衰し、閉口は変えない。
     const openBoost=.16*Math.pow(Math.max(0,1-Math.pow(shape/.65,2)),2);
-    const gap=width*(.42+.12*roundness+openBoost)*open*(1-.2*shape)*bulge;
+    const gap=width*(.42+.12*roundness+openBoost)*.4*open*(1-.2*shape)*bulge;
     const dx=(x-cx)*shape*(.30+.25*roundness)*envelope;
     const bend=shape*width*.055*(bulge-.65)*(1-roundness)*envelope;
     const roundingShift=(centerY-y)*roundness*envelope;

@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three/three.module.min.js';
 import {localAssetUrl,loadLocalJson} from './local-assets.js';
-import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=local-lips5';
+import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=local-lips6';
 import {eyeAperture,drawBlink} from './eye-geometry.js?v=closed-curve2';
 import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from './native-scene-batch.js';
 import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=ear-repair1';

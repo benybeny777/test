@@ -26,12 +26,13 @@ test('不正な測定値を固定座標で補わない',()=>{
   assert.throws(()=>drawMouth({},[0,0,30,10],0,0,null));
 });
 
-test('あは十分に開き、他の固定母音へ開口補正を漏らさない',()=>{
+test('開口を抑えて母音差と閉口を維持する',()=>{
   const layer={texture_box:[0,0,100,100],feature_box:[25,35,75,55],lip_seam:[[25,45],[50,45],[75,45]]};
   for(const [name,[open,form]] of Object.entries(MOUTH_PRESETS)) {
     const mesh=lipMesh(layer,open,form),gap=mesh.lower[2][0][1]-mesh.upper[2][1][1];
     const roundness=Math.max(0,-form);
-    const expected=name==='a'?50*.58:50*(.42+.12*roundness)*open*(1-.2*form);
+    const expected=(name==='a'?50*.58:50*(.42+.12*roundness)*open*(1-.2*form))*.4;
+    assert.ok(gap<=50*.26,'固定母音が過大に開かない');
     assert.ok(Math.abs(gap-expected)<1e-9,name);
   }
 });
