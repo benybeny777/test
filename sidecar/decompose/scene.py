@@ -3,14 +3,15 @@ import numpy as np
 from scipy import ndimage
 
 
-SCENE_ORDER=('residual','torso','left_arm','right_arm','neck','face','hair')
+SCENE_ORDER=('residual','torso','left_arm','right_arm','neck','collar','face','hair')
 PARENTS={'residual':None,'torso':None,'left_arm':'torso','right_arm':'torso',
-         'neck':'torso','face':'neck','hair':'face'}
+         'neck':'torso','collar':'torso','face':'neck','hair':'face'}
 
 
 def visible_scene(subject, masks, face_support=None, opaque=None):
     """画素の所有先を一意に決め、描画用だけ隣接原画1画素を重ねる。"""
-    regions={'torso':masks['clothes'], **{name:masks[name] for name in SCENE_ORDER[2:]}}
+    regions={'torso':masks['clothes'], **{name:masks[name] for name in SCENE_ORDER[2:] if name!='collar'}}
+    if 'collar' in masks:regions['collar']=masks['collar']
     if opaque is None:opaque=subject
     if opaque.shape!=subject.shape:raise ValueError('不透明領域の寸法が一致しません')
     if face_support is not None:
@@ -19,8 +20,11 @@ def visible_scene(subject, masks, face_support=None, opaque=None):
         regions['face']=regions['face'] | face_support
     claimed=np.zeros_like(subject);owners={}
     for name in reversed(SCENE_ORDER[1:]):
+        if name=='collar' and name not in regions:continue
         if regions[name].shape != subject.shape:raise ValueError('部位マスクの寸法が一致しません')
         owned=subject & regions[name] & ~claimed
+        # 襟は任意素材。顔・髪に完全遮蔽された候補を空素材として公開しない。
+        if name=='collar' and not owned.any():continue
         if not owned.any():raise ValueError(f'独立描画の部位が空です: {name}')
         owners[name]=owned;claimed |= owned
     owners['residual']=subject & ~claimed

@@ -27,6 +27,9 @@ def source_hashes(character):
 
 
 def verify_source(character,recorded):
+    missing=[key for key in SOURCE_FILES if not isinstance(recorded.get(key),str) or len(recorded[key])!=64]
+    if missing:
+        raise ValueError('入力SHAが不足した旧証跡は検証できません: '+', '.join(missing))
     current=source_hashes(character)
     if any(recorded.get(key)!=value for key,value in current.items()):
         raise ValueError('原画または解析マスクが比較開始時と一致しません')
@@ -79,6 +82,7 @@ def measured_head_region(face,neck,size,limit):
 
 
 def prepare_input(character,output,resolution,view,head_framing='fixed'):
+    recorded=source_hashes(character)
     with Image.open(character/'source/isolated.png') as opened:source=opened.convert('RGBA')
     if view=='head':
         metadata=json.loads((character/'analysis/analysis.json').read_text(encoding='utf-8'))
@@ -98,7 +102,8 @@ def prepare_input(character,output,resolution,view,head_framing='fixed'):
     padded.alpha_composite(prepared)
     padded.convert('RGB').save(output/'input/input.png')
     prepared.save(output/'reference.png')
-    return padded.size,{**source_hashes(character),'source_region':bounds,'source_size':source.size,'prepared_size':prepared.size,'view':view,'upscaled':False}
+    verify_source(character,recorded)
+    return padded.size,{**recorded,'source_region':bounds,'source_size':source.size,'prepared_size':prepared.size,'view':view,'upscaled':False}
 
 
 def resources(process):

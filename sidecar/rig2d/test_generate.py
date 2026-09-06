@@ -55,6 +55,17 @@ class RigCreationTests(unittest.TestCase):
             self.assertEqual(set(rig["draw_order"]), MODULE.REQUIRED_PARTS)
             self.assertFalse(Path(rig["layers_manifest"]).is_absolute())
             self.assertTrue((root / "output" / "parts" / "mouth_open.png").is_file())
+            # 任意の襟sceneも構造検査・コピー・描画順へ引き継ぐ。
+            collar=dict(parts[0],name='scene_collar',path='parts/scene_collar.png',z_index=36)
+            Image.new('RGBA',(80,120),(100,90,80,255)).save(root/collar['path'])
+            parts.append(collar)
+            graph.append({'role':'collar','layer':'scene_collar','parent':'torso','owned_pixels':80*120})
+            manifest.write_text(json.dumps({'schema_version':2,'canvas':{'width':80,'height':120},'parts':parts,'scene_graph':graph}),encoding='utf-8')
+            output=MODULE.create_rig(manifest,root/'output'/'rig.json')
+            rig=json.loads(output.read_text(encoding='utf-8'))
+            self.assertIn('scene_collar',rig['layers'])
+            self.assertIn('scene_collar',rig['draw_order'])
+            self.assertIn(graph[-1],rig['scene_graph'])
             original = output.read_bytes()
             for defect in ("empty", "size", "corrupt", "duplicate", "outside", "seam", "eye", "eye_mismatch", "graph_missing", "graph_cycle"):
                 with self.subTest(defect=defect):

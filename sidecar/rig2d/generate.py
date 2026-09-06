@@ -49,7 +49,7 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
     parts = {}
     for part in manifest.get("parts", []):
         name = part.get("name")
-        if name not in REQUIRED_PARTS | {"neck", "collar", "scene_residual"} or name in parts:
+        if name not in REQUIRED_PARTS | {"neck", "collar", "scene_residual", "scene_collar"} or name in parts:
             raise ValueError(f"部位名が不正または重複しています: {name}")
         parts[name] = part
     missing = sorted(REQUIRED_PARTS - parts.keys())

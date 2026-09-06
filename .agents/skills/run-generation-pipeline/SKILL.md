@@ -29,6 +29,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 - 唇の分割にはmouth_closed.lip_seamとlip_rig_version: 1が必要。旧リグはdecomposeから再生成する。原画の唇は拡大素材や塗り直した色面へ差し替えず、上下メッシュの中立座標が原画と一致することを検査する。
 - 目にはeye_rig_version: 3、左右のeye_base/eyelid_upperとeye_aperture、eye_iris/eye_remainder/eye_backplateが必要。相補分割と白目補完の可視画素保持を検査する。旧リグはdecomposeから再生成する。
 - scene_graph_version: 1の独立素材と親子関係を検査する。表情領域が顔に含まれ、元の目が未分類素材に残らないことを閉眼表示で検証する。所有画素の完全被覆と隠れ領域の補完を混同しない。
+- 検出済みの襟は任意scene_collarへ移管し、首より前・顔より後、parent=torsoを確認する。中立RGBAを保持し、未検出/完全遮蔽なら空素材を増やさない。旧出力はdecomposeから再生成して反映する。
 - rig2d のコピー前検査でPNG/RGBA、原寸キャンバス、非空アルファ、部位名の重複、格納先、bbox・pivot・重なり順を検証する。メタデータの充足や候補スコアを見た目の合格に代用しない。
 - 切詰めPNGの透明RGB補完を変えた場合はrig2dを再実行する。可視RGBAと全アルファの一致、原寸の維持、縮小描画の暗い縁を検証する。
 - モデル候補を独断で変更しない。旧3D工程へ戻さない。
