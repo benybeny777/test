@@ -36,6 +36,8 @@ sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_preview.py --character te
 
 ### 原寸閉眼素材を動作候補へ追加する
 
+耳修正は閉眼補完の前提ではない。通常キャラの場合は`--base`と`--character`へ同じキャラを渡す。派生した補完候補の場合は`experimental_hidden.source`の署名一致も必須とする。原画一致だけで別の解析結果のリグを受け入れない。
+
 完了した同一原画の原寸編集と耳修正候補を入力する。比較仕様版2の出力`c_df28cf7d4d11`は耳・閉眼の見た目について利用者承認済み。既存出力は上書きしない。
 
 ```powershell

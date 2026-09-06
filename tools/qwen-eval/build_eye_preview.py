@@ -46,6 +46,12 @@ def extract_lid_ink(pixels,target,weight):
     return ink
 
 
+def validate_base_identity(character,base,rig,source):
+    """同じ原画の通常リグ、または署名が一致する補完候補だけを許可する。"""
+    if base!=character and rig.get('experimental_hidden',{}).get('source')!=source:
+        raise ValueError('候補と閉眼編集の原画・解析が一致しません')
+
+
 def build(character,base,comparison):
     character=character.resolve();base=base.resolve();comparison=comparison.resolve()
     if any(not path.is_relative_to(ROOT/'temp') for path in (character,base,comparison)):
@@ -55,8 +61,7 @@ def build(character,base,comparison):
         raise ValueError('完了した原寸頭部の編集が必要です')
     verify_source(character,report['source']);baseline=baseline_hashes(base)
     rig=json.loads((base/'rig2d/rig.json').read_text(encoding='utf-8'))
-    if rig.get('experimental_hidden',{}).get('source')!=report['source']:
-        raise ValueError('下地候補と閉眼編集の原画・解析が一致しません')
+    validate_base_identity(character,base,rig,report['source'])
     if digest(base/'source/input.png')!=report['source']['source_sha256']:
         raise ValueError('候補の原画が一致しません')
     edited_path=(comparison/report['images'][0]).resolve()
@@ -107,7 +112,7 @@ def build(character,base,comparison):
         for name,image in results.items():bleed_transparent_rgb(image).save(pending/f'rig2d/parts/{name}.png')
         rig['experimental_closed_eyes']={**identity,'status':'unapproved','measurements':measured}
         (pending/'rig2d/rig.json').write_text(json.dumps(rig,ensure_ascii=False,indent=2),encoding='utf-8')
-        state={'schemaVersion':1,'characterId':identifier,'displayName':'耳・閉眼修正比較','baselineCharacterId':base.name,
+        state={'schemaVersion':1,'characterId':identifier,'displayName':'閉眼修正比較','baselineCharacterId':base.name,
                'stages':{'rig2d':{'status':'complete','updatedAtIso':datetime.now(timezone.utc).isoformat()}},'experimental':identity}
         (pending/'character.json').write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding='utf-8')
         verify_source(character,report['source'])

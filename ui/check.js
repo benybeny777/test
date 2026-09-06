@@ -6,6 +6,10 @@ import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_2379190bb3b3','むぎ・耳輪郭修正候補'],['c_df28cf7d4d11','むぎ・耳＋閉眼修正候補']];
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 for(const [id,name] of fixtures)select.add(new Option(name,id));
+const requestedCharacter=new URL(location.href).searchParams.get('character');
+if(requestedCharacter)select.value=requestedCharacter;
+const mouthShape=document.querySelector('#mouth-shape');
+for(const [key,label] of [['close','閉口'],['a','あ'],['i','い'],['u','う'],['e','え'],['o','お']])mouthShape.add(new Option(label,key));
 const renderer=createAvatarRenderer(document.querySelector('#avatar'));
 let state={},generation=0,currentRig,faceView=false;
 let demoFrame=0,demoStarted=0;
@@ -16,7 +20,7 @@ const inputs=new Map();
 for(const [key,title,min,max,value] of [['mouthOpenY','開き',0,1,0],['mouthForm','横幅・丸み',-1,1,0],['eyeLOpen','左目',0,1,1],['eyeROpen','右目',0,1,1],['yaw','顔左右',-15,15,0],['pitch','顔上下',-15,15,0],['roll','首の傾き',-15,15,0],['armInset','腕を寄せる',0,10,0]]) {
   const label=document.createElement('label');label.append(title);
   const input=document.createElement('input');input.type='range';input.min=min;input.max=max;input.step=(max-min)/100;input.value=value;
-  input.addEventListener('input',()=>{stopDemo();stopMotion();state[key]=Number(input.value);
+  input.addEventListener('input',()=>{stopDemo();stopMotion();mouthShape.value='';state[key]=Number(input.value);
     if(key==='armInset')state.armPose={leftUpperArm:[0,0,-state.armInset],rightUpperArm:[0,0,state.armInset]};
     state.preserveOriginalMouth=false;apply();});
   label.append(input);document.querySelector('#controls').append(label);inputs.set(key,input);
@@ -26,10 +30,12 @@ async function apply(){try{await renderer.applyState(state);return true;}catch(e
 async function load(){
   stopMotion();
   stopDemo();
+  mouthShape.value='';
   const token=++generation;status.textContent='読込中';
   document.querySelector('#avatar').style.visibility='hidden';
-  document.querySelectorAll('button,input').forEach(element=>element.disabled=true);
+  document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=true);
   try {
+    if(!fixtures.some(([id])=>id===select.value))throw new Error('指定されたキャラは確認一覧にありません。キャラを選び直してください');
     const base=`../temp/t7-characters/${encodeURIComponent(select.value)}/`;
     const character=await loadLocalJson(base+'character.json?read='+Date.now());
     if(character.stages?.rig2d?.status!=='complete')throw new Error('このキャラのリグ再生成は未完了です');
@@ -43,9 +49,16 @@ async function load(){
     if(rig.experimental_hidden)status.textContent+=rig.experimental_hidden.redraw_ear_contour?'\n耳輪郭の修正比較: 原画ファイルは保持し、可動モデルの耳・頬の境界を修正しています。既存むぎと切り替えて比較してください。':'\n補完比較: 中立の原画を保持。動作時は耳・頬の境界だけを補修します。補完表示のオン/オフで比較できます。';
     if(rig.experimental_closed_eyes)status.textContent+='\n閉眼素材の比較: 全開は原画の目を保持し、編集画像から測定した閉眼曲線へ連続して閉じます。目以外の編集結果は採用していません。';
   }catch(error){if(token===generation)status.textContent=error.message;}
-  finally{if(token===generation)document.querySelectorAll('button,input').forEach(element=>element.disabled=false);}
+  finally{if(token===generation)document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=false);}
 }
-select.addEventListener('change',load);
+select.addEventListener('change',()=>{
+  const url=new URL(location.href);url.searchParams.set('character',select.value);history.replaceState(null,'',url);load();
+});
+mouthShape.addEventListener('change',()=>{
+  const preset=MOUTH_PRESETS[mouthShape.value];if(!preset)return;
+  stopDemo();state.mouthOpenY=preset[0];state.mouthForm=preset[1];state.preserveOriginalMouth=false;
+  inputs.get('mouthOpenY').value=preset[0];inputs.get('mouthForm').value=preset[1];apply();
+});
 document.querySelector('#hidden-material').addEventListener('change',event=>{state.showHiddenMaterial=event.target.checked;apply();});
 document.querySelector('#motion-demo').addEventListener('click',()=>{
   if(motionFrame){stopMotion();return;}
@@ -59,10 +72,11 @@ document.querySelector('#motion-demo').addEventListener('click',()=>{
   }
   motionFrame=requestAnimationFrame(tick);
 });
-document.querySelector('#neutral').addEventListener('click',()=>{stopDemo();reset();state.preserveOriginalMouth=true;apply();});
+document.querySelector('#neutral').addEventListener('click',()=>{stopDemo();mouthShape.value='';reset();state.preserveOriginalMouth=true;apply();});
 document.querySelector('#blink').addEventListener('click',()=>{delete state.eyeLOpen;delete state.eyeROpen;apply();});
 document.querySelector('#mouth-demo').addEventListener('click',()=>{
   if(demoFrame){stopDemo();return;}
+  mouthShape.value='';
   const presets=Object.entries(MOUTH_PRESETS);
   demoStarted=performance.now();document.querySelector('#mouth-demo').textContent='口パクテストを停止';
   function tick(now){

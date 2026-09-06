@@ -1,10 +1,17 @@
 """閉眼の線を原寸で測定し、線の無い画像を拒否する。"""
 import unittest
 import numpy as np
-from build_eye_preview import closed_curve,extract_lid_ink
+from build_eye_preview import closed_curve,extract_lid_ink,validate_base_identity
 
 
 class ClosedPreviewTests(unittest.TestCase):
+    def test_normal_and_derived_base_must_share_source_identity(self):
+        source={'source_sha256':'source','analysis_sha256':'analysis'}
+        validate_base_identity('original','original',{},source)
+        validate_base_identity('original','derived',{'experimental_hidden':{'source':source}},source)
+        for rig in ({},{'experimental_hidden':{'source':{'source_sha256':'other'}}}):
+            with self.assertRaises(ValueError):validate_base_identity('original','other',rig,source)
+
     def test_ink_reconstructs_line_without_copying_skin_or_outside_region(self):
         pixels=np.full((8,8,4),220,dtype=np.uint8);pixels[:,:,3]=255
         target=pixels[:,:,:3].astype(float);target[3,2:6]=20
