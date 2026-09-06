@@ -376,10 +376,10 @@ impl Default for AiConfig {
             completion_seed: 777,
             completion_resolution: 1024,
             completion_mask_margin: 0.2,
-            completion_mask_core_ratio: 0.0,
+            completion_mask_core_ratio: 0.5,
             completion_timeout_seconds: 14_400,
             completion_fast_disk: true,
-            completion_hidden_prompt: "Remove only the hair. Reconstruct the face, ears, neck and clothing that were hidden behind the hair. Preserve the exact existing facial features, expression, skin tone, clothing design, pose and rendering style. Keep a plain white background. Do not add objects or change the character identity.".into(),
+            completion_hidden_prompt: "Complete only the small masked strips of skin hidden behind the hair, continuing the nearby skin color and shading naturally. Keep the original face, visible features, pose and rendering style unchanged. Do not add eyes, eyebrows, mouths, another face, or hair. Preserve everything outside the mask.".into(),
             completion_side_prompt: "Remove only the two side locks of hair that cover the cheeks and ears. Reveal and complete both ears and the cheek contours naturally underneath those side locks. Keep the face exactly the same size and position. Preserve the original eyes, mouth, nose, skin tone, facial expression, bangs, top hair, back hair, hair ornaments, neck, clothing and composition exactly. Maintain the original rendering style and shading. Do not make the character bald. Do not add objects.".into(),
             completion_hidden_band_ratio: 0.08,
             completion_hidden_motion_ratio: 0.35,
@@ -1281,6 +1281,12 @@ mod tests {
         let partial = AppConfig::load_with_environment(&path, environment).unwrap();
         assert_eq!(partial.ai.completion_steps, 60);
         assert_eq!(partial.ai.completion_seed, 42);
+        // 旧既定の0や保存済み指示も、新既定や環境変数で無断更新しない。
+        std::fs::write(&path, r#"{"ai":{"completion_mask_core_ratio":0,"completion_hidden_prompt":"saved hidden","completion_side_prompt":"saved side"}}"#).unwrap();
+        let preserved = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(preserved.ai.completion_mask_core_ratio, 0.0);
+        assert_eq!(preserved.ai.completion_hidden_prompt, "saved hidden");
+        assert_eq!(preserved.ai.completion_side_prompt, "saved side");
         let serialized = serde_json::to_value(defaults).unwrap();
         let html = include_str!("../../ui/index.html");
         for key in SETTING_KEYS
@@ -1326,7 +1332,7 @@ mod tests {
         config.ai.completion_mask_margin = f32::NAN;
         assert!(config.validate().is_err());
         let mut config = AppConfig::default();
-        assert_eq!(config.ai.completion_mask_core_ratio, 0.0);
+        assert_eq!(config.ai.completion_mask_core_ratio, 0.5);
         for valid in [0.0, 0.5, 0.999] {
             config.ai.completion_mask_core_ratio = valid;
             assert!(config.validate().is_ok());

@@ -20,10 +20,10 @@
 | `ai.completion_seed` | u32 | 777 | `LVS_AI_COMPLETION_SEED` | 0〜4294967295。局所補完の再現用シード | 次回局所補完 |
 | `ai.completion_resolution` | u32 | 1024 | `LVS_AI_COMPLETION_RESOLUTION` | 256〜4096の16倍数。原寸ROIの上限。引き伸ばし拡大はしない | 次回局所補完 |
 | `ai.completion_mask_margin` | f32 | 0.2 | `LVS_AI_COMPLETION_MASK_MARGIN` | 0超〜0.5。検出領域の幅・高さに対する編集マスク余白の倍率 | 次回局所補完 |
-| `ai.completion_mask_core_ratio` | f32 | 0 | `LVS_AI_COMPLETION_MASK_CORE_RATIO` | 0以上1未満。既存の目編集余白のうち強度255にする内側割合。`completion_mask_margin`と異なり余白の外縁は変えない。0は現在の条件を保持 | 保存後の次回局所補完 |
+| `ai.completion_mask_core_ratio` | f32 | 0.5 | `LVS_AI_COMPLETION_MASK_CORE_RATIO` | 0以上1未満。既存の目編集余白のうち強度255にする内側割合。`completion_mask_margin`と異なり余白の外縁は変えない。0は旧条件へ戻す明示指定。保存済み0は新既定でも保持 | 保存後の次回局所補完 |
 | `ai.completion_timeout_seconds` | u32 | 14400 | `LVS_AI_COMPLETION_TIMEOUT_SECONDS` | 1以上。局所補完の推論タイムアウト（秒） | 次回局所補完 |
 | `ai.completion_fast_disk` | bool | true | `LVS_AI_COMPLETION_FAST_DISK` | 高速ディスクへのモデル退避を利用。処理速度とメモリ使用量に影響 | 次回局所補完 |
-| `ai.completion_hidden_prompt` | string | 画風と既存形状の保持を指定する既定指示 | `LVS_AI_COMPLETION_HIDDEN_PROMPT` | 元の画風を維持して髪の下を補完する指示。空文字不可 | 次回局所補完 |
+| `ai.completion_hidden_prompt` | string | 髪の下の狭い肌帯だけを補完し、目・眉・口・別の顔を追加しない指示 | `LVS_AI_COMPLETION_HIDDEN_PROMPT` | 元の画風を維持して髪の下を補完する指示。空文字不可 | 次回局所補完 |
 | `ai.completion_side_prompt` | string | 画風と既存形状の保持を指定する既定指示 | `LVS_AI_COMPLETION_SIDE_PROMPT` | 顔の位置と画風を維持して横髪の下の耳を補完する指示。空文字不可 | 次回局所補完 |
 | `ai.completion_hidden_band_ratio` | f32 | 0.08 | `LVS_AI_COMPLETION_HIDDEN_BAND_RATIO` | 0超〜0.15。顔幅に対する隠れ顔の補完帯 | 次回局所補完 |
 | `ai.completion_hidden_motion_ratio` | f32 | 0.35 | `LVS_AI_COMPLETION_HIDDEN_MOTION_RATIO` | 0超〜0.4。補完帯内の髪の移動倍率 | 次回局所補完 |
