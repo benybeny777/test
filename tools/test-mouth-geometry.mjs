@@ -42,3 +42,16 @@ test('上下唇メッシュは中立時に原画と一致し、外周を動か�
     }
   }
 });
+
+test('すぼめた口は笑った口角を弱め、横引きより丸い縦横比になる',()=>{
+  const layer={texture_box:[0,0,100,100],feature_box:[25,35,75,55],lip_seam:[[25,39],[37.5,43],[50,49],[62.5,43],[75,39]]};
+  const wide=lipMesh(layer,.7,.8),round=lipMesh(layer,.7,-.8);
+  const dimensions=mesh=>{
+    const upper=mesh.upper.slice(1,-1).map(column=>column[1]),lower=mesh.lower.slice(1,-1).map(column=>column[0]);
+    return {width:upper.at(-1)[0]-upper[0][0],height:lower[2][1]-upper[2][1]};
+  };
+  const a=dimensions(wide),b=dimensions(round);
+  assert.ok(b.width<a.width);assert.ok(b.height/b.width>a.height/a.width);
+  const puckered=lipMesh(layer,0,-1);
+  for(const column of puckered.upper.slice(1,-1))assert.equal(column[1][1],45);
+});

@@ -69,18 +69,21 @@ export function lipMesh(layer, opening, form) {
     previous=point[0];
   }
   const knots=[[l,seam[0][1]],...seam,[r,seam.at(-1)[1]]];
+  const roundness=Math.max(0,-shape),centerY=(feature[1]+feature[3])/2;
   const source=[],upper=[],lower=[];
   for(const [x,y] of knots) {
     const u=clamp((x-ml)/width,0,1);
     const interior=x>=ml&&x<=mr;
     const envelope=interior?1:x<ml?(x-l)/Math.max(1,ml-l):(r-x)/Math.max(1,r-mr);
-    const bulge=interior?Math.pow(Math.max(0,Math.sin(Math.PI*u)),.8):0;
-    const gap=width*.42*open*(1-.2*shape)*bulge;
-    const dx=(x-cx)*shape*.30*envelope;
-    const bend=shape*width*.055*(bulge-.65)*envelope;
+    // すぼめるほど口角の笑い曲線を弱め、縦横比と側面を丸い開口へ連続変形する。
+    const bulge=interior?Math.pow(Math.max(0,Math.sin(Math.PI*u)),.8-.3*roundness):0;
+    const gap=width*(.42+.12*roundness)*open*(1-.2*shape)*bulge;
+    const dx=(x-cx)*shape*(.30+.25*roundness)*envelope;
+    const bend=shape*width*.055*(bulge-.65)*(1-roundness)*envelope;
+    const roundingShift=(centerY-y)*roundness*envelope;
     source.push([[x,t],[x,y],[x,b]]);
-    upper.push([[x,t],[x+dx,y+bend-gap*.36]]);
-    lower.push([[x+dx,y+bend+gap*.64],[x,b]]);
+    upper.push([[x,t],[x+dx,y+roundingShift+bend-gap*.36]]);
+    lower.push([[x+dx,y+roundingShift+bend+gap*.64],[x,b]]);
   }
   return {source,upper,lower,box,open,form:shape};
 }
