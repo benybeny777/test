@@ -9,6 +9,8 @@ description: イラスト1枚から2D/2.5Dキャラクターを生成する工�
 
 仕様は SPEC.md 4.2 に照合し、アプリの PipelineContext を経由する。
 
+利用者が既存キャラを指定した場合は、元プロジェクトのキャラID・入力パス・原画SHAを照合する。「実写テスト」などの同じ表示名だけで手元の別素材へ置き換えない。照合結果と採用入力をPR本文へ記録する。
+
 ```powershell
 cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>
 cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> <stage>
@@ -58,7 +60,7 @@ Qwen-Image-LayeredとQwen-Image-Edit-2511の比較には`tools/qwen-eval/`を使
 
 ## 停止条件
 
-閉眼比較版5ではeye_base/eye_backplateの髪所有画素を除き、局所編集マスクで肌下地を制限する。まぶたPNGだけでなく下地の変更も照合し、原画・口・耳など無関係な素材が保持されることを検査する。承認済み旧候補は上書きしない。
+閉眼比較版7ではeye_base/eye_backplateの髪所有画素を除き、局所編集マスクで肌下地を制限する。線の検出は列の局所厚さ・連続横幅・保持率を検査し、curve_detectionの測定値を確認する。傾きや接続した暗い枝を理由に検査を無効化しない。eye_baseには生成済みの肌を使い、検出した閉眼線だけを周囲の肌から補間して別素材に分離する。skin_reconstructionの範囲・暗線除去を確認し、白目用eye_backplateを肌へ変えない。まぶたPNGだけでなく下地の変更も照合し、原画・口・耳など無関係な素材が保持されることを検査する。承認済み旧候補は上書きしない。
 
 通常の閉眼候補には`--edit-region eyes`の局所編集を使い、マスクSHAとマスク外画素保持を検証する。非限定の旧比較は目視で原寸・構図を確認したものだけ`--allow-unmasked-comparison`で再利用できる。構図が変わった失敗出力をこのオプションで通さない。
 
