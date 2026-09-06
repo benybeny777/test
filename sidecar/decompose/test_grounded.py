@@ -5,6 +5,22 @@ from grounded import select_boxes, iris_white_points, coarse_pupil_box, eye_cont
 
 
 class GroundedSelectionTests(unittest.TestCase):
+    def test_collar_uses_confidence_after_geometry_not_smallest_area(self):
+        broad={'box':[15,75,85,120],'score':.6}
+        fragment={'box':[32,76,67,105],'score':.3}
+        person={'box':[0,0,100,300],'score':.99}
+        face=[20,10,80,80]
+        self.assertEqual(select_boxes({'collar':[fragment,person,broad]},'collar',face),[broad])
+        shifted=[{'box':[v+([13,7][i%2]) for i,v in enumerate(item['box'])],'score':item['score']} for item in (fragment,person,broad)]
+        self.assertEqual(select_boxes({'collar':shifted},'collar',[33,17,93,87]),[shifted[2]])
+
+    def test_collar_ties_are_independent_of_detection_order(self):
+        left={'box':[15,75,65,105],'score':.6}
+        right={'box':[35,75,85,105],'score':.6}
+        small={'box':[30,76,65,101],'score':.6}
+        for candidates in ([left,right,small],[small,right,left]):
+            self.assertEqual(select_boxes({'collar':candidates},'collar',[20,10,80,80]),[left])
+
     def test_disconnected_clothing_is_not_discarded(self):
         mask=np.zeros((20,30),bool);mask[3:15,2:9]=True;mask[3:14,20:26]=True
         retained,info=semantic_components(mask,'clothes')

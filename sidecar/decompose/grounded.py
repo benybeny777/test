@@ -70,6 +70,11 @@ def select_boxes(records, role, face=None):
             return True
         candidates=[item for item in candidates if valid(item)]
     if not candidates:return []
+    if role=='collar':
+        # 襟の一部分だけの低得点候補を最小面積という理由で選ばない。
+        # 同点は面積降順・座標昇順とし、検出結果の返却順に依存させない。
+        return [min(candidates,key=lambda item:(-item['score'],
+                    -(item['box'][2]-item['box'][0])*(item['box'][3]-item['box'][1]),tuple(item['box'])))]
     if role in ('face','hair','clothes'):
         return [max(candidates,key=lambda item:item['score'])]
     candidates=sorted(candidates,key=lambda item:(item['box'][2]-item['box'][0])*(item['box'][3]-item['box'][1]),reverse=role=='mouth')
