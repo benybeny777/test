@@ -40,10 +40,14 @@ sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_preview.py --character te
 
 耳修正は閉眼補完の前提ではない。通常キャラの場合は`--base`と`--character`へ同じキャラを渡す。派生した補完候補の場合は`experimental_hidden.source`の署名一致も必須とする。原画一致だけで別の解析結果のリグを受け入れない。
 
+新規の閉眼比較は版3で入力範囲の方式も署名対象にする。既存の承認済みむぎ（版2）は再生成せず維持する。
+
+`run.py edit --head-framing measured --edit-region eyes`では`qwen-edit-eyes-overlay.json`を基本ワークフローへ重ね、原画VAEEncode→局所ノイズマスク→生成→元画像へのマスク合成を行う。`--mask-margin-ratio`は目幅に対する余白で既定0.2、0超〜0.5。髪・透明画素を除外し、原寸マスクのSHAを記録して終了時も再検査する。新規カスタムノードは不要。出力は完了後も目視検証が必要で、フレーミングや閉眼線が不適合なら取り込まない。肌のアルファ254を透明として全除外しないが、元のアルファを255へ書き換えることもしない。
+
 完了した同一原画の原寸編集と耳修正候補を入力する。比較仕様版2の出力`c_df28cf7d4d11`は耳・閉眼の見た目について利用者承認済み。既存出力は上書きしない。
 
 ```powershell
-sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_eye_preview.py --character temp/t7-characters/c_190454c86edb --base temp/t7-characters/c_2379190bb3b3 --comparison temp/qwen-eval-edit-mugi-closed-eyes-bf16
+sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_eye_preview.py --character temp/t7-characters/c_190454c86edb --base temp/t7-characters/c_2379190bb3b3 --comparison temp/qwen-eval-edit-mugi-closed-eyes-bf16 --allow-unmasked-comparison
 ```
 
 生成画像から閉眼曲線と暗いまぶたの透過素材だけを抽出する。肌ごと重ねる版1は半閉眼で二重線を生じたため不採用。左右上まぶたPNGとリグ定義だけを変更し、原画・肌下地・他PNGは親と同一に保つ。入力4SHA・親素材・生成画像を公開前にも照合し、原子的に別候補へ保存する。閉眼曲線が測れない場合はエラーにする。左右別に開き0/0.5/1と連続まばたきを確認する。拡大生成や口の変化を持ち込まない。
@@ -51,6 +55,8 @@ sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_eye_preview.py --characte
 ## 必要なもの
 
 ### 原寸閉眼のローカル編集診断
+
+`build_eye_preview.py`は通常、目の局所編集とマスクSHA・マスク外画素保持を必須とする。非限定の旧比較は構図を目視確認してから`--allow-unmasked-comparison`を明示する。女性Aで失敗した非限定出力へこの許可を付けてはならない。
 
 `tools/evaluate-eye-inpaint.py`は採用済みAnimagine XL 4.0の固定SHAを検査して使う比較専用ツールであり、製品パイプラインへ候補を昇格しない。作業用Pythonから`--character <キャラフォルダ> --comfy <本アプリ管理ComfyUI> --output temp/<新規診断名>`を指定する。任意の`--denoise`、`--mask-grow`で条件比較する。既存利用者環境や`extra_model_paths.yaml`のある環境を使わない。
 

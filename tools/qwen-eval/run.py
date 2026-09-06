@@ -10,7 +10,9 @@ import sys
 import time
 
 import psutil
+import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'sidecar/expression'))
@@ -30,7 +32,7 @@ def verify_source(character,recorded):
         raise ValueError('原画または解析マスクが比較開始時と一致しません')
 
 
-def graph(mode,width,height,prompt,steps,seed,layers):
+def graph(mode,width,height,prompt,steps,seed,layers,eye_mask=False):
     if mode not in ('layered','edit'):raise ValueError('未承認の比較方式です')
     result=json.loads((ROOT/f'workflows/qwen-{mode}-api.json').read_text(encoding='utf-8'))
     result['9']['inputs'].update(width=width,height=height)
@@ -40,7 +42,26 @@ def graph(mode,width,height,prompt,steps,seed,layers):
         result['9']['inputs']['layers']=layers
     else:
         result['7']['inputs']['prompt']=prompt
+    if eye_mask:
+        if mode!='edit':raise ValueError('目の局所編集はImage-Editだけで使用します')
+        result.update(json.loads((ROOT/'workflows/qwen-edit-eyes-overlay.json').read_text(encoding='utf-8')))
+        result['10']['inputs']['latent_image']=['15',0]
+        result['13']['inputs']['images']=['16',0]
     return result
+
+
+def eye_edit_mask(eyes,hair,alpha,margin_ratio):
+    """目を中心に編集可能領域を作り、髪・透明背景への描き出しを抑える。"""
+    if not 0<margin_ratio<=.5:raise ValueError('目の編集余白が範囲外です')
+    region=np.zeros(alpha.shape,dtype=float)
+    for eye in eyes:
+        ys,xs=np.nonzero(eye)
+        if not xs.size:raise ValueError('目の編集マスクが空です')
+        margin=max(2,round((int(xs.max())-int(xs.min())+1)*margin_ratio))
+        expanded=ndimage.binary_dilation(eye,iterations=margin)&~hair&(alpha>0)
+        if not np.any(expanded&eye):raise ValueError('可視の目が編集範囲にありません')
+        region=np.maximum(region,np.clip(ndimage.distance_transform_edt(expanded)/max(1,margin/2),0,1))
+    return np.rint(region*255).astype(np.uint8)
 
 
 def measured_head_region(face,neck,size,limit):
@@ -113,6 +134,8 @@ def main():
     parser.add_argument('--comfy',type=Path,required=True)
     parser.add_argument('--view',choices=['head','full'],default='head')
     parser.add_argument('--head-framing',choices=['fixed','measured'],default='fixed')
+    parser.add_argument('--edit-region',choices=['all','eyes'],default='all')
+    parser.add_argument('--mask-margin-ratio',type=float,default=.2)
     parser.add_argument('--resolution',type=int,default=1024)
     parser.add_argument('--steps',type=int,default=50)
     parser.add_argument('--seed',type=int,default=777)
@@ -122,6 +145,8 @@ def main():
     parser.add_argument('--fast-disk',action='store_true',help='非量子化のままNVMeからの動的読込を優先する')
     parser.add_argument('--prompt')
     args=parser.parse_args()
+    if args.edit_region=='eyes' and (args.mode!='edit' or args.view!='head'):raise ValueError('目の限定編集は原寸頭部のImage-Edit専用です')
+    if not 0<args.mask_margin_ratio<=.5:raise ValueError('目の編集余白が範囲外です')
     output=args.output.resolve();comfy=args.comfy.resolve()
     if output.exists() or not output.is_relative_to(ROOT/'temp'):raise ValueError('新しいtemp内出力を指定してください')
     if not 256<=args.resolution<=1024 or not 1<=args.steps<=100 or not 1<=args.layers<=8:raise ValueError('比較条件が範囲外です')
@@ -137,8 +162,16 @@ def main():
     for name in ['input','output','temp','user']:(output/name).mkdir(parents=True)
     size,source=prepare_input(args.character,output,args.resolution,args.view,args.head_framing)
     if args.head_framing!='fixed':source['head_framing']=args.head_framing
+    if args.edit_region=='eyes':
+        l,t,r,b=source['source_region']
+        with Image.open(args.character/'source/isolated.png') as opened:alpha=np.array(opened.convert('RGBA'))[t:b,l:r,3]
+        with np.load(args.character/'analysis/masks.npz',allow_pickle=False) as masks:
+            mask=eye_edit_mask([masks[side+'_eye'][t:b,l:r] for side in ('left','right')],masks['hair'][t:b,l:r],alpha,args.mask_margin_ratio)
+        padded_mask=Image.new('L',size,0);padded_mask.paste(Image.fromarray(mask),(0,0))
+        padded_mask.convert('RGB').save(output/'input/eye-mask.png')
+        source.update(edit_region='eyes',mask_margin_ratio=args.mask_margin_ratio,edit_mask_sha256=digest(output/'input/eye-mask.png'))
     prompt=args.prompt or ('A front-facing female character with hair, a face with eyes and mouth, ears, a neck, and clothing against a plain white background.' if args.mode=='layered' else 'Remove only the hair. Reconstruct the face, ears, neck and clothing that were hidden behind the hair. Preserve the exact existing facial features, expression, skin tone, clothing design, pose and rendering style. Keep a plain white background. Do not add objects or change the character identity.')
-    workflow=graph(args.mode,*size,prompt,args.steps,args.seed,args.layers)
+    workflow=graph(args.mode,*size,prompt,args.steps,args.seed,args.layers,args.edit_region=='eyes')
     (output/'workflow.json').write_text(json.dumps(workflow,indent=2),encoding='utf-8')
     report={'mode':args.mode,'source':source,'parameters':{'steps':args.steps,'seed':args.seed,'layers':args.layers,'prompt':prompt,'size':size},'quality':'unverified','product_adopted':False,'status':'running','resources':[]}
     command=[sys.executable,str(comfy/'main.py'),'--listen','127.0.0.1','--port',str(args.port),'--base-directory',str(output),'--models-directory',str(ROOT/'models/qwen-eval'),'--temp-directory',str(output/'temp'),'--disable-auto-launch','--disable-all-custom-nodes','--disable-api-nodes','--preview-method','none']
@@ -178,6 +211,7 @@ def main():
                                 if args.mode=='layered' and image.mode!='RGBA':raise ValueError('RGBAレイヤーではありません')
                             report['images'].append(path.relative_to(output).as_posix())
                         verify_source(args.character,source)
+                        if args.edit_region=='eyes' and digest(output/'input/eye-mask.png')!=source['edit_mask_sha256']:raise ValueError('実行中に編集マスクが変更されました')
                         report['status']='complete';break
                 time.sleep(5)
             else:raise TimeoutError('生成の待機時間を超過しました')

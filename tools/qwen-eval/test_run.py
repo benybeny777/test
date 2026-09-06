@@ -6,10 +6,26 @@ import unittest
 
 import numpy as np
 from PIL import Image
-from run import graph,prepare_input,ROOT,verify_source,measured_head_region
+from run import graph,prepare_input,ROOT,verify_source,measured_head_region,eye_edit_mask
 
 
 class CompareTests(unittest.TestCase):
+    def test_eye_edit_preserves_reference_latent_and_composites_only_mask(self):
+        value=graph('edit',256,256,'eyes',50,777,4,True)
+        self.assertEqual(value['9']['class_type'],'VAEEncode')
+        self.assertEqual(value['15']['class_type'],'SetLatentNoiseMask')
+        self.assertEqual(value['10']['inputs']['latent_image'],['15',0])
+        self.assertEqual(value['16']['inputs']['destination'],['4',0])
+        self.assertFalse(value['16']['inputs']['resize_source'])
+        self.assertEqual(value['13']['inputs']['images'],['16',0])
+
+    def test_eye_mask_accepts_254_alpha_without_painting_hair_or_transparency(self):
+        eye=np.zeros((30,40),bool);eye[12:18,10:30]=True
+        hair=np.zeros_like(eye);hair[:13]=True
+        alpha=np.full(eye.shape,254,np.uint8);alpha[:,31:]=0
+        mask=eye_edit_mask([eye],hair,alpha,.2)
+        self.assertGreater(mask.max(),0);self.assertFalse(mask[hair].any());self.assertFalse(mask[alpha==0].any())
+
     def test_measured_head_is_native_translation_invariant_and_bounded(self):
         box=measured_head_region([500,200,620,330],[530,320,590,350],(1200,1400),1024)
         shifted=measured_head_region([600,300,720,430],[630,420,690,450],(1200,1400),1024)

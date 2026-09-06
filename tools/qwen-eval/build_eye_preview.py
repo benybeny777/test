@@ -53,7 +53,16 @@ def validate_base_identity(character,base,rig,source):
         raise ValueError('候補と閉眼編集の原画・解析が一致しません')
 
 
-def build(character,base,comparison):
+def validate_masked_pixels(edited,original,mask):
+    """マスク外の移動や描き直しを、色の丸め誤差以外は拒否する。"""
+    if edited.shape[:2]!=original.shape[:2] or mask.shape!=edited.shape[:2]:raise ValueError('局所編集の検証寸法が一致しません')
+    outside=mask==0
+    if not outside.any():raise ValueError('マスク外の保護領域がありません')
+    if np.any(np.abs(edited[:,:,:3].astype(np.int16)-original[:,:,:3].astype(np.int16))[outside]>1):
+        raise ValueError('編集マスク外の画素が変わっています。構図不一致の候補を公開しません')
+
+
+def build(character,base,comparison,allow_unmasked=False):
     character=character.resolve();base=base.resolve();comparison=comparison.resolve()
     if any(not path.is_relative_to(ROOT/'temp') for path in (character,base,comparison)):
         raise ValueError('比較入出力はtemp内に限定します')
@@ -69,10 +78,18 @@ def build(character,base,comparison):
     if not edited_path.is_relative_to(comparison/'output'):raise ValueError('編集画像が範囲外です')
     fingerprint=digest(edited_path)
     with Image.open(edited_path) as opened:edited=np.array(opened.convert('RGBA'))
+    if report['source'].get('edit_region')=='eyes':
+        mask_path=comparison/'input/eye-mask.png'
+        if digest(mask_path)!=report['source'].get('edit_mask_sha256'):raise ValueError('編集マスクの署名が一致しません')
+        with Image.open(mask_path) as opened:mask=np.array(opened.convert('L'))
+        with Image.open(comparison/'input/input.png') as opened:original=np.array(opened.convert('RGB'))
+        validate_masked_pixels(edited,original,mask)
+    elif not allow_unmasked:
+        raise ValueError('通常の閉眼比較には目の局所編集が必要です。非限定の旧比較は目視確認後に明示的に許可してください')
     l,t,r,b=report['source']['source_region']
     if edited.shape[:2]!=(b-t,r-l):raise ValueError('閉眼画像は原寸である必要があります')
     with Image.open(character/'source/isolated.png') as opened:source=np.array(opened.convert('RGBA').crop((l,t,r,b)))
-    identity={'version':2,'base_assets':baseline,'source':report['source'],'edited_sha256':fingerprint}
+    identity={'version':3,'base_assets':baseline,'source':report['source'],'edited_sha256':fingerprint}
     identifier='c_'+hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()[:12]
     destination=ROOT/'temp/t7-characters'/identifier
     if destination.exists():raise ValueError('同じ閉眼候補が既にあります。上書きしません')
@@ -88,7 +105,7 @@ def build(character,base,comparison):
             curve=np.array(closed_curve(edited,local,hair,aperture))+t
             eye=masks[side+'_eye'][t:b,l:r]
             margin=max(1,round((feature[2]-feature[0])*.08))
-            region=ndimage.binary_dilation(eye,iterations=margin)&~hair&(source[:,:,3]==255)
+            region=ndimage.binary_dilation(eye,iterations=margin)&~hair&(source[:,:,3]>0)
             ring=region&~eye
             if not ring.any():raise ValueError('閉眼の肌色を照合する周辺がありません')
             correction=np.median(source[:,:,:3].astype(float)[ring]-edited[:,:,:3].astype(float)[ring],axis=0)
@@ -126,4 +143,5 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--character',type=Path,required=True);parser.add_argument('--base',type=Path,required=True)
     parser.add_argument('--comparison',type=Path,required=True)
-    args=parser.parse_args();build(args.character,args.base,args.comparison)
+    parser.add_argument('--allow-unmasked-comparison',action='store_true',help='原寸と構図を目視確認した旧比較だけを許可する')
+    args=parser.parse_args();build(args.character,args.base,args.comparison,args.allow_unmasked_comparison)
