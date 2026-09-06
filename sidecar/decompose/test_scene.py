@@ -5,6 +5,17 @@ from scene import visible_scene
 
 
 class SceneTests(unittest.TestCase):
+    def test_translucent_pixels_are_drawn_once(self):
+        subject=np.ones((30,30),bool);masks={}
+        for index,name in enumerate(('clothes','left_arm','right_arm','neck','face','hair')):
+            mask=np.zeros_like(subject);mask[index*4:(index+1)*4,5:25]=True;masks[name]=mask
+        alpha=np.full(subject.shape,255,np.uint8);alpha[:,5]=64;alpha[:,4]=16
+        _,textures=visible_scene(subject,masks,opaque=alpha==255)
+        combined=np.zeros_like(alpha,dtype=float)
+        for mask in textures.values():
+            layer=alpha/255*mask;combined=layer+combined*(1-layer)
+        np.testing.assert_allclose(combined,alpha/255)
+
     def test_expression_holes_belong_to_face_not_residual(self):
         subject=np.ones((30,30),bool);masks={}
         for index,name in enumerate(('clothes','left_arm','right_arm','neck','face','hair')):

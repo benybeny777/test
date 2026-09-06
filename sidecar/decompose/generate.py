@@ -465,7 +465,8 @@ def _decompose_image(
     if grounded_result is not None:
         from scene import visible_scene,SCENE_ORDER,PARENTS
         face_support=parts['left_eye_base'] | parts['right_eye_base'] | parts['mouth_open']
-        owners,visible=visible_scene(subject,masks,face_support)
+        # 検出用の強い前景と描画用の半透明輪郭を区別し、薄い原画画素も一度だけ残す。
+        owners,visible=visible_scene(rgba[:,:,3]>0,masks,face_support,rgba[:,:,3]==255)
         for index,role in enumerate(SCENE_ORDER):
             if role not in visible:continue
             name='scene_'+role

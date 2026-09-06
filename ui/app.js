@@ -163,6 +163,7 @@ async function loadPreview(expressionKey) {
     expressionKey: expression,
     mouthKey: mouth,
   });
+  const config = await invoke("get_config");
   previewUrls.forEach((url) => URL.revokeObjectURL(url));
   const rigUrl = bytesUrl(assets.rig, "application/json");
   const partUrls = {};
@@ -177,12 +178,12 @@ async function loadPreview(expressionKey) {
     partUrls,
     expressionKey: expression,
     mouthKey: mouth,
-    crossfadeMs: 160,
-    blinkMinMs: 2800,
-    blinkMaxMs: 6500,
-    blinkDurationMs: 140,
-    idleSwayDegrees: 0.7,
-    idleSwayPeriodMs: 4200,
+    crossfadeMs: config.avatar.crossfade_ms,
+    blinkMinMs: config.avatar.blink_min_ms,
+    blinkMaxMs: config.avatar.blink_max_ms,
+    blinkDurationMs: config.avatar.blink_duration_ms,
+    idleSwayDegrees: config.avatar.idle_sway_degrees,
+    idleSwayPeriodMs: config.avatar.idle_sway_period_ms,
     ...framing(),
   });
   $("#empty-preview").hidden = true;

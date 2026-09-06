@@ -3,6 +3,7 @@ import {localAssetUrl,loadLocalJson} from './local-assets.js';
 import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js';
 import {eyeAperture,drawBlink} from './eye-geometry.js';
 import {bleedTransparentRgb} from './texture-alpha.js';
+import {headDisplacement,armDisplacement} from './rig-motion.js';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
@@ -14,14 +15,14 @@ export function createAvatarRenderer(canvas){
   const scene=new THREE.Scene(),group=new THREE.Group();scene.add(group);
   const camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);camera.position.z=2;
   const faceCanvas=document.createElement('canvas'),ctx=faceCanvas.getContext('2d');
-  let rig,state={},images=new Map(),meshes=[],textures=[],positions,worldUV,faceTexture;
+  let rig,state={},images=new Map(),meshes=[],textures=[],positions,worldUV,faceTexture,faceAlpha;
   let revision=0,disposed=false,frame,nextBlink=Infinity,lastAppearance='';
   const resize=()=>renderer.setSize(Math.max(1,canvas.clientWidth),Math.max(1,canvas.clientHeight),false);
   const observer=new ResizeObserver(resize);observer.observe(canvas);resize();
   function release(){
     for(const mesh of meshes){group.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
     for(const texture of textures)texture.dispose();
-    meshes=[];textures=[];images.clear();faceTexture=null;rig=null;
+    meshes=[];textures=[];images.clear();faceTexture=null;faceAlpha=null;rig=null;
   }
   async function applyState(next){
     const token=++revision;
@@ -49,6 +50,7 @@ export function createAvatarRenderer(canvas){
       const template=new THREE.PlaneGeometry(w,h,64,96);
       positions=template.attributes.position;worldUV=template.attributes.uv.array.slice();
       const face=images.get('scene_face');faceCanvas.width=face.naturalWidth;faceCanvas.height=face.naturalHeight;
+      ctx.drawImage(face,0,0);faceAlpha=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height).data.filter((_,i)=>i%4===3);
       for(const [index,part] of graph.entries()){
         const geometry=template.clone();geometry.setAttribute('position',positions);
         const box=rig.layers[part.layer].texture_box,uv=geometry.attributes.uv;
@@ -81,8 +83,10 @@ export function createAvatarRenderer(canvas){
     drawBlink(ctx,images,rig,'left',left);drawBlink(ctx,images,rig,'right',right);
     if(open>0||form!==0){const base=rig.layers.mouth_open.texture_box;ctx.drawImage(images.get('mouth_open'),base[0],base[1]);
       drawTexturedMouth(ctx,images.get('mouth_closed'),rig.layers.mouth_closed,open,form,rig.layers.mouth_open.line_color);}
-    ctx.globalCompositeOperation='destination-in';ctx.drawImage(images.get('scene_face'),box[0],box[1]);ctx.restore();
+    ctx.restore();
     const pixels=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height).data;
+    // 元のアルファを再設定し、顔マスクを二重乗算して輪郭を薄くしない。
+    for(let i=0;i<faceAlpha.length;i++)pixels[i*4+3]=faceAlpha[i];
     faceTexture.image.data.set(bleedTransparentRgb(pixels,faceCanvas.width,faceCanvas.height));faceTexture.needsUpdate=true;
   }
   function render(now){
@@ -94,18 +98,16 @@ export function createAvatarRenderer(canvas){
       let [open,form]=MOUTH_PRESETS[state.mouthKey]??MOUTH_PRESETS.close;
       open=clamp(state.mouthOpenY??open,0,1);form=clamp(state.mouthForm??form,-1,1);
       appearance(state.eyeLOpen===undefined?1-blink:clamp(state.eyeLOpen,0,1),state.eyeROpen===undefined?1-blink:clamp(state.eyeROpen,0,1),open,form);
-      const {width:w,height:h}=rig.canvas,face=rig.layers.face.bbox,neck=rig.layers.neck?.bbox?.[3]??face[3],cx=(face[0]+face[2])/2;
+      const {width:w,height:h}=rig.canvas,face=rig.layers.face.bbox,neck=rig.layers.scene_neck.bbox,cx=(face[0]+face[2])/2;
       const wave=Math.sin(now/(state.idleSwayPeriodMs??4200)*Math.PI*2),sway=(state.idleSwayDegrees??.7)*wave;
       // 部位は独立テクスチャ・メッシュ。未補完の接続部を裂かない共通変位場を当面共有する。
       for(let i=0;i<positions.count;i++){
-        const x=worldUV[i*2]*w,y=(1-worldUV[i*2+1])*h,head=1-smooth(face[3],Math.max(face[3]+1,neck),y);
-        let dx=head*clamp(state.yaw??0,-30,30)*w*.00055,dy=head*clamp(state.pitch??0,-30,30)*h*.00035;
+        const x=worldUV[i*2]*w,y=(1-worldUV[i*2+1])*h,head=1-smooth(face[3],Math.max(face[3]+1,neck[3]),y);
+        let [dx,dy]=headDisplacement(x,y,face,neck,w,h,state.yaw??0,state.pitch??0,state.roll??state.armPose?.head?.[2]??0);
         dx+=(h-y)/h*sway*w*.002;
         const side=x<cx?'left':'right',arm=rig.layers[side+'_arm'].bbox;
-        const shoulder=arm[1]+(arm[3]-arm[1])*.10;
-        const influence=smooth(w*.06,w*.26,Math.abs(x-cx))*smooth(shoulder,shoulder+(arm[3]-shoulder)*.45,y);
-        const angle=clamp(state.armPose?.[side+'UpperArm']?.[2]??0,-30,30)*Math.PI/180;
-        dx+=-(y-shoulder)*Math.sin(angle)*influence;dy+=(y-shoulder)*(Math.cos(angle)-1)*influence;
+        const [armX,armY]=armDisplacement(x,y,arm,cx,w,state.armPose?.[side+'UpperArm']?.[2]??0);
+        dx+=armX;dy+=armY;
         dx+=(state.hairSway??wave)*(state.idleSwayDegrees??.7)*w*.001*head*smooth(w*.045,w*.13,Math.abs(x-cx));
         positions.setXYZ(i,x-w/2+dx,h/2-y-dy,0);
       }
