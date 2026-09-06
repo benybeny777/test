@@ -1,9 +1,9 @@
-import {createAvatarRenderer} from './shared/avatar-renderer.js?v=grounded-rig3';
+import {createAvatarRenderer} from './shared/avatar-renderer.js?v=hidden-preview1';
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
 // 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
-const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト']];
+const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_8e08e4cae01f','むぎ・原画固定＋補完候補']];
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 for(const [id,name] of fixtures)select.add(new Option(name,id));
 const renderer=createAvatarRenderer(document.querySelector('#avatar'));
@@ -36,14 +36,16 @@ async function load(){
     const version=encodeURIComponent(character.stages.rig2d.updatedAtIso);
     const rigUrl=base+'rig2d/rig.json?v='+version;const rig=await loadLocalJson(rigUrl);
     if(token!==generation)return;
-    currentRig=rig;state={rigUrl,partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};reset();faceView=false;document.querySelector('#source').style.transform='';
+    currentRig=rig;state={rigUrl,showHiddenMaterial:document.querySelector('#hidden-material').checked,partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};reset();faceView=false;document.querySelector('#source').style.transform='';
     document.querySelector('#source').src=base+'source/input.png';if(!await apply())return;
     document.querySelector('#avatar').style.visibility='visible';
     status.textContent=`素材充足: ${rig.material_readiness?.status ?? '未検査'} ／ 見た目: 未承認。動作の成立と品質の合格は別です。`;
+    if(rig.experimental_hidden)status.textContent+='\n補完比較: 元の顔・口・服は保持。髪の下の局所下地だけ追加。顔左右/上下で髪との相対移動を比較できます。';
   }catch(error){if(token===generation)status.textContent=error.message;}
   finally{if(token===generation)document.querySelectorAll('button,input').forEach(element=>element.disabled=false);}
 }
 select.addEventListener('change',load);
+document.querySelector('#hidden-material').addEventListener('change',event=>{state.showHiddenMaterial=event.target.checked;apply();});
 document.querySelector('#motion-demo').addEventListener('click',()=>{
   if(motionFrame){stopMotion();return;}
   const start=performance.now();document.querySelector('#motion-demo').textContent='待機動作テストを停止';

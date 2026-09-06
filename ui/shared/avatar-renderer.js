@@ -3,7 +3,7 @@ import {localAssetUrl,loadLocalJson} from './local-assets.js';
 import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js';
 import {eyeAperture,drawBlink} from './eye-geometry.js';
 import {bleedTransparentRgb} from './texture-alpha.js';
-import {headDisplacement,armDisplacement} from './rig-motion.js';
+import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset} from './rig-motion.js';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
@@ -31,6 +31,8 @@ export function createAvatarRenderer(canvas){
       if(incoming.schema_version!==3||incoming.eye_rig_version!==3||incoming.lip_rig_version!==1||incoming.scene_graph_version!==1)
         throw new Error('独立部位または目口の素材がない旧リグです。分解から再生成してください');
       const graph=incoming.scene_graph;
+      validateHiddenMotion(incoming.hidden_motion,65*97);
+      if(incoming.hidden_motion&&!graph?.some(p=>p.role==='hidden_face'))throw new Error('補完比較の下地がありません');
       if(!Array.isArray(graph)||graph.length<6||new Set(graph.map(p=>p.role)).size!==graph.length||!graph.some(p=>p.role==='face'))
         throw new Error('独立部位の構造が不正です');
       lipMesh(incoming.layers?.mouth_closed,0,0);
@@ -52,7 +54,8 @@ export function createAvatarRenderer(canvas){
       const face=images.get('scene_face');faceCanvas.width=face.naturalWidth;faceCanvas.height=face.naturalHeight;
       ctx.drawImage(face,0,0);faceAlpha=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height).data.filter((_,i)=>i%4===3);
       for(const [index,part] of graph.entries()){
-        const geometry=template.clone();geometry.setAttribute('position',positions);
+        const geometry=template.clone();
+        geometry.setAttribute('position',rig.hidden_motion&&part.role==='hair'?positions.clone():positions);
         const box=rig.layers[part.layer].texture_box,uv=geometry.attributes.uv;
         for(let i=0;i<uv.count;i++)uv.setXY(i,(worldUV[i*2]*w-box[0])/(box[2]-box[0]),1-((1-worldUV[i*2+1])*h-box[1])/(box[3]-box[1]));
         // Canvasは透明RGBを失うため、合成後に色を補完した画素を直接アップロードする。
@@ -68,7 +71,7 @@ export function createAvatarRenderer(canvas){
           shader.fragmentShader=shader.fragmentShader.replace(marker,'if(any(lessThan(vMapUv,vec2(0.0)))||any(greaterThan(vMapUv,vec2(1.0)))) discard;\n'+marker);
         };
         material.customProgramCacheKey=()=> 'lvs-independent-crop-v1';
-        const mesh=new THREE.Mesh(geometry,material);mesh.renderOrder=index;mesh.frustumCulled=false;group.add(mesh);meshes.push(mesh);
+        const mesh=new THREE.Mesh(geometry,material);mesh.userData.role=part.role;mesh.renderOrder=index;mesh.frustumCulled=false;group.add(mesh);meshes.push(mesh);
       }
       template.dispose();lastAppearance='';nextBlink=performance.now()+randomBlinkDelay(next);
     }
@@ -112,6 +115,17 @@ export function createAvatarRenderer(canvas){
         positions.setXYZ(i,x-w/2+dx,h/2-y-dy,0);
       }
       positions.needsUpdate=true;
+      for(const mesh of meshes){
+        if(mesh.userData.role==='hidden_face')mesh.visible=state.showHiddenMaterial!==false;
+        if(rig.hidden_motion&&mesh.userData.role==='hair'){
+          const hairPositions=mesh.geometry.attributes.position;
+          for(let i=0;i<positions.count;i++){
+            const [dx,dy]=hiddenOffset(rig.hidden_motion,i,state.yaw??0,state.pitch??0);
+            hairPositions.setXYZ(i,positions.getX(i)+dx,positions.getY(i)-dy,0);
+          }
+          hairPositions.needsUpdate=true;
+        }
+      }
       const cw=Math.max(1,canvas.clientWidth),ch=Math.max(1,canvas.clientHeight);
       camera.left=-cw/2;camera.right=cw/2;camera.top=ch/2;camera.bottom=-ch/2;camera.updateProjectionMatrix();
       group.scale.setScalar(Math.min(cw/w,ch/h)*(state.scale??1));group.position.set(state.offsetX??0,-(state.offsetY??0),0);

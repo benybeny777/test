@@ -20,3 +20,15 @@ export function headDisplacement(x,y,face,neck,width,height,yaw,pitch,roll){
   return [weight*((x-cx)*(cos-1)-(y-cy)*sin+clamp(yaw,-30,30)*width*.00055),
           weight*((x-cx)*sin+(y-cy)*(cos-1)+clamp(pitch,-30,30)*height*.00035)];
 }
+// 比較用の局所髪移動。未補完の外周・首肩には変位を加えない。
+export function validateHiddenMotion(profile,count){
+  if(profile===undefined)return;
+  if(profile.version!==1||!Array.isArray(profile.weights)||profile.weights.length!==count||
+     profile.weights.some(v=>!Number.isFinite(v)||v<0||v>1)||
+     !['angle_limit','x_limit_px','y_limit_px'].every(k=>Number.isFinite(profile[k])&&profile[k]>0))
+    throw new Error('補完比較の変位定義が不正です');
+}
+export function hiddenOffset(profile,index,yaw,pitch){
+  const bound=value=>Math.max(-1,Math.min(1,value/profile.angle_limit));
+  return [profile.weights[index]*profile.x_limit_px*bound(yaw),profile.weights[index]*profile.y_limit_px*bound(pitch)];
+}
