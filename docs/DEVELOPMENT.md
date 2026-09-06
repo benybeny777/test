@@ -2,6 +2,8 @@
 
 ## 通常の局所補完
 
+補完版3は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。追加編集も原寸髪マスク（横髪/耳は測定原画耳を加える）と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。両側の原画耳が測れない場合は可視輪郭の描き直しを抑止し、partialと画面の警告を残す。生成耳が両側測れなければ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
+
 作業用の`tools/capture-character-gallery.mjs <characterId> <temp内の出力先>`は起動済み8791の共通確認画面をChromeで撮影する。Node/Playwrightは開発作業用だけで製品依存ではない。既存Playwrightを使う場合は`LVS_PLAYWRIGHT_MODULE`へその`index.mjs`を指定する。中立・左右閉眼・母音・小角度・連続動作と撮影ハッシュを保存し、撮影用Chromeを終了する。ハッシュ差を品質合格と扱わず実画像を目視する。
 
 現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の局所閉眼を適用した最終リグを`rig2d/`へ分離する。口は現状承認済みで、この工程から描き直さない。PicoAgent本体への組み込み、OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。

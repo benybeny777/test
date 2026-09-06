@@ -101,7 +101,7 @@ cargo xtask dev
 | ① `isolate` | 元キャンバスを保持。既存の透過は維持し、不透明入力は背景除去 | `source/isolated.png` | レイヤー分解の入力 |
 | ② `decompose` | Grounding DINOで意味領域を検出し、SAM 2.1で原寸マスクと目口差分を生成 | `analysis/analysis.json`、`analysis/masks.npz`、`layers/manifest.json`、`layers/parts/*.png`、`layers/source.psd` | 署名付き解析キャッシュ、2.5D描画部品と確認用PSD |
 | ③ `rig2d` | 部位と重なり順を検証し、未補完の基底リグへ変換 | `rig2d-base/rig.json`、`rig2d-base/parts/*.png` | 局所補完の入力。完成扱いしない |
-| ④ `complete` | 管理下ComfyUIで原寸の目を局所編集し、閉眼線・肌下地を分離 | `rig2d/rig.json`、`rig2d/parts/*.png`、`rig2d/completion.json` | 共通レンダラーの最終入力と補完署名 |
+| ④ `complete` | 管理下ComfyUIで原寸の目・髪下地・耳を逐次局所編集し、DINO/SAMの耳測定と素材の不変検査を行う | `rig2d/rig.json`、`rig2d/parts/*.png`、`rig2d/completion.json`、各編集/耳解析キャッシュ | 共通レンダラーの入力と補完署名。未達は警告/失敗として表示 |
 
 中心資産は `layers/manifest.json`、`layers/parts/`、`rig2d/rig.json` です。`character.json` で各工程の状態を管理し、未着手は `pending`、実行後は `running / complete / failed` と理由を保存します。
 

@@ -130,7 +130,11 @@ class CompletionOrchestrationTests(unittest.TestCase):
                                     output=character/'rig2d', comfy=character/'comfy', models=character/'models',
                                     workflow=workflow, overlay=overlay, port=58120, steps=50, seed=777,
                                     resolution=256, mask_margin_ratio=.2, startup_timeout=600,
-                                    generation_timeout=14400, prompt='Close eyes', fast_disk=True)
+                                    generation_timeout=14400, prompt='Close eyes', fast_disk=True,
+                                    grounding_model=character/'models',sam_model=character/'models',
+                                    hidden_prompt='Remove hair',side_prompt='Reveal ears',grounding_threshold=.3,
+                                    ear_context=.5,hidden_band_ratio=.08,hidden_motion_ratio=.35,
+                                    hair_edge_band_ratio=.015,hair_edge_gain=40)
         self.original = source_hashes(character)
         self.baseline = tree_hashes(self.args.base_rig.parent)
         self.previous = tree_hashes(self.args.output)
@@ -139,6 +143,24 @@ class CompletionOrchestrationTests(unittest.TestCase):
         self.inference = self.enterContext(patch.object(generate, 'generate_image', side_effect=self.render))
         self.extract = self.enterContext(patch.object(generate, 'apply_closed_eyes', return_value=(
             {'left_eyelid_upper': Image.new('RGBA', (16, 16), (70, 40, 20, 255))}, {'fixture': True})))
+        self.hidden = self.enterContext(patch.object(generate,'prepare_hidden',return_value={'identity':{'fixture':1}}))
+        self.hidden_apply = self.enterContext(patch.object(generate,'apply_hidden',side_effect=lambda args,rig,base,parts,*rest:(rig,parts,{'fixture':True})))
+        self.enterContext(patch.object(generate,'assert_hidden_sources',side_effect=lambda args,prepared,guard:guard()))
+
+    def test_hidden_failure_preserves_eye_cache_and_prior_rig(self):
+        self.hidden.side_effect=RuntimeError('耳生成失敗')
+        with self.assertRaisesRegex(RuntimeError,'耳生成失敗'):generate.complete_locked(self.args)
+        self.assertEqual(tree_hashes(self.args.output),self.previous)
+        self.assertTrue((self.args.character/'completion-source/edited.png').exists())
+        self.hidden.side_effect=None
+        generate.complete_locked(self.args)
+        self.assertEqual(self.inference.call_count,1)
+
+    def test_hidden_extraction_failure_preserves_previous_output(self):
+        self.hidden_apply.side_effect=ValueError('耳組立失敗')
+        with self.assertRaisesRegex(ValueError,'耳組立失敗'):generate.complete_locked(self.args)
+        self.assertEqual(tree_hashes(self.args.output),self.previous)
+        self.assertTrue((self.args.character/'completion-source/edited.png').exists())
 
     @staticmethod
     def render(args, run, workflow):

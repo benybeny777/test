@@ -26,6 +26,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 - rig2dの出力先はrig2d-base/とし、未補完リグを完成扱いしない。completeで利用者採用承認済みQwen-Image-Edit-2511を管理下ComfyUIで実行し、原寸の目だけを局所編集してrig2d/へ公開する。DINO/SAMと承認済みの口は維持し、Layeredや別モデルへ無断変更しない。
 - completeはsidecar/completion/generate.pyをRust経由で呼び、ai.completion_*と既存comfy設定を次回処理時に読む。モデル固定SHA、マスク外画素保持、入力原画/解析/基底リグの公開前SHAを検査する。completion-sourceの生成署名と完成completion.jsonの抽出署名を分け、抽出だけの変更でGPUを再実行しない。入力準備・推論の意味を変えたらIMAGE_GENERATION_VERSIONを上げる。出力欠損・改変は失敗にする。
 - 通常4工程は3原画で実走済みだが、実走・目視の状態を分けて記録する。生成版2のマスクは目コアを255とし、髪は0、減衰は外側余白だけにする。髪際のまつげを弱編集して旧線を残さないよう、実マスクのコア強度と生成画像の残片を検査する。
+- 補完版3では閉眼に加えて原画耳解析→隠れ顔/横髪耳の原寸マスク編集→生成耳解析→素材組立を逐次実行する。画像生成とDINO/SAMを同時ロードしない。各画像と耳マスクを独立署名で再利用し、マスク外・目口・原画アルファ・耳許可外RGBを保持する。原画耳が左右揃わなければpartial警告、生成耳不足は明示失敗とする。閉眼のみの実走時間/品質を追加2編集の成功根拠にしない。
 - 唇の分割にはmouth_closed.lip_seamとlip_rig_version: 1が必要。旧リグはdecomposeから再生成する。原画の唇は拡大素材や塗り直した色面へ差し替えず、上下メッシュの中立座標が原画と一致することを検査する。
 - 目にはeye_rig_version: 3、左右のeye_base/eyelid_upperとeye_aperture、eye_iris/eye_remainder/eye_backplateが必要。相補分割と白目補完の可視画素保持を検査する。旧リグはdecomposeから再生成する。
 - scene_graph_version: 1の独立素材と親子関係を検査する。表情領域が顔に含まれ、元の目が未分類素材に残らないことを閉眼表示で検証する。所有画素の完全被覆と隠れ領域の補完を混同しない。

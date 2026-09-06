@@ -14,6 +14,13 @@ pub const SETTING_KEYS: &[&str] = &[
     "ai.completion_mask_margin",
     "ai.completion_timeout_seconds",
     "ai.completion_fast_disk",
+    "ai.completion_hidden_prompt",
+    "ai.completion_side_prompt",
+    "ai.completion_hidden_band_ratio",
+    "ai.completion_hidden_motion_ratio",
+    "ai.completion_hair_edge_band_ratio",
+    "ai.completion_hair_edge_gain",
+    "ai.completion_ear_context",
     "ai.image_denoise",
     "ai.llm_model",
     "ai.mesh_model",
@@ -122,6 +129,13 @@ pub struct AiConfig {
     pub completion_mask_margin: f32,
     pub completion_timeout_seconds: u32,
     pub completion_fast_disk: bool,
+    pub completion_hidden_prompt: String,
+    pub completion_side_prompt: String,
+    pub completion_hidden_band_ratio: f32,
+    pub completion_hidden_motion_ratio: f32,
+    pub completion_hair_edge_band_ratio: f32,
+    pub completion_hair_edge_gain: f32,
+    pub completion_ear_context: f32,
     pub models_dir: String,
     pub llm_model: String,
     pub stt_model: String,
@@ -200,6 +214,13 @@ struct AiConfigFile {
     completion_mask_margin: Option<f32>,
     completion_timeout_seconds: Option<u32>,
     completion_fast_disk: Option<bool>,
+    completion_hidden_prompt: Option<String>,
+    completion_side_prompt: Option<String>,
+    completion_hidden_band_ratio: Option<f32>,
+    completion_hidden_motion_ratio: Option<f32>,
+    completion_hair_edge_band_ratio: Option<f32>,
+    completion_hair_edge_gain: Option<f32>,
+    completion_ear_context: Option<f32>,
     models_dir: Option<String>,
     llm_model: Option<String>,
     stt_model: Option<String>,
@@ -330,6 +351,13 @@ impl Default for AiConfig {
             completion_mask_margin: 0.2,
             completion_timeout_seconds: 14_400,
             completion_fast_disk: true,
+            completion_hidden_prompt: "Remove only the hair. Reconstruct the face, ears, neck and clothing that were hidden behind the hair. Preserve the exact existing facial features, expression, skin tone, clothing design, pose and rendering style. Keep a plain white background. Do not add objects or change the character identity.".into(),
+            completion_side_prompt: "Remove only the two side locks of hair that cover the cheeks and ears. Reveal and complete both ears and the cheek contours naturally underneath those side locks. Keep the face exactly the same size and position. Preserve the original eyes, mouth, nose, skin tone, facial expression, bangs, top hair, back hair, hair ornaments, neck, clothing and composition exactly. Maintain the original rendering style and shading. Do not make the character bald. Do not add objects.".into(),
+            completion_hidden_band_ratio: 0.08,
+            completion_hidden_motion_ratio: 0.35,
+            completion_hair_edge_band_ratio: 0.015,
+            completion_hair_edge_gain: 40.0,
+            completion_ear_context: 0.5,
             models_dir: "models".into(),
             llm_model: "qwen2.5-1.5b-instruct-q4_k_m.gguf".into(),
             stt_model: "ggml-small.bin".into(),
@@ -565,6 +593,39 @@ impl AppConfig {
         string_environment!("LVS_PIPELINE_OUTPUT_DIR", self.pipeline.output_dir);
         string_environment!("LVS_AI_MODELS_DIR", self.ai.models_dir);
         string_environment!("LVS_AI_COMPLETION_MODEL_DIR", self.ai.completion_model_dir);
+        string_environment!(
+            "LVS_AI_COMPLETION_HIDDEN_PROMPT",
+            self.ai.completion_hidden_prompt
+        );
+        string_environment!(
+            "LVS_AI_COMPLETION_SIDE_PROMPT",
+            self.ai.completion_side_prompt
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HIDDEN_BAND_RATIO",
+            self.ai.completion_hidden_band_ratio,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HIDDEN_MOTION_RATIO",
+            self.ai.completion_hidden_motion_ratio,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HAIR_EDGE_BAND_RATIO",
+            self.ai.completion_hair_edge_band_ratio,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HAIR_EDGE_GAIN",
+            self.ai.completion_hair_edge_gain,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_EAR_CONTEXT",
+            self.ai.completion_ear_context,
+            f32
+        );
         parse_environment!("LVS_AI_COMPLETION_STEPS", self.ai.completion_steps, u32);
         parse_environment!("LVS_AI_COMPLETION_SEED", self.ai.completion_seed, u32);
         parse_environment!(
@@ -685,6 +746,34 @@ impl AppConfig {
                 value.completion_model_dir,
             );
             apply_optional(&mut self.ai.completion_steps, value.completion_steps);
+            apply_optional(
+                &mut self.ai.completion_hidden_prompt,
+                value.completion_hidden_prompt,
+            );
+            apply_optional(
+                &mut self.ai.completion_side_prompt,
+                value.completion_side_prompt,
+            );
+            apply_optional(
+                &mut self.ai.completion_hidden_band_ratio,
+                value.completion_hidden_band_ratio,
+            );
+            apply_optional(
+                &mut self.ai.completion_hidden_motion_ratio,
+                value.completion_hidden_motion_ratio,
+            );
+            apply_optional(
+                &mut self.ai.completion_hair_edge_band_ratio,
+                value.completion_hair_edge_band_ratio,
+            );
+            apply_optional(
+                &mut self.ai.completion_hair_edge_gain,
+                value.completion_hair_edge_gain,
+            );
+            apply_optional(
+                &mut self.ai.completion_ear_context,
+                value.completion_ear_context,
+            );
             apply_optional(&mut self.ai.completion_seed, value.completion_seed);
             apply_optional(
                 &mut self.ai.completion_resolution,
@@ -819,11 +908,23 @@ impl AppConfig {
             || !(0.0..=0.5).contains(&self.ai.completion_mask_margin)
             || self.ai.completion_mask_margin == 0.0
             || self.ai.completion_timeout_seconds == 0
+            || !(0.0..=0.15).contains(&self.ai.completion_hidden_band_ratio)
+            || self.ai.completion_hidden_band_ratio == 0.0
+            || !(0.0..=0.4).contains(&self.ai.completion_hidden_motion_ratio)
+            || self.ai.completion_hidden_motion_ratio == 0.0
+            || !(0.0..=0.05).contains(&self.ai.completion_hair_edge_band_ratio)
+            || self.ai.completion_hair_edge_band_ratio == 0.0
+            || !(0.0..=255.0).contains(&self.ai.completion_hair_edge_gain)
+            || self.ai.completion_hair_edge_gain == 0.0
+            || !(0.0..=2.0).contains(&self.ai.completion_ear_context)
+            || self.ai.completion_ear_context == 0.0
         {
             return Err(ConfigError::Validation("AI/ComfyUI設定が範囲外です".into()));
         }
         if self.ai.models_dir.trim().is_empty()
             || self.ai.completion_model_dir.trim().is_empty()
+            || self.ai.completion_hidden_prompt.trim().is_empty()
+            || self.ai.completion_side_prompt.trim().is_empty()
             || self.ai.llm_model.trim().is_empty()
             || self.ai.stt_model.trim().is_empty()
             || self.ai.mesh_model.trim().is_empty()
@@ -1013,6 +1114,13 @@ mod tests {
             "LVS_AI_COMPLETION_MASK_MARGIN" => Some("0.3".into()),
             "LVS_AI_COMPLETION_TIMEOUT_SECONDS" => Some("7200".into()),
             "LVS_AI_COMPLETION_FAST_DISK" => Some("false".into()),
+            "LVS_AI_COMPLETION_HIDDEN_PROMPT" => Some("hidden test".into()),
+            "LVS_AI_COMPLETION_SIDE_PROMPT" => Some("side test".into()),
+            "LVS_AI_COMPLETION_HIDDEN_BAND_RATIO" => Some("0.1".into()),
+            "LVS_AI_COMPLETION_HIDDEN_MOTION_RATIO" => Some("0.2".into()),
+            "LVS_AI_COMPLETION_HAIR_EDGE_BAND_RATIO" => Some("0.02".into()),
+            "LVS_AI_COMPLETION_HAIR_EDGE_GAIN" => Some("30".into()),
+            "LVS_AI_COMPLETION_EAR_CONTEXT" => Some("0.6".into()),
             _ => None,
         };
         let loaded = AppConfig::load_with_environment(&path, environment).unwrap();
@@ -1023,6 +1131,13 @@ mod tests {
         assert_eq!(loaded.ai.completion_mask_margin, 0.3);
         assert_eq!(loaded.ai.completion_timeout_seconds, 7200);
         assert!(!loaded.ai.completion_fast_disk);
+        assert_eq!(loaded.ai.completion_hidden_prompt, "hidden test");
+        assert_eq!(loaded.ai.completion_side_prompt, "side test");
+        assert_eq!(loaded.ai.completion_hidden_band_ratio, 0.1);
+        assert_eq!(loaded.ai.completion_hidden_motion_ratio, 0.2);
+        assert_eq!(loaded.ai.completion_hair_edge_band_ratio, 0.02);
+        assert_eq!(loaded.ai.completion_hair_edge_gain, 30.0);
+        assert_eq!(loaded.ai.completion_ear_context, 0.6);
         let defaults = AppConfig::default();
         defaults.save(&path).unwrap();
         assert_eq!(
@@ -1060,6 +1175,14 @@ mod tests {
             ("completion_mask_margin", serde_json::json!(0)),
             ("completion_mask_margin", serde_json::json!(0.51)),
             ("completion_timeout_seconds", serde_json::json!(0)),
+            ("completion_hidden_prompt", serde_json::json!(" ")),
+            ("completion_side_prompt", serde_json::json!("")),
+            ("completion_hidden_band_ratio", serde_json::json!(0)),
+            ("completion_hidden_band_ratio", serde_json::json!(0.16)),
+            ("completion_hidden_motion_ratio", serde_json::json!(0.41)),
+            ("completion_hair_edge_band_ratio", serde_json::json!(0.06)),
+            ("completion_hair_edge_gain", serde_json::json!(256)),
+            ("completion_ear_context", serde_json::json!(2.1)),
         ] {
             let mut value = serde_json::to_value(AppConfig::default()).unwrap();
             value["ai"][key] = invalid;

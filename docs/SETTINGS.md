@@ -22,6 +22,13 @@
 | `ai.completion_mask_margin` | f32 | 0.2 | `LVS_AI_COMPLETION_MASK_MARGIN` | 0超〜0.5。検出領域の幅・高さに対する編集マスク余白の倍率 | 次回局所補完 |
 | `ai.completion_timeout_seconds` | u32 | 14400 | `LVS_AI_COMPLETION_TIMEOUT_SECONDS` | 1以上。局所補完の推論タイムアウト（秒） | 次回局所補完 |
 | `ai.completion_fast_disk` | bool | true | `LVS_AI_COMPLETION_FAST_DISK` | 高速ディスクへのモデル退避を利用。処理速度とメモリ使用量に影響 | 次回局所補完 |
+| `ai.completion_hidden_prompt` | string | 画風と既存形状の保持を指定する既定指示 | `LVS_AI_COMPLETION_HIDDEN_PROMPT` | 元の画風を維持して髪の下を補完する指示。空文字不可 | 次回局所補完 |
+| `ai.completion_side_prompt` | string | 画風と既存形状の保持を指定する既定指示 | `LVS_AI_COMPLETION_SIDE_PROMPT` | 顔の位置と画風を維持して横髪の下の耳を補完する指示。空文字不可 | 次回局所補完 |
+| `ai.completion_hidden_band_ratio` | f32 | 0.08 | `LVS_AI_COMPLETION_HIDDEN_BAND_RATIO` | 0超〜0.15。顔幅に対する隠れ顔の補完帯 | 次回局所補完 |
+| `ai.completion_hidden_motion_ratio` | f32 | 0.35 | `LVS_AI_COMPLETION_HIDDEN_MOTION_RATIO` | 0超〜0.4。補完帯内の髪の移動倍率 | 次回局所補完 |
+| `ai.completion_hair_edge_band_ratio` | f32 | 0.015 | `LVS_AI_COMPLETION_HAIR_EDGE_BAND_RATIO` | 0超〜0.05。顔幅に対する髪境界の再分類帯 | 次回局所補完 |
+| `ai.completion_hair_edge_gain` | f32 | 40.0 | `LVS_AI_COMPLETION_HAIR_EDGE_GAIN` | 0超〜255。横髪補完との明度差による境界候補の条件 | 次回局所補完 |
+| `ai.completion_ear_context` | f32 | 0.5 | `LVS_AI_COMPLETION_EAR_CONTEXT` | 0超〜2。耳候補の局所SAM解析の余白倍率 | 次回局所補完 |
 | `ai.image_denoise` | f32 | 0.65 | `LVS_AI_IMAGE_DENOISE` | 0〜1 | 次回生成 |
 | `ai.llm_model` | string | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | `LVS_AI_LLM_MODEL` | 空文字不可 | 次回会話 |
 | `ai.mesh_model` | string | `triposr` | `LVS_AI_MESH_MODEL` | 空文字不可 | 次回生成 |

@@ -686,6 +686,48 @@ impl PipelineContext {
         if config.ai.completion_fast_disk {
             args.push("--fast-disk".into());
         }
+        args.extend([
+            "--hidden-prompt".into(),
+            config.ai.completion_hidden_prompt.clone().into(),
+        ]);
+        args.extend([
+            "--side-prompt".into(),
+            config.ai.completion_side_prompt.clone().into(),
+        ]);
+        args.extend([
+            "--hidden-band-ratio".into(),
+            config.ai.completion_hidden_band_ratio.to_string().into(),
+        ]);
+        args.extend([
+            "--hidden-motion-ratio".into(),
+            config.ai.completion_hidden_motion_ratio.to_string().into(),
+        ]);
+        args.extend([
+            "--hair-edge-band-ratio".into(),
+            config.ai.completion_hair_edge_band_ratio.to_string().into(),
+        ]);
+        args.extend([
+            "--hair-edge-gain".into(),
+            config.ai.completion_hair_edge_gain.to_string().into(),
+        ]);
+        args.extend([
+            "--ear-context".into(),
+            config.ai.completion_ear_context.to_string().into(),
+        ]);
+        args.extend([
+            "--grounding-model".into(),
+            self.repository_root
+                .join(&config.ai.models_dir)
+                .join(&config.ai.grounding_model)
+                .into_os_string(),
+            "--sam-model".into(),
+            self.repository_root
+                .join(&config.ai.models_dir)
+                .join(&config.ai.sam2_model)
+                .into_os_string(),
+            "--grounding-threshold".into(),
+            config.ai.grounding_threshold.to_string().into(),
+        ]);
         self.run_sidecar(args, |value| {
             if let Some(app) = app {
                 let _ = app.emit("pipeline-progress", value);
@@ -694,7 +736,14 @@ impl PipelineContext {
                 println!("{value}");
             }
         })?;
-        Ok("Qwenの原寸局所閉眼補完を反映しました（見た目の最終確認は別途必要です）".into())
+        let completed: serde_json::Value =
+            serde_json::from_reader(std::fs::File::open(directory.join("rig2d/rig.json"))?)?;
+        let mut message = "Qwenの原寸閉眼・隠れ顔・耳補完を反映しました（素材充足と見た目の最終確認は別途必要です）".to_string();
+        if let Some(warning) = completed["local_completion"]["hidden"]["warning"].as_str() {
+            message.push_str(" 警告: ");
+            message.push_str(warning);
+        }
+        Ok(message)
     }
 
     fn run_capture(

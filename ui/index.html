@@ -53,6 +53,13 @@
             <label>編集マスク余白の倍率<input id="completion-mask_margin" type="number" min="0.01" max="0.5" step="0.01" /></label>
             <label>推論タイムアウト（秒）<input id="completion-timeout_seconds" type="number" min="1" max="4294967295" step="1" /></label>
             <label><input id="completion-fast_disk" type="checkbox" />高速ディスクへのモデル退避を利用</label>
+            <label>顔の隠れ補完帯（顔幅比）<input id="completion-hidden_band_ratio" type="number" min="0.01" max="0.15" step="0.01" /></label>
+            <label>補完帯内の髪移動倍率<input id="completion-hidden_motion_ratio" type="number" min="0.01" max="0.4" step="0.01" /></label>
+            <label>髪境界の再分類帯（顔幅比）<input id="completion-hair_edge_band_ratio" type="number" min="0.001" max="0.05" step="0.001" /></label>
+            <label>髪境界の色差<input id="completion-hair_edge_gain" type="number" min="1" max="255" step="1" /></label>
+            <label>耳解析の余白倍率<input id="completion-ear_context" type="number" min="0.1" max="2" step="0.1" /></label>
+            <label>隠れ顔の編集指示<textarea id="completion-hidden_prompt" rows="3"></textarea></label>
+            <label>横髪・耳の編集指示<textarea id="completion-side_prompt" rows="3"></textarea></label>
             <button id="save-completion" class="quiet">局所補完設定を保存（次回補完から反映）</button>
           </details>
           <div id="pipeline" class="pipeline"></div>

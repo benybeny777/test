@@ -25,11 +25,12 @@ from rig2d.texture import bleed_transparent_rgb
 from apply import apply_closed_eyes
 from materials import validate_masked_pixels
 from regions import eye_edit_mask, measured_head_region
+from hidden_bridge import prepare_hidden, apply_hidden, assert_hidden_sources
 
 spec = importlib.util.spec_from_file_location('completion_comfy_client', HERE.parent/'expression/generate.py')
 client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
-VERSION = 2
+VERSION = 3
 # 推論や入力準備の意味を変えた場合に上げる。抽出だけの変更ではGPUを再実行しない。
 IMAGE_GENERATION_VERSION = 2
 PROMPT = ('Close both eyes naturally, preserving the original character identity and original rendering style. '
@@ -182,7 +183,7 @@ def generate_image(args, run, workflow):
 
 
 def complete_locked(args):
-    for field in ('character', 'base_rig', 'output', 'comfy', 'models', 'workflow', 'overlay'):
+    for field in ('character', 'base_rig', 'output', 'comfy', 'models', 'workflow', 'overlay', 'grounding_model', 'sam_model'):
         setattr(args, field, getattr(args, field).resolve())
     base = args.base_rig.parent
     if args.output == base or args.output.is_relative_to(base) or base.is_relative_to(args.output):
@@ -191,6 +192,10 @@ def complete_locked(args):
         raise ValueError('完成出力はキャラクター内の専用ディレクトリに限定します')
     if args.output == args.character/'completion-source' or args.output.is_relative_to(args.character/'completion-source'):
         raise ValueError('補完画像キャッシュを完成リグ出力で上書きできません')
+    for name in ('completion-hidden-source','completion-side-source','completion-original-ears','completion-generated-ears','source','analysis','temp'):
+        protected = args.character/name
+        if args.output == protected or args.output.is_relative_to(protected) or protected.is_relative_to(args.output):
+            raise ValueError('原画・解析・補完キャッシュを完成出力で上書きできません')
     if args.port == 8188 or not 1024 <= args.port <= 65535:
         raise ValueError('管理専用ポートを指定してください')
     if (args.comfy/'extra_model_paths.yaml').exists():
@@ -199,6 +204,10 @@ def complete_locked(args):
         raise ValueError('補完の生成設定が範囲外です')
     if args.startup_timeout <= 0 or args.generation_timeout <= 0 or not args.prompt.strip():
         raise ValueError('補完の待機時間または編集指示が不正です')
+    if not args.hidden_prompt.strip() or not args.side_prompt.strip() or not 0 <= args.grounding_threshold <= 1 or not 0 < args.ear_context <= 2:
+        raise ValueError('隠れ素材の編集指示・耳解析設定が不正です')
+    if not 0 < args.hidden_band_ratio <= .15 or not 0 < args.hidden_motion_ratio <= .4 or not 0 < args.hair_edge_band_ratio <= .05 or not 0 < args.hair_edge_gain <= 255:
+        raise ValueError('隠れ素材の抽出設定が不正です')
     models = json.loads((HERE/'models.json').read_text(encoding='utf-8'))
     for item in models['files']:
         path = args.models/Path(item['path']).relative_to('split_files')
@@ -227,6 +236,7 @@ def complete_locked(args):
     l, t, r, b = bounds
     original = np.array(isolated.crop(bounds))
     with np.load(args.character/'analysis/masks.npz', allow_pickle=False) as masks:
+        all_masks = {name:masks[name].copy() for name in masks.files}
         mask = eye_edit_mask([masks[s+'_eye'][t:b, l:r] for s in ('left', 'right')],
                              masks['hair'][t:b, l:r], original[:, :, 3], args.mask_margin_ratio)
     run = args.character/'temp'/('completion-'+uuid.uuid4().hex)
@@ -244,6 +254,14 @@ def complete_locked(args):
     workflow['13']['inputs']['images'] = ['16', 0]
     inputs = tree_hashes(run/'input')
     generation_identity.update(inputs=inputs, source_region=list(bounds), resolved_workflow=workflow)
+    def guard():
+        if source_hashes(args.character) != source or tree_hashes(base) != baseline or tree_hashes(run/'input') != inputs:
+            raise ValueError('補完中に原画・解析・元リグ・編集入力が変更されました')
+        current = {p.name:digest(p) for p in HERE.glob('*.py') if not p.name.startswith('test_')}
+        if current != extraction_code:
+            raise ValueError('補完中に抽出コードが変更されました')
+    def emit(event, **details):
+        print(json.dumps({'event':event,**details},ensure_ascii=False),flush=True)
     cache = args.character/'completion-source'
     succeeded = False
     try:
@@ -262,12 +280,17 @@ def complete_locked(args):
             edited_path = cache/'edited.png'
         else:
             print(json.dumps({'event': 'completion_edit_cached', 'output': str(cache)}), flush=True)
+        prepared_hidden = prepare_hidden(args,white,bounds,source,generation_identity,guard,generate_image,emit,run/'input/input.png',all_masks)
         identity = {'version': VERSION, 'source': source, 'base': baseline, 'generation': generation_identity,
                     'edited_sha256': digest(edited_path),
+                    'hidden': prepared_hidden['identity'],
                     'code': extraction_code}
         if cache_valid(args.output, identity):
-            if source_hashes(args.character) != source or tree_hashes(base) != baseline:
-                raise ValueError('再利用の直前に原画・解析・元リグが変更されました')
+            assert_hidden_sources(args,prepared_hidden,guard)
+            cached_rig = json.loads((args.output/'rig.json').read_text(encoding='utf-8'))
+            warning = cached_rig.get('local_hidden_completion',{}).get('warning')
+            if warning:
+                emit('completion_warning',message=warning)
             print(json.dumps({'event': 'completion_cached', 'output': str(args.output)}), flush=True)
             succeeded = True
             return
@@ -275,6 +298,7 @@ def complete_locked(args):
             edited = np.array(opened.convert('RGBA'))
         validate_masked_pixels(edited, np.array(white), mask)
         materials, measurements = apply_closed_eyes(args.character, base, rig, edited, original, mask, bounds)
+        rig, materials, hidden_report = apply_hidden(args,rig,base,materials,isolated,all_masks,bounds,prepared_hidden,guard)
         if source_hashes(args.character) != source or tree_hashes(base) != baseline or tree_hashes(run/'input') != inputs:
             raise ValueError('補完中に原画・解析・リグ・編集入力が変更されました')
         with directory_output(args.output) as pending:
@@ -282,11 +306,12 @@ def complete_locked(args):
             for name, image in materials.items():
                 bleed_transparent_rgb(image).save(pending/f'parts/{name}.png')
             rig['local_completion'] = {'version': VERSION, 'model': 'Qwen-Image-Edit-2511', 'measurements': measurements}
+            rig['local_completion']['hidden'] = hidden_report
             (pending/'rig.json').write_text(json.dumps(rig, ensure_ascii=False, indent=2), encoding='utf-8')
             allowed = {'rig.json'} | {f'parts/{name}.png' for name in materials}
             outputs = tree_hashes(pending)
             if any(outputs.get(name) != sha for name, sha in baseline.items() if name not in allowed):
-                raise ValueError('閉眼以外の素材が変わりました')
+                raise ValueError('許可された補完素材以外が変わりました')
             record = {'identity': identity, 'outputs': outputs, 'edited_sha256': digest(edited_path), 'source_region': bounds}
             (pending/'completion.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
             if source_hashes(args.character) != source or tree_hashes(base) != baseline:
@@ -294,6 +319,9 @@ def complete_locked(args):
             current_code = {p.name: digest(p) for p in HERE.glob('*.py') if not p.name.startswith('test_')}
             if digest(edited_path) != identity['edited_sha256'] or current_code != extraction_code:
                 raise ValueError('完成公開の直前に補完画像または抽出コードが変更されました')
+            assert_hidden_sources(args,prepared_hidden,guard)
+        if hidden_report.get('warning'):
+            emit('completion_warning',message=hidden_report['warning'])
         print(json.dumps({'event': 'completion_complete', 'output': str(args.output)}), flush=True)
         succeeded = True
     except BaseException as error:
@@ -316,7 +344,7 @@ def complete(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('character', 'base-rig', 'output', 'comfy', 'models', 'workflow', 'overlay'):
+    for name in ('character', 'base-rig', 'output', 'comfy', 'models', 'workflow', 'overlay','grounding-model','sam-model'):
         parser.add_argument('--'+name, type=Path, required=True)
     for name, default in (('steps', 50), ('seed', 777), ('resolution', 1024), ('port', 58125),
                           ('startup-timeout', 600), ('generation-timeout', 14400)):
@@ -324,6 +352,10 @@ def main():
     parser.add_argument('--mask-margin-ratio', type=float, default=.2)
     parser.add_argument('--fast-disk', action='store_true')
     parser.add_argument('--prompt', default=PROMPT)
+    for name in ('hidden-prompt','side-prompt'):
+        parser.add_argument('--'+name,required=True)
+    for name in ('hidden-band-ratio','hidden-motion-ratio','hair-edge-band-ratio','hair-edge-gain','ear-context','grounding-threshold'):
+        parser.add_argument('--'+name,type=float,required=True)
     complete(parser.parse_args())
 
 

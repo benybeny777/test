@@ -65,6 +65,7 @@ async function load(){
     document.querySelector('#avatar').style.visibility='visible';
     const approval=fixtures.find(([id])=>id===select.value)?.[2] ?? '見た目: 未承認。動作の成立と品質の合格は別です。';
     status.textContent=`素材充足: ${rig.material_readiness?.status ?? '未検査'} ／ ${approval}`;
+    if(rig.local_completion?.hidden?.warning)status.textContent+='\n補完の未達: '+rig.local_completion.hidden.warning;
     if(rig.experimental_hidden)status.textContent+=rig.experimental_hidden.redraw_ear_contour?'\n耳輪郭の修正比較: 原画ファイルは保持し、可動モデルの耳・頬の境界を修正しています。既存むぎと切り替えて比較してください。':'\n補完比較: 中立の原画を保持。動作時は耳・頬の境界だけを補修します。補完表示のオン/オフで比較できます。';
     if(rig.experimental_closed_eyes)status.textContent+='\n閉眼素材の比較: 全開は原画の目を保持し、編集画像から測定した閉眼曲線へ連続して閉じます。目以外の編集結果は採用していません。';
   }catch(error){if(token===generation)status.textContent=error.message;}

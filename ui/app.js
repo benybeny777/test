@@ -79,6 +79,9 @@ async function refresh() {
     $("#completion-" + key).value = config.ai["completion_" + key];
   }
   $("#completion-fast_disk").checked = config.ai.completion_fast_disk;
+  for (const key of ["hidden_prompt", "side_prompt", "hidden_band_ratio", "hidden_motion_ratio", "hair_edge_band_ratio", "hair_edge_gain", "ear_context"]) {
+    $("#completion-" + key).value = config.ai["completion_" + key];
+  }
   characters = await invoke("list_characters");
   if (selected) {
     selected = characters.find((value) => value.characterId === selected.characterId);
@@ -347,6 +350,16 @@ $("#save-completion").addEventListener("click", () => action(async () => {
   if (!Number.isFinite(margin) || margin <= 0 || margin > .5) throw new Error("局所補完のマスク余白は0超〜0.5で指定してください");
   config.ai.completion_mask_margin = margin;
   config.ai.completion_fast_disk = $("#completion-fast_disk").checked;
+  for (const [key, max] of [["hidden_band_ratio", .15], ["hidden_motion_ratio", .4], ["hair_edge_band_ratio", .05], ["hair_edge_gain", 255], ["ear_context", 2]]) {
+    const value = Number($("#completion-" + key).value);
+    if (!Number.isFinite(value) || value <= 0 || value > max) throw new Error(`補完の${key}は0超〜${max}で指定してください`);
+    config.ai["completion_" + key] = value;
+  }
+  for (const key of ["hidden_prompt", "side_prompt"]) {
+    const value = $("#completion-" + key).value.trim();
+    if (!value) throw new Error("隠れ部分の編集指示を空にできません");
+    config.ai["completion_" + key] = value;
+  }
   await invoke("save_config", {config});
   log("局所補完設定を保存しました。再起動せず次回の局所補完から反映します。");
 }));
