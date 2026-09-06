@@ -1,4 +1,4 @@
-import {createAvatarRenderer} from './shared/avatar-renderer.js?v=rounded-lips9';
+import {createAvatarRenderer} from './shared/avatar-renderer.js?v=open-a10';
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
