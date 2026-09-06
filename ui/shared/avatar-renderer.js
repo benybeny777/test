@@ -4,6 +4,7 @@ import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=loc
 import {eyeAperture,drawBlink} from './eye-geometry.js?v=closed-curve2';
 import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from './native-scene-batch.js';
 import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=ear-repair1';
+import {createHairCoverage} from './hair-coverage.js';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
@@ -26,11 +27,12 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
   const scene=new THREE.Scene(),group=new THREE.Group();scene.add(group);
   const camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);camera.position.z=2;
   const faceCanvas=document.createElement('canvas'),ctx=faceCanvas.getContext('2d');
-  let rig,state={},images=new Map(),meshes=[],textures=[],batches=[],positions,worldUV,faceBatch,faceTexture,faceAlpha;
+  let rig,state={},images=new Map(),meshes=[],textures=[],batches=[],positions,worldUV,faceBatch,faceTexture,faceAlpha,hairCoverage;
   let revision=0,disposed=false,frame,nextBlink=Infinity,lastAppearance='';
   const resize=()=>renderer.setSize(Math.max(1,canvas.clientWidth),Math.max(1,canvas.clientHeight),false);
   const observer=new ResizeObserver(resize);observer.observe(canvas);resize();
   function release(){
+    hairCoverage?.dispose();hairCoverage=null;
     for(const mesh of meshes){group.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
     for(const texture of textures)texture.dispose();
     for(const batch of batches)batch.dispose();
@@ -96,6 +98,12 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
         material.customProgramCacheKey=()=> 'lvs-independent-crop-v1';
         const mesh=new THREE.Mesh(geometry,material);mesh.userData.role=plan.separate?part.role:'batch';mesh.renderOrder=index;mesh.frustumCulled=false;group.add(mesh);meshes.push(mesh);
       }
+      if(rig.hidden_motion){
+        const hair=meshes.find(mesh=>mesh.userData.role==='hair'),hidden=meshes.find(mesh=>mesh.userData.role==='hidden_face');
+        const part=graph.find(part=>part.role==='hair');
+        if(!hair||!hidden||!part)throw new Error('髪の露出補完に必要な独立部位がありません');
+        hairCoverage=createHairCoverage(renderer,hair,hidden,positions,images.get(part.layer));
+      }
       }
       catch(error){release();throw error;}
       finally{template.dispose();}
@@ -151,12 +159,14 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
         positions.setXYZ(i,x-w/2+dx,h/2-y-dy,0);
       }
       positions.needsUpdate=true;
+      let independentHairMoved=false;
       for(const mesh of meshes){
         if(mesh.userData.role==='hidden_face')mesh.visible=state.showHiddenMaterial!==false;
         if(rig.hidden_motion&&mesh.userData.role==='hair'){
           const hairPositions=mesh.geometry.attributes.position;
           for(let i=0;i<positions.count;i++){
             const [dx,dy]=hiddenOffset(rig.hidden_motion,i,state.yaw??0,state.pitch??0);
+            independentHairMoved ||= dx!==0||dy!==0;
             hairPositions.setXYZ(i,positions.getX(i)+dx,positions.getY(i)-dy,0);
           }
           hairPositions.needsUpdate=true;
@@ -165,6 +175,7 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
       const cw=Math.max(1,canvas.clientWidth),ch=Math.max(1,canvas.clientHeight);
       camera.left=-cw/2;camera.right=cw/2;camera.top=ch/2;camera.bottom=-ch/2;camera.updateProjectionMatrix();
       group.scale.setScalar(Math.min(cw/w,ch/h)*(state.scale??1));group.position.set(state.offsetX??0,-(state.offsetY??0),0);
+      hairCoverage?.render(camera,independentHairMoved);
       renderer.render(scene,camera);
     }
     }catch(error){
