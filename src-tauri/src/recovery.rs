@@ -1,7 +1,7 @@
 //! 最終リグの切替中断を復旧する。未完成pendingの採用や工程状態の変更はしない。
 use std::{fs, io, path::Path};
 
-fn plain(path: &Path) -> io::Result<()> {
+pub(crate) fn plain(path: &Path) -> io::Result<()> {
     for ancestor in path.ancestors() {
         let metadata = fs::symlink_metadata(ancestor)?;
         let mut linked = metadata.file_type().is_symlink();
@@ -18,7 +18,7 @@ fn plain(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn lock_byte(path: &Path) -> io::Result<fs::File> {
+pub(crate) fn lock_byte(path: &Path) -> io::Result<fs::File> {
     use std::{
         io::{Seek, SeekFrom, Write},
         os::windows::io::AsRawHandle,
@@ -52,7 +52,7 @@ fn lock_byte(path: &Path) -> io::Result<fs::File> {
 }
 
 #[cfg(not(windows))]
-fn lock_byte(_path: &Path) -> io::Result<fs::File> {
+pub(crate) fn lock_byte(_path: &Path) -> io::Result<fs::File> {
     Err(io::Error::other("この環境の起動復旧ロックは未対応です"))
 }
 
@@ -98,7 +98,9 @@ pub fn recover_final_rigs(root: &Path) -> Vec<String> {
                     .all(|v| v.is_ascii_lowercase() || v.is_ascii_digit() || v == b'_')
             {
                 let path = entry.path();
-                if path.join("temp/rig2d-previous").exists() {
+                if path.join("temp/rig2d-previous").exists()
+                    || crate::generation_reference::present(&path)?
+                {
                     candidates.push(path);
                 }
             }
@@ -114,6 +116,15 @@ pub fn recover_final_rigs(root: &Path) -> Vec<String> {
         let _generation = lock_byte(&workspace.join("completion-gpu.lock"))?;
         let mut messages = Vec::new();
         for path in candidates {
+            if crate::generation_reference::present(&path)? {
+                if let Err(error) = crate::generation_reference::collect(&path) {
+                    messages.push(format!(
+                        "{}: 公開世代の回収を見送りました: {error}",
+                        path.display()
+                    ));
+                }
+                continue;
+            }
             match restore(&path) {
                 Ok(true)=>messages.push(format!("{}: 切替中断の旧リグを復旧しました。工程状態は変更していないため、必要なら局所補完を再実行してください",path.display())),
                 Ok(false)=>{},

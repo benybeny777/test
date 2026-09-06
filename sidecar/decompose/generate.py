@@ -466,7 +466,10 @@ def _decompose_image(
         from scene import visible_scene,SCENE_ORDER,PARENTS
         face_support=parts['left_eye_base'] | parts['right_eye_base'] | parts['mouth_open']
         # 検出用の強い前景と描画用の半透明輪郭を区別し、薄い原画画素も一度だけ残す。
-        owners,visible=visible_scene(rgba[:,:,3]>0,masks,face_support,rgba[:,:,3]==255)
+        optional_report={}
+        owners,visible=visible_scene(rgba[:,:,3]>0,masks,face_support,rgba[:,:,3]==255,optional_report)
+        analysis.setdefault('optional_limbs',{})['ownership']=optional_report
+        (output_dir/'analysis.json').write_text(json.dumps(analysis,ensure_ascii=False,indent=2),encoding='utf-8')
         for index,role in enumerate(SCENE_ORDER):
             if role not in visible:continue
             name='scene_'+role
@@ -475,7 +478,8 @@ def _decompose_image(
             scene_graph.append({'layer':name,'role':role,'parent':PARENTS[role],
                                 'source_region':list(_bbox(owners[role])),
                                 'owned_pixels':int(owners[role].sum()),
-                                'hidden_regions':'unfilled','status':'unverified'})
+                                'hidden_regions':'unfilled','status':'unverified',
+                                'motion':'inherit_parent_arm' if role.endswith(('_sleeve','_hand')) else 'shared'})
         specs.extend(PartSpec(side+'_eye_'+kind,z,(.5,.5)) for side in ('left','right')
                      for kind,z in [('remainder',60),('iris',61),('backplate',59)])
     for spec in specs:
@@ -536,6 +540,7 @@ def _decompose_image(
         "parts": manifest_parts,
         "features": features,
         "scene_graph": scene_graph,
+        "material_status": {"optional_limbs": analysis.get('optional_limbs',{})} if grounded_result is not None else {},
     }
     from materials import assess_materials
     manifest["material_readiness"] = assess_materials(manifest_parts)

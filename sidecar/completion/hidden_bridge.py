@@ -1,5 +1,6 @@
 """通常補完の耳解析・隠れ素材生成・リグ組立を接続する。"""
 import json
+from io import BytesIO
 from pathlib import Path
 import numpy as np
 from PIL import Image
@@ -65,6 +66,7 @@ def prepare_hidden(args, white, region, source, generation, guard, infer, emit, 
     workflow = json.loads(args.workflow.read_text(encoding='utf-8'))
     results = hidden_edits(args,white.convert('RGB'),source,region,generation['models'],runtime,
                           workflow,guard,infer_serial,ensure_stopped,emit,edit_masks)
+    assert_result_sources(results,guard)
     generated = ear_analysis(args.character/'completion-generated-ears',results['side-ears'][0],False,
                              parser,segment,ensure_stopped,guard)
     # 片側だけの測定で反対側の旧輪郭まで消さない。raw左右マスクは独立保存済み。
@@ -73,11 +75,12 @@ def prepare_hidden(args, white, region, source, generation, guard, infer, emit, 
             'reports':{'generated':generated[1],'source':original[1]}}
     assert_result_sources(results,guard)
     images = {}
-    for job, (path, _) in results.items():
-        with Image.open(path) as image:
+    for job, (_, _, lease) in results.items():
+        with Image.open(BytesIO(lease.image_bytes())) as image:
             images[job] = np.array(image.convert('RGBA'))
     return {'results': results, 'images': images, 'ears': ears,
-            'identity': {'generations': {job: record for job, (_, record) in results.items()},
+            'identity': {'generations': {job: record for job, (_, record, _) in results.items()},
+                         'raw_origins':{job:lease.origin() for job,(_,_,lease) in results.items()},
                          'ears': ears['reports'],
                          'settings': {name: getattr(args, name) for name in
                                       ('hidden_band_ratio', 'hidden_motion_ratio', 'hair_edge_band_ratio', 'hair_edge_gain')}}}

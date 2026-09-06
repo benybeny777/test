@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+from io import BytesIO
 from pathlib import Path
 import shutil
 import uuid
@@ -9,6 +10,7 @@ import numpy as np
 from PIL import Image
 from output_transaction import directory_output
 from hidden_jobs import JOBS, generation_identity
+from raw_reuse import open_raw,pin_generated
 
 
 def digest(path):
@@ -17,19 +19,13 @@ def digest(path):
 
 
 def read_edit(cache, identity, size):
-    marker = cache/'manifest.json'
-    if not marker.is_file():
-        return None
-    record = json.loads(marker.read_text(encoding='utf-8'))
-    if record['identity'] != identity:
-        return None
-    image = cache/'edited.png'
-    if image.is_symlink() or not image.is_file() or digest(image) != record['image_sha256']:
-        raise ValueError('追加補完キャッシュのSHA不一致または欠落です')
-    with Image.open(image) as opened:
+    lease=open_raw(cache,identity,identity['job'])
+    if lease is None:return None
+    record=json.loads(lease.manifest_bytes)
+    with Image.open(BytesIO(lease.image_bytes())) as opened:
         if opened.size != size:
             raise ValueError('追加補完キャッシュの原寸が不一致です')
-    return image, record
+    return lease.image,record,lease
 
 
 def hidden_edits(args, prepared, source, region, model_identity, runtime_identity, workflow_template,
@@ -81,13 +77,15 @@ def hidden_edits(args, prepared, source, region, model_identity, runtime_identit
                     record = {'identity': identity, 'image_sha256': digest(pending/'edited.png'),
                               'status': 'generated', 'quality': 'unverified'}
                     (pending/'manifest.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
+                    manifest_bytes=(pending/'manifest.json').read_bytes()
                     guard()
                     if digest(work/'input/input.png') != input_sha or digest(work/'input/hidden-mask.png') != mask_sha:
                         raise ValueError('追加補完の公開前に原寸入力が変更されました')
-                existing = cache/'edited.png', record
+                lease=pin_generated(cache,manifest_bytes,identity,job)
+                existing = lease.image,record,lease
             else:
                 emit('hidden_generation_cached', job=job)
-                with Image.open(existing[0]) as opened:
+                with Image.open(BytesIO(existing[2].image_bytes())) as opened:
                     validate_hidden_edit(opened,prepared,mask)
             results[job] = existing
         guard(); succeeded = True
@@ -154,6 +152,5 @@ def ear_analysis(cache, image, source_reference, parser_identity, segment, asser
 def assert_result_sources(results, guard):
     """組立直前と完成リグ公開直前に呼び、元画像と2生成画像の置換を拒否する。"""
     guard()
-    for image, record in results.values():
-        if digest(image) != record['image_sha256']:
-            raise ValueError('組立中に補完画像が変更されました')
+    for _, _, lease in results.values():
+        lease.recheck()

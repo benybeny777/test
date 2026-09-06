@@ -2,11 +2,11 @@
 
 ## 通常の局所補完
 
-Windowsアプリ起動時はRustだけで最終`rig2d`の切替中断を検査する。集合の`temp/completion-gpu.lock`とキャラの`temp/rig2d.lock`をPythonと互換のbyte0非待機ロックで取り、`rig2d`不在時に限り`temp/rig2d-previous`を戻す。稼働中の補完・公開があれば操作せず画面へ警告する。`pending`の採用・旧版の削除・工程状態の書換えはせず、未完了／失敗状態はそのまま残す。起動のたびにPythonや推論環境を起動しない。確認用サーバーは読み取り専用のままで、自動復旧は行わない。
+通常完成リグは`rig-generations/g_<ID>/`へ同期し、`rig-current.json`だけを原子的に置換する。読者はWindows OSロック付きleaseで1世代を保持する。current・previous（直前1世代）・生存読者の世代を残し、不要世代と終了leaseを回収する。Windows起動時もRustだけで参照と回収を処理し、Pythonを無条件起動しない。旧参照がないlegacy形式に限り、Python互換の集合/キャラbyte0排他を取得して欠落したrig2dを退避版から復旧する。別プロセス稼働中は警告し、pendingの昇格や工程状態の変更をしない。全工程の起動時復旧ではない。旧比較`rig2d/`は移動・削除しない。
 
-ブラウザ確認は候補のJSONとPNGを読み終え、世代を再照合してから表示を切り替える。読込や照合に失敗した場合は表示中の旧キャラを保持し、選択名・URLも旧キャラへ戻して警告する。WebGL構築そのものの失敗やコンテキスト消失まで旧描画を復旧する機能ではない。ディスクの原子的公開世代参照は未実装であり、起動復旧だけを無停止切替の保証としない。
+ブラウザ確認は固定世代のNDJSON snapshotを逐次受信し、素材SHA・PNG/RGBA・原寸・URL・終了レコードを検証してBlob URLを共通レンダラーへ渡す。配信中断ではleaseと未採用Blobを解放し、旧表示・選択名を保持する。既定上限はレコード0.096 MB、チャンク0.048 MB、1素材32 MB、合計256 MB、256素材、辺長8192px。`display.snapshot_*`の保存値を読み、上限超過を縮小で通さない。サーバーの全体応答bufferを避けるが、ブラウザのBlob・デコード・WebGLメモリは別に必要で、全体の省メモリ実測は未完了。WebGL構築失敗・コンテキスト消失からの復旧までは保証しない。
 
-補完版3は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。追加編集も原寸髪マスク（横髪/耳は測定原画耳を加える）と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。両側の原画耳が測れない場合は可視輪郭の描き直しを抑止し、partialと画面の警告を残す。生成耳が両側測れなければ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
+最終補完版4は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。追加編集はマスク版2のscene髪所有・閉領域・限定境界（横髪/耳は測定原画耳を加える）と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。両側の原画耳が測れない場合は可視輪郭の描き直しを抑止し、partialと画面の警告を残す。生成耳が両側測れなければ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
 
 作業用の`tools/capture-character-gallery.mjs <characterId> <temp内の出力先>`は起動済み8791の共通確認画面をChromeで撮影する。Node/Playwrightは開発作業用だけで製品依存ではない。既存Playwrightを使う場合は`LVS_PLAYWRIGHT_MODULE`へその`index.mjs`を指定する。中立・左右閉眼・母音・小角度・連続動作と撮影ハッシュを保存し、撮影用Chromeを終了する。ハッシュ差を品質合格と扱わず実画像を目視する。
 
@@ -19,7 +19,7 @@ ffmpeg -n -i temp/character-video-test/motion.webm -vf "fps=12,scale='min(480,iw
 
 GIFはスマホ向けの動作確認用に縮小するだけで、原画・最終素材に戻さない。色数や透過表現は元のWebMと異なり、静止画の原寸品質検査を代替しない。
 
-現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の局所閉眼を適用した最終リグを`rig2d/`へ分離する。口は現状承認済みで、この工程から描き直さない。PicoAgent本体への組み込み、OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。
+現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の閉眼・隠れ顔・耳を適用した最終リグを`rig-generations/`へ分離し、`rig-current.json`で公開する。口は現状承認済みで、この工程から描き直さない。PicoAgent本体への組み込み、OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。
 
 ```powershell
 cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>
@@ -33,13 +33,17 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> co
 
 設定画面の「Qwen局所補完の設定」から保存し、次回の補完で読む。全キー・範囲・既定値は[SETTINGS.md](SETTINGS.md)を正本とする。原寸頭部ROIの目マスクだけを編集し、拡大素材を採用しない。このPCの比較実測では閉眼1体約15〜18分、RSS最大約16.3 GB・GPU全体最大約7.6 GB。通常入口の実走・全キャラ品質の証明とは分ける。
 
-`completion-source/{edited.png,manifest.json}`へ原寸の局所編集画像と生成署名を保存し、素材抽出とは分離する。生成署名は原画・解析・実入力PNG/マスク・ROI・固定モデル・ComfyUIコード・依存版・確定ワークフロー・推論条件と`IMAGE_GENERATION_VERSION`を含む。入力準備や推論の意味を変えたらこの版を上げる。抽出コードだけの変更や抽出失敗後の再試行ではGPU生成結果を再利用する。画像のSHAとマスク外保持を再検査し、改変・欠損は明示失敗にする。
+`completion-source/{edited.png,manifest.json}`と隠れ顔/耳の2rawは、生成署名と抽出署名を分離する。閉眼生成版3・隠れマスク版2を維持する。実入力PNG/マスク・原寸ROI・原画2SHA・モデル・ComfyUIコード/依存版・確定workflow・全条件が厳密一致すれば、解析2SHAだけの変更では再推論しない。元raw manifest全バイトと実生成時source4SHAを保持し、今回のsource4SHAと別に完成証跡へ記録する。RawLeaseが画像とmanifestの取得時SHAを固定し、後工程後・読込時・公開直前に再照合する。原画/解析/基底/コードの実行中変更は拒否する。既知eye1/2・隠れmask1は完全性検査後に新版不一致として再生成、未知版/破損は明示失敗。実入力準備や推論の意味を変えた場合だけ生成版を上げる。
 
-`rig2d/completion.json`には生成署名・生成画像SHA・基底リグ・抽出コードと完成素材SHAを記録する。生成中の入力変更を公開前に拒否し、許可された閉眼素材以外を変更しない。失敗時は旧完成出力を保持して理由を画面に出す。抽出失敗でも成功済み生成画像は保存する。成功後に処理専用一時ディレクトリを除去し、失敗時は`character/temp/`に診断を残す。
+公開世代の`completion.json`には最終版4の現在source4SHA・基底・元rawの出自/画像SHA・抽出コード・完成素材SHAを記録する。公開前SHA検査を外さない。成功後は処理専用一時ディレクトリを除去し、失敗時は診断と成功済みrawを保持する。partialは`rig.local_completion.hidden.warning`へ保存し、最終cache再利用時も画面へ警告する。初回移行で旧mutable rig2dを新方式の完成cacheとして採用せず、検証済みrawから抽出して世代公開する。
+
+閉眼抽出では主曲線を変えず、測定列厚さ内にある薄い/分離した睫毛片を下地から除く。原寸・許可域外・アルファ・白目を保持し、空線/非有限/参照肌不足は明示エラーにする。むぎの原寸抽出候補はChrome半閉眼/全閉眼を確認したが、通常再生成後と別原画の目視は別の受入条件である。
 
 WindowsのPythonサイドカーは停止状態で起動し、所有するJob Objectへ所属させてから再開する。Jobのkill-on-closeにより正常終了・中断・Drop・不正JSON時にComfyUIを含む子孫も回収する。起動からJob所属までの極短区間にアプリをOS強制終了すると、停止中Pythonだけが残る可能性はある（GPU初期化前）。既存利用者プロセスを名前で一括終了しない。
 
-本体プレビューは同一アプリ内の生成ロックに加え、全素材取得前後で最終工程・完了状態・更新時刻を照合する。別プロセスの正規pipeline-probeで更新された場合も混在素材を表示へ返さない。character.jsonを更新しない直接sidecar実行にはこの保証がないため、診断は別出力へ限定し、正規出力更新にはPipelineContextを使う。
+本体の通常プレビューも公開参照と読者leaseから固定世代を取得し、SHA・素材寸法・容量を検査する。生成中/失敗後でも公開済み世代を読めるが、未公開の失敗出力を許可しない。旧比較形式は従来の状態照合を残す。正規生成はPipelineContext経由とし、手作業で世代ディレクトリやrig-currentを改変しない。
+
+袖・手の可視分割は解析署名版3。`--resume <characterId> decompose`で同じDINO/SAMの追加問い合わせと選別を実行し、analysis/manifestのoptional_limbs状態を確認する。左右同側の腕から可視所有だけを移管し、曖昧候補は記録して採用しない。scene素材は親腕の変位を継承し、独立関節/隠れ素材の完成とは扱わない。解析2SHAが変わっても3rawの実入力が同一なら再利用できる。
 
 本体の素材読込はリグの`layers`を正本にし、追加した隠れ顔・耳素材も取り込む。必須素材の欠落、安全でない識別子、正規形式以外のURL、リンク/reparse経路は拒否する。URLを外部取得先として使わず、キャラ配下のPNGだけを読む。実symlink検査は作成特権が必要なため、このWindows環境では未検証（特権不足による明示ignore）。
 

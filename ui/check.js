@@ -1,3 +1,4 @@
+import {consumeSnapshot} from './shared/snapshot-client.js';
 import {createAvatarRenderer} from './shared/avatar-renderer.js?v=native-batch12';
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
@@ -15,6 +16,7 @@ const renderer=createAvatarRenderer(document.querySelector('#avatar'),{onError:e
   stopDemo();stopMotion();document.querySelector('#avatar').style.visibility='hidden';
   status.textContent='描画に失敗しました。キャラを選び直してください: '+error.message;
 }});
+let currentSnapshot=null,loadAbort=null;
 let state={},generation=0,currentRig,faceView=false,displayedCharacter=null;
 let demoFrame=0,demoStarted=0;
 let motionFrame=0;
@@ -38,6 +40,8 @@ async function load(){
   stopMotion();
   stopDemo();
   mouthShape.value='';
+  loadAbort?.abort();loadAbort=new AbortController();
+  const signal=loadAbort.signal;let candidateSnapshot=null;
   const token=++generation;status.textContent='読込中';
   renderer.cancelPending?.();
   const requested=select.value;
@@ -46,17 +50,23 @@ async function load(){
   try {
     if(!fixtures.some(([id])=>id===select.value))throw new Error('指定されたキャラは確認一覧にありません。キャラを選び直してください');
     const base=`../temp/t7-characters/${encodeURIComponent(requested)}/`;
-    const character=await loadLocalJson(base+'character.json?read='+Date.now());
-    const finalStage=character.model?.rig2d_base?character.stages?.complete:character.stages?.rig2d;
-    if(finalStage?.status!=='complete')throw new Error('このキャラのリグ生成・局所補完は未完了です');
-    const version=encodeURIComponent(finalStage.updatedAtIso);
-    const rigUrl=base+'rig2d/rig.json?v='+version;const rig=await loadLocalJson(rigUrl);
+    const limits=await loadLocalJson('/api/snapshot-config',{cache:'no-store'});
+    const snapshotResponse=await fetch('/api/characters/'+encodeURIComponent(requested)+'/snapshot',{cache:'no-store',signal,redirect:'error'});
+    if(snapshotResponse.status!==404){
+      candidateSnapshot=await consumeSnapshot(snapshotResponse,limits,{signal});
+    }else await snapshotResponse.body?.cancel();
+    const character=candidateSnapshot?null:await loadLocalJson(base+'character.json?read='+Date.now());
+    const finalStage=character?.model?.rig2d_base?character.stages?.complete:character?.stages?.rig2d;
+    if(!candidateSnapshot&&finalStage?.status!=='complete')throw new Error('このキャラのリグ生成・局所補完は未完了です');
+    const version=encodeURIComponent(candidateSnapshot?.generation??finalStage.updatedAtIso);
+    const rigUrl=candidateSnapshot?.rigUrl??base+'rig2d/rig.json?v='+version;const rig=candidateSnapshot?.rig??await loadLocalJson(rigUrl);
     if(token!==generation)return;
     const candidate={rigUrl,showHiddenMaterial:document.querySelector('#hidden-material').checked,
       mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,roll:0,armInset:0,armPose:{},idleSwayDegrees:0,
-      partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};
+      partUrls:candidateSnapshot?.partUrls??Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};
     const loaded=await renderer.applyState(candidate,{beforeCommit:async()=>{
       if(token!==generation)return false;
+      if(candidateSnapshot)return true;
       const latest=await loadLocalJson(base+'character.json',{cache:'no-store'});
       if(token!==generation)return false;
       const latestStage=latest.model?.rig2d_base?latest.stages?.complete:latest.stages?.rig2d;
@@ -65,6 +75,7 @@ async function load(){
       return true;
     }});
     if(loaded===false||token!==generation)return;
+    currentSnapshot?.dispose();currentSnapshot=candidateSnapshot;candidateSnapshot=null;
     currentRig=rig;state=candidate;displayedCharacter=requested;faceView=false;
     for(const [key,input] of inputs)input.value=state[key];
     document.querySelector('#source').style.transform='';document.querySelector('#source').src=base+'source/input.png';
@@ -82,7 +93,7 @@ async function load(){
       status.textContent=error.message+'\n表示は前回の「'+fixtures.find(([id])=>id===displayedCharacter)[1]+'」を保持しています。';
     }else status.textContent=error.message;
   }}
-  finally{if(token===generation)document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=false);}
+  finally{candidateSnapshot?.dispose();if(token===generation)document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=false);}
 }
 select.addEventListener('change',()=>{
   const url=new URL(location.href);url.searchParams.set('character',select.value);history.replaceState(null,'',url);load();
@@ -134,7 +145,7 @@ function focusFace(){
 }
 document.querySelector('#face').addEventListener('click',()=>{faceView=!faceView;focusFace();});
 addEventListener('resize',focusFace);
-addEventListener('beforeunload',()=>{stopDemo();stopMotion();++generation;renderer.dispose();},{once:true});
+addEventListener('beforeunload',()=>{stopDemo();stopMotion();++generation;loadAbort?.abort();renderer.dispose();currentSnapshot?.dispose();},{once:true});
 async function initialize(){
  try {
   const normal=await loadLocalJson('/api/normal-characters');

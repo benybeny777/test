@@ -49,7 +49,7 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
     parts = {}
     for part in manifest.get("parts", []):
         name = part.get("name")
-        if name not in REQUIRED_PARTS | {"neck", "collar", "scene_residual", "scene_collar"} or name in parts:
+        if name not in REQUIRED_PARTS | {"neck", "collar", "scene_residual", "scene_collar", "scene_left_sleeve", "scene_right_sleeve", "scene_left_hand", "scene_right_hand"} or name in parts:
             raise ValueError(f"部位名が不正または重複しています: {name}")
         parts[name] = part
     missing = sorted(REQUIRED_PARTS - parts.keys())
@@ -132,6 +132,8 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
         while current is not None:
             if current in seen:raise ValueError('独立部位の親子関係が循環しています')
             seen.add(current);current=parents[current]
+    from decompose.optional_limbs import validate_graph
+    validate_graph(parts,graph)
     return parts
 
 
@@ -167,6 +169,7 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
         "eye_rig_version": 3,
         "scene_graph_version": 1,
         "scene_graph": manifest.get('scene_graph',[]),
+        "material_status": manifest.get('material_status',{}),
         "profile": "lvs-anime25d-v1",
         "material_readiness": manifest.get("material_readiness", {
             "status": "incomplete", "note": "素材分割の充足が未検証です"}),

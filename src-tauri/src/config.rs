@@ -44,6 +44,12 @@ pub const SETTING_KEYS: &[&str] = &[
     "comfy.startup_timeout_seconds",
     "comfy.unload_before_mesh",
     "comfy.workflow_dir",
+    "display.snapshot_record_bytes",
+    "display.snapshot_chunk_bytes",
+    "display.snapshot_part_bytes",
+    "display.snapshot_total_bytes",
+    "display.snapshot_parts",
+    "display.snapshot_dimension",
     "display.language",
     "display.preview_fps",
     "display.preview_scale",
@@ -185,6 +191,12 @@ pub struct AvatarConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct DisplayConfig {
+    pub snapshot_record_bytes: u32,
+    pub snapshot_chunk_bytes: u32,
+    pub snapshot_part_bytes: u32,
+    pub snapshot_total_bytes: u32,
+    pub snapshot_parts: u32,
+    pub snapshot_dimension: u32,
     pub preview_fps: u32,
     pub preview_scale: f32,
     pub language: String,
@@ -253,6 +265,12 @@ struct AvatarConfigFile {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct DisplayConfigFile {
+    snapshot_record_bytes: Option<u32>,
+    snapshot_chunk_bytes: Option<u32>,
+    snapshot_part_bytes: Option<u32>,
+    snapshot_total_bytes: Option<u32>,
+    snapshot_parts: Option<u32>,
+    snapshot_dimension: Option<u32>,
     preview_fps: Option<u32>,
     preview_scale: Option<f32>,
     language: Option<String>,
@@ -307,6 +325,12 @@ struct VadConfigFile {
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
+            snapshot_record_bytes: 96000,
+            snapshot_chunk_bytes: 48000,
+            snapshot_part_bytes: 32000000,
+            snapshot_total_bytes: 256000000,
+            snapshot_parts: 256,
+            snapshot_dimension: 8192,
             preview_fps: 30,
             preview_scale: 0.5,
             language: "ja".to_owned(),
@@ -545,6 +569,36 @@ impl AppConfig {
                 }
             };
         }
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_RECORD_BYTES",
+            self.display.snapshot_record_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_CHUNK_BYTES",
+            self.display.snapshot_chunk_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_PART_BYTES",
+            self.display.snapshot_part_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_TOTAL_BYTES",
+            self.display.snapshot_total_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_PARTS",
+            self.display.snapshot_parts,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_DIMENSION",
+            self.display.snapshot_dimension,
+            u32
+        );
         parse_environment!("LVS_AVATAR_CROSSFADE_MS", self.avatar.crossfade_ms, u32);
         parse_environment!("LVS_AVATAR_BLINK_MIN_MS", self.avatar.blink_min_ms, u32);
         parse_environment!("LVS_AVATAR_BLINK_MAX_MS", self.avatar.blink_max_ms, u32);
@@ -841,6 +895,24 @@ impl AppConfig {
             self.comfy = value;
         }
         if let Some(display) = file.display {
+            if let Some(value) = display.snapshot_record_bytes {
+                self.display.snapshot_record_bytes = value;
+            }
+            if let Some(value) = display.snapshot_chunk_bytes {
+                self.display.snapshot_chunk_bytes = value;
+            }
+            if let Some(value) = display.snapshot_part_bytes {
+                self.display.snapshot_part_bytes = value;
+            }
+            if let Some(value) = display.snapshot_total_bytes {
+                self.display.snapshot_total_bytes = value;
+            }
+            if let Some(value) = display.snapshot_parts {
+                self.display.snapshot_parts = value;
+            }
+            if let Some(value) = display.snapshot_dimension {
+                self.display.snapshot_dimension = value;
+            }
             if let Some(value) = display.preview_fps {
                 self.display.preview_fps = value;
             }
@@ -969,6 +1041,22 @@ impl AppConfig {
         {
             return Err(ConfigError::Validation("avatar設定が範囲外です".into()));
         }
+        let d = &self.display;
+        if [
+            d.snapshot_record_bytes,
+            d.snapshot_chunk_bytes,
+            d.snapshot_part_bytes,
+            d.snapshot_total_bytes,
+            d.snapshot_parts,
+            d.snapshot_dimension,
+        ]
+        .contains(&0)
+            || u64::from(d.snapshot_chunk_bytes).div_ceil(3) * 4 + 512
+                > u64::from(d.snapshot_record_bytes)
+            || d.snapshot_part_bytes > d.snapshot_total_bytes
+        {
+            return Err(ConfigError::Validation("公開素材の配信上限が不正です。正数で、素材上限≤総量、base64チャンク＋ヘッダ≤JSONレコード上限にしてください".into()));
+        }
         if !(1..=240).contains(&self.display.preview_fps) {
             return Err(ConfigError::Validation(
                 "display.preview_fps は 1〜240 の範囲で指定してください".into(),
@@ -1034,6 +1122,33 @@ fn backup_corrupt_file(path: &Path) -> Result<(), std::io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_limits_validate_and_persistent_values_override_environment() {
+        let mut config = AppConfig::default();
+        config.display.snapshot_total_bytes = 1;
+        assert!(config.validate().is_err());
+        config = AppConfig::default();
+        config.display.snapshot_chunk_bytes = config.display.snapshot_record_bytes;
+        assert!(config.validate().is_err());
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../temp/generation-reference");
+        std::fs::create_dir_all(&root).unwrap();
+        let temp = tempfile::tempdir_in(root).unwrap();
+        let path = temp.path().join("config.json");
+        config = AppConfig::default();
+        config.display.snapshot_parts = 123;
+        config.save(&path).unwrap();
+        let loaded = AppConfig::load_with_environment(&path, |key| {
+            if key == "LVS_DISPLAY_SNAPSHOT_PARTS" {
+                Some("99".into())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+        assert_eq!(loaded.display.snapshot_parts, 123);
+    }
 
     #[test]
     fn documented_setting_keys_match_code_in_both_directions() {

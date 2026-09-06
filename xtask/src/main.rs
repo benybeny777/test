@@ -68,7 +68,8 @@ fn main() -> Result<()> {
                 ],
             )?;
             run("cargo", &["test", "--workspace"])?;
-            verify_python_sidecars()
+            verify_python_sidecars()?;
+            verify_javascript_tests()
         }
         _ => {
             eprintln!(
@@ -582,11 +583,25 @@ fn verify_python_sidecars() -> Result<()> {
     if !python.exists() {
         bail!("sidecar environment is missing; run `cargo xtask setup sidecar`");
     }
+    // unittest の 0 件成功で統合漏れを隠さない。袖・手は既存 decompose 検索で一度だけ実行する。
+    for required in [
+        "sidecar/test_reference_store.py",
+        "sidecar/test_snapshot_stream.py",
+        "tools/test_generation_reference.py",
+        "sidecar/decompose/test_optional_limbs.py",
+    ] {
+        if !root.join(required).is_file() {
+            bail!("必須の CPU 検査がありません。統合漏れを確認してください: {required}");
+        }
+    }
     // 通常補完と保存保護を、旧工程だけの検査から取りこぼさない。
     for (directory, pattern) in [
         ("sidecar/completion", "test_*.py"),
         ("sidecar", "test_output_transaction.py"),
+        ("sidecar", "test_reference_store.py"),
+        ("sidecar", "test_snapshot_stream.py"),
         ("tools", "test_preview_server.py"),
+        ("tools", "test_generation_reference.py"),
     ] {
         run_at(
             &root,
@@ -692,6 +707,35 @@ fn verify_python_sidecars() -> Result<()> {
             OsStr::new("-p"),
             OsStr::new("test_*.py"),
         ],
+    )
+}
+
+fn verify_javascript_tests() -> Result<()> {
+    let root = root()?;
+    // Node は開発用 CPU 検査だけに使い、製品の build/dev/setup には要求しない。
+    let required = root.join("tools/test-snapshot-client.mjs");
+    if !required.is_file() {
+        bail!(
+            "必須の配信クライアント検査がありません: {}",
+            required.display()
+        );
+    }
+    let mut tests = Vec::new();
+    for entry in std::fs::read_dir(root.join("tools"))? {
+        let path = entry?.path();
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if path.is_file() && name.starts_with("test-") && name.ends_with(".mjs") {
+            tests.push(path.into_os_string());
+        }
+    }
+    tests.sort();
+    let mut args = vec![std::ffi::OsString::from("--test")];
+    args.extend(tests);
+    run_at(&root, "node", args).context(
+        "開発用 JavaScript CPU 検査に失敗しました。Node と表示された検査結果を確認してください",
     )
 }
 

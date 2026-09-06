@@ -51,7 +51,7 @@ function framing() {
 function setBusy(value) {
   busy = value;
   document.querySelectorAll("button").forEach((button) => {
-    button.disabled = value;
+    button.disabled = value && !button.matches('#load-preview,#characters button');
   });
 }
 
@@ -67,8 +67,14 @@ async function action(operation) {
   }
 }
 
+async function previewAction() {
+  // 公開済み素材の読取は生成の busy 状態と独立。書込操作の排他は変えない。
+  try { await loadPreview(); } catch(error) { log('プレビュー: '+error); }
+}
+
 async function refresh() {
   const config = await invoke("get_config");
+  for (const [key,,divisor] of snapshotFields) $("#snapshot-"+key).value=config.display["snapshot_"+key]/divisor;
   $("#sam-batch").value = config.ai.sam2_points_per_batch;
   $("#grounding-model").value = config.ai.grounding_model;
   $("#grounding-threshold").value = config.ai.grounding_threshold;
@@ -103,7 +109,7 @@ function renderCharacters() {
       renderCharacters();
       renderSelected();
       if (previewReady(selected)) {
-        action(loadPreview);
+        previewAction();
       } else {
         renderer.clear();
         $("#empty-preview").textContent = "完成キャラクターを選ぶと2.5Dプレビューを表示します。";
@@ -250,7 +256,7 @@ $("#retry-stage").addEventListener("click", () => action(async () => {
   await refresh();
   log(selectedStage + "を再実行しました");
 }));
-$("#load-preview").addEventListener("click", () => action(() => loadPreview()));
+$("#load-preview").addEventListener("click", previewAction);
 $("#save-framing").addEventListener("click", () => action(async () => {
   selected = await invoke("update_framing", { characterId: requireCharacter().characterId, framing: framing() });
   await loadPreview();
@@ -316,6 +322,13 @@ for (const id of ["yaw", "pitch", "scale", "left-arm", "right-arm"]) {
   });
 }
 
+const snapshotFields=[['record_bytes','JSONレコード上限 (MB)',1000000],['chunk_bytes','転送チャンク (MB)',1000000],['part_bytes','1素材上限 (MB)',1000000],['total_bytes','合計上限 (MB)',1000000],['parts','素材数上限',1],['dimension','素材辺長上限 (px)',1]];
+for(const [key,title,divisor] of snapshotFields){const label=document.createElement('label');label.append(title);const input=document.createElement('input');input.id='snapshot-'+key;input.type='number';input.min=1/divisor;input.step=1/divisor;label.append(input);$('#snapshot-settings').append(label);}
+$('#save-snapshot').addEventListener('click',()=>action(async()=>{
+  const config=await invoke('get_config');
+  for(const [key,,divisor] of snapshotFields){const value=Number($('#snapshot-'+key).value)*divisor;if(!Number.isSafeInteger(value)||value<=0||value>4294967295)throw new Error('配信上限は正の整数相当で指定してください');config.display['snapshot_'+key]=value;}
+  await invoke('save_config',{config});log('保存しました。次のキャラ読込から上限を反映します。');
+}));
 $("#save-sam-batch").addEventListener("click", () => action(async () => {
   const value = Number($("#sam-batch").value);
   if (!Number.isInteger(value) || value < 1 || value > 64) throw new Error("同時処理点数は1〜64の整数です");
@@ -384,6 +397,6 @@ await action(async()=>{
 
 function previewReady(character) {
   // フォールバック許可: 補完工程導入前の保存済みキャラは既存リグを保持して表示する。
-  return character?.stages?.complete?.status === "complete" ||
+  return Boolean(character?.model?.published_rig_reference) || character?.stages?.complete?.status === "complete" ||
     (!character?.model?.rig2d_base && character?.stages?.rig2d?.status === "complete");
 }

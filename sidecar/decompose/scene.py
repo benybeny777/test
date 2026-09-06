@@ -3,14 +3,17 @@ import numpy as np
 from scipy import ndimage
 
 
-SCENE_ORDER=('residual','torso','left_arm','right_arm','neck','collar','face','hair')
+SCENE_ORDER=('residual','torso','left_arm','left_sleeve','left_hand','right_arm','right_sleeve','right_hand','neck','collar','face','hair')
 PARENTS={'residual':None,'torso':None,'left_arm':'torso','right_arm':'torso',
-         'neck':'torso','collar':'torso','face':'neck','hair':'face'}
+         'neck':'torso','collar':'torso','face':'neck','hair':'face',
+         'left_sleeve':'left_arm','left_hand':'left_arm','right_sleeve':'right_arm','right_hand':'right_arm'}
 
 
-def visible_scene(subject, masks, face_support=None, opaque=None):
+def visible_scene(subject, masks, face_support=None, opaque=None, optional_report=None):
     """画素の所有先を一意に決め、描画用だけ隣接原画1画素を重ねる。"""
-    regions={'torso':masks['clothes'], **{name:masks[name] for name in SCENE_ORDER[2:] if name!='collar'}}
+    from optional_limbs import OPTIONAL_ROLES,partition
+    base_order=tuple(name for name in SCENE_ORDER if name not in OPTIONAL_ROLES)
+    regions={'torso':masks['clothes'], **{name:masks[name] for name in base_order[2:] if name!='collar'}}
     if 'collar' in masks:regions['collar']=masks['collar']
     if opaque is None:opaque=subject
     if opaque.shape!=subject.shape:raise ValueError('不透明領域の寸法が一致しません')
@@ -19,7 +22,7 @@ def visible_scene(subject, masks, face_support=None, opaque=None):
         # 顔SAMの穴にある目口も顔が所有する。未分類レイヤーに原画の目を残さない。
         regions['face']=regions['face'] | face_support
     claimed=np.zeros_like(subject);owners={}
-    for name in reversed(SCENE_ORDER[1:]):
+    for name in reversed(base_order[1:]):
         if name=='collar' and name not in regions:continue
         if regions[name].shape != subject.shape:raise ValueError('部位マスクの寸法が一致しません')
         owned=subject & regions[name] & ~claimed
@@ -28,6 +31,8 @@ def visible_scene(subject, masks, face_support=None, opaque=None):
         if not owned.any():raise ValueError(f'独立描画の部位が空です: {name}')
         owners[name]=owned;claimed |= owned
     owners['residual']=subject & ~claimed
+    owners,report=partition(owners,masks)
+    if optional_report is not None:optional_report.update(report)
     # 境界の線形サンプリングで隙間を作らないため、同じ原画の隣接画素だけを共有する。
     # これは隠れた部位の生成ではない。回転で露出する広い領域は別途補完が必要。
     # 半透明の原画画素を複数部位へ重ねるとアルファが増えるため、共有は不透明画素だけ。

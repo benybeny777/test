@@ -103,6 +103,49 @@ class ClosedPreviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'分離できません'):
             reconstruct_closed_skin(edited,line,np.ones((12,16),bool))
 
+    def test_small_large_lines_and_detached_ink_keep_locality(self):
+        for thickness in (1,3,15):
+            image=np.full((128,160,3),220.)
+            line=np.zeros(image.shape[:2],bool);line[50:50+thickness,40:120]=True
+            image[line]=20
+            y=50+thickness+1;image[y:y+1,70:73]=100
+            image[5:9,5:9]=20
+            allowed=np.ones(line.shape,bool);allowed[:10]=False
+            before=image.copy();clean,removed,metrics=reconstruct_closed_skin(image,line,allowed)
+            self.assertEqual(clean.shape,image.shape)
+            np.testing.assert_array_equal(clean[~removed],image[~removed])
+            np.testing.assert_array_equal(image,before)
+            self.assertFalse(removed[~allowed].any())
+            self.assertGreater(clean[y:y+1,70:73].mean(),200)
+            self.assertGreater(metrics['extra_pixels'],0)
+
+    def test_noise_only_is_not_an_editable_dark_line(self):
+        image=np.full((64,80,3),220.);line=np.zeros((64,80),bool)
+        line[30:33,20:60]=True;image[line]=219
+        with self.assertRaisesRegex(ValueError,'分離できません'):
+            reconstruct_closed_skin(image,line,np.ones(line.shape,bool))
+
+    def test_missing_nonfinite_and_insufficient_reference_are_errors(self):
+        image=np.full((64,80,3),220.);line=np.zeros((64,80),bool)
+        with self.assertRaisesRegex(ValueError,'線がありません'):
+            reconstruct_closed_skin(image,line,np.ones(line.shape,bool))
+        line[30:35,20:60]=True;image[line]=20
+        with self.assertRaisesRegex(ValueError,'肌が不足'):
+            reconstruct_closed_skin(image,line,line)
+        image[0,0]=np.nan
+        with self.assertRaisesRegex(ValueError,'不正な画素'):
+            reconstruct_closed_skin(image,line,np.ones(line.shape,bool))
+
+    def test_fragment_removal_is_translation_invariant(self):
+        image=np.full((80,90,3),220.);line=np.zeros((80,90),bool)
+        line[30:35,25:55]=True;image[line]=20;image[36:38,30:33]=100
+        allowed=np.ones(line.shape,bool)
+        first,mask,_=reconstruct_closed_skin(image,line,allowed)
+        shifted=np.roll(image,(7,9),(0,1));lm=np.roll(line,(7,9),(0,1))
+        second,sm,_=reconstruct_closed_skin(shifted,lm,allowed)
+        np.testing.assert_array_equal(np.roll(mask,(7,9),(0,1)),sm)
+        np.testing.assert_allclose(np.roll(first,(7,9),(0,1)),second)
+
 
 if __name__ == '__main__':
     unittest.main()

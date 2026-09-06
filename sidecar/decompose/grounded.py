@@ -18,10 +18,11 @@ def _digest(path):
 def analyse_cached(image, detector_path, sam_path, threshold, emit, directory, eye_context_margin):
     """意味解析と素材補完を分離し、同じ解析をGPUで繰り返さない。"""
     directory=Path(directory)
-    identity={'version':2,'eye_context_margin':eye_context_margin,'image':hashlib.sha256(image.tobytes()).hexdigest(),
+    identity={'version':3,'eye_context_margin':eye_context_margin,'image':hashlib.sha256(image.tobytes()).hexdigest(),
               'size':image.size,'threshold':threshold,'code':_digest(__file__),
               'transformers':importlib.metadata.version('transformers'),
               'torch':importlib.metadata.version('torch'),
+              'optional_limbs_code':{name:_digest(Path(__file__).with_name(name)) for name in ('limbs.py','optional_limbs.py')},
               'models':{}}
     for label,path in [('detector',detector_path),('sam',sam_path)]:
         if not path.is_dir():
@@ -132,6 +133,24 @@ def semantic_components(mask,role):
                      'discarded_pixels':int(mask.sum()-retained.sum())}
 
 
+def analyse_optional_limbs(records,masks,sample):
+    """通常SAMと同じインスタンスで全袖/手候補を採取し、意味所有で選別する。"""
+    from optional_limbs import select
+    candidates=[];observations=[]
+    for role in ('sleeve','hand'):
+        # 信頼度同点の候補も座標順に固定し、検出の返却順で採否が変わらないようにする。
+        items=sorted(records.get(role,[]),key=lambda item:(-item['score'],tuple(item['box'])))
+        for index,item in enumerate(items):
+            mask,metadata=sample(role,item)
+            key=f'{role}-{index:03d}'
+            candidates.append({'id':key,'role':role,'score':item['score'],'mask':mask})
+            observations.append({'id':key,'box':item['box'],'detector_score':item['score'],**metadata})
+    selected,report=select(candidates,masks)
+    report['sampling']=observations
+    report['queries']={role:'detected' if records.get(role) else 'not_detected' for role in ('sleeve','hand')}
+    return selected,report
+
+
 def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin):
     """2モデルを逐次ロードし、画像と同じ座標系の意味情報を返す。"""
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
@@ -149,8 +168,9 @@ def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin)
     processor=AutoProcessor.from_pretrained(detector_path,local_files_only=True)
     detector=AutoModelForZeroShotObjectDetection.from_pretrained(detector_path,local_files_only=True).to('cuda').eval()
     try:
-        for index,role in enumerate(('face','eyes','mouth','neck','collar','hair','clothes','arms','pupils')):
-            crop=crops['detail' if role=='pupils' else 'full' if role in ('face','clothes','arms') else 'head']
+        queries=('face','eyes','mouth','neck','collar','hair','clothes','arms','pupils','sleeve','hand')
+        for index,role in enumerate(queries):
+            crop=crops['detail' if role=='pupils' else 'full' if role in ('face','clothes','arms','sleeve','hand') else 'head']
             im=rgb.crop(crop)
             inputs=processor(images=im,text=('eye pupil' if role=='pupils' else role)+'.',return_tensors='pt').to('cuda')
             with torch.inference_mode():prediction=detector(**inputs)
@@ -165,7 +185,7 @@ def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin)
                                min(image.width,int(np.ceil(fr+fw))),min(image.height,int(np.ceil(fb+fh))))
                 crops['detail']=(max(0,int(fl-fw*.3)),max(0,int(ft-fh*.3)),
                                  min(image.width,int(fr+fw*.3)),min(image.height,int(fb+fh*.3)))
-            emit('progress',stage='grounding',progress=.1+.3*(index+1)/9)
+            emit('progress',stage='grounding',progress=.1+.3*(index+1)/len(queries))
     finally:
         del detector,processor
         gc.collect();torch.cuda.empty_cache()
@@ -173,6 +193,7 @@ def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin)
     if not faces:raise ValueError('顔の意味領域が検出されませんでした')
     face=faces[0]['box'];chosen={}
     for role in records:
+        if role in ('sleeve','hand'):continue
         boxes=select_boxes(records,role,face)
         if role in ('face','eyes','mouth','neck','hair','pupils') and len(boxes)!=(2 if role in ('eyes','pupils') else 1):
             raise ValueError(f'必須の意味領域を確定できません: {role}')
@@ -218,11 +239,26 @@ def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin)
             masks[role],components=semantic_components(mask,role)
             item.update(components)
             item['sam_score']=float(prediction.iou_scores.max().cpu())
-            emit('progress',stage='grounded_sam',progress=.4+.4*(index+1)/len(chosen))
+            emit('progress',stage='grounded_sam',progress=.4+.3*(index+1)/len(chosen))
+        def sample_optional(role,item):
+            # 単一maskに対してIoU配列は複数のまま返る。配列を保ち、複数mask保存と称しない。
+            optional_inputs=processor(images=rgb,input_boxes=[[item['box']]],return_tensors='pt').to('cuda')
+            try:
+                with torch.inference_mode():optional_prediction=model._single_frame_forward(**optional_inputs)
+                result=processor.post_process_masks(optional_prediction.pred_masks.cpu().unsqueeze(0),optional_inputs['original_sizes'].cpu())[0]
+                mask=result.reshape(-1,image.height,image.width)[0].numpy().astype(bool)&subject
+                return mask,{'sam_iou_scores':optional_prediction.iou_scores.detach().cpu().tolist(),
+                             'mask_policy':'selected_best_mask','pixels':int(mask.sum()),'sampling_region':list(crops['full'])}
+            finally:
+                optional_inputs=None
+        optional_masks,optional_status=analyse_optional_limbs(records,masks,sample_optional)
+        masks.update(optional_masks)
+        emit('progress',stage='grounded_optional_limbs',progress=.8)
     finally:
         del model,processor
         gc.collect();torch.cuda.empty_cache()
     features={name:[int(np.floor(v)) if i<2 else int(np.ceil(v)) for i,v in enumerate(chosen[name]['box'])] for name in ('left_eye','right_eye','mouth')}
     for box in features.values():
         box[0]=max(0,box[0]);box[1]=max(0,box[1]);box[2]=min(image.width,box[2]);box[3]=min(image.height,box[3])
-    return masks,features,{'schema_version':1,'candidates':records,'selected':chosen,'method':'grounding-dino-base+sam2.1','visual_status':'unverified'}
+    return masks,features,{'schema_version':1,'candidates':records,'selected':chosen,'optional_limbs':optional_status,
+                          'method':'grounding-dino-base+sam2.1','visual_status':'unverified'}

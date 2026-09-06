@@ -1,5 +1,7 @@
 """補完の署名、入力保持、破損拒否、排他をCPUだけで検証する。"""
 import json
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +12,7 @@ from PIL import Image
 import generate
 
 from generate import cache_valid, tree_hashes, generation_lock, source_hashes
+from reference_store import reference, generation_path
 from regions import eye_edit_mask, measured_head_region
 import numpy as np
 
@@ -152,7 +155,7 @@ class CompletionOrchestrationTests(unittest.TestCase):
                                     hair_edge_band_ratio=.015,hair_edge_gain=40)
         self.original = source_hashes(character)
         self.baseline = tree_hashes(self.args.base_rig.parent)
-        self.previous = tree_hashes(self.args.output)
+        self.previous = tree_hashes(self.final_output())
         self.enterContext(patch.object(generate, 'HERE', implementation))
         self.enterContext(patch.object(generate.importlib.metadata, 'version', return_value='fixture-runtime'))
         self.inference = self.enterContext(patch.object(generate, 'generate_image', side_effect=self.render))
@@ -165,17 +168,82 @@ class CompletionOrchestrationTests(unittest.TestCase):
     def test_hidden_failure_preserves_eye_cache_and_prior_rig(self):
         self.hidden.side_effect=RuntimeError('耳生成失敗')
         with self.assertRaisesRegex(RuntimeError,'耳生成失敗'):generate.complete_locked(self.args)
-        self.assertEqual(tree_hashes(self.args.output),self.previous)
+        self.assertEqual(tree_hashes(self.final_output()),self.previous)
         self.assertTrue((self.args.character/'completion-source/edited.png').exists())
         self.hidden.side_effect=None
         generate.complete_locked(self.args)
         self.assertEqual(self.inference.call_count,1)
 
+    def test_cached_final_reemits_persisted_partial_warning(self):
+        warning='原画の片耳が未検出のため隠れ素材のみを補完しました'
+        self.hidden_apply.side_effect=lambda args,rig,base,parts,*rest:(rig,parts,{'warning':warning})
+        output=StringIO()
+        with redirect_stdout(output):
+            generate.complete_locked(self.args)
+            output.seek(0);output.truncate()
+            generate.complete_locked(self.args)
+        events=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertIn({'event':'completion_warning','message':warning},events)
+        self.assertTrue(any(event['event']=='completion_cached' for event in events))
+        self.assertEqual(self.inference.call_count,1)
+        self.assertEqual(self.hidden_apply.call_count,1)
+
+    def test_analysis_only_change_reuses_eye_and_keeps_original_manifest_bytes(self):
+        generate.complete_locked(self.args)
+        marker=self.args.character/'completion-source/manifest.json';before=marker.read_bytes()
+        old_origin=json.loads(before)['identity']['source']
+        analysis=self.args.character/'analysis/analysis.json'
+        record=json.loads(analysis.read_text());record['collar_parser_version']=2
+        analysis.write_text(json.dumps(record))
+        archive=self.args.character/'analysis/masks.npz'
+        with np.load(archive) as data:masks={key:data[key].copy() for key in data.files}
+        masks['new_arm_mask']=np.zeros_like(masks['hair']);np.savez(archive,**masks)
+        generate.complete_locked(self.args)
+        self.assertEqual(self.inference.call_count,1);self.assertEqual(self.extract.call_count,2)
+        self.assertEqual(marker.read_bytes(),before)
+        final=json.loads((self.final_output()/'completion.json').read_text())['identity']
+        self.assertEqual(final['raw_origin']['generated_from']['source'],old_origin)
+        self.assertEqual(final['source'],source_hashes(self.args.character));self.assertNotEqual(final['source'],old_origin)
+        self.assertEqual(final['raw_origin']['manifest_sha256'],generate.digest(marker))
+
+    def test_hidden_wait_cannot_rebaseline_eye_image_mutation(self):
+        def mutate(*args,**kwargs):
+            path=self.args.character/'completion-source/edited.png'
+            with Image.open(path) as opened:image=opened.convert('RGBA')
+            image.putpixel((96,96),(0,0,0,255));image.save(path)
+            return {'identity':{'fixture':1}}
+        self.hidden.side_effect=mutate
+        with self.assertRaisesRegex(ValueError,'SHA不一致'):generate.complete_locked(self.args)
+        self.assertEqual(tree_hashes(self.final_output()),self.previous)
+
+    def test_hidden_wait_cannot_change_original_eye_manifest(self):
+        def mutate(*args,**kwargs):
+            marker=self.args.character/'completion-source/manifest.json'
+            record=json.loads(marker.read_text());record['material_quality']='tampered'
+            marker.write_text(json.dumps(record));return {'identity':{'fixture':1}}
+        self.hidden.side_effect=mutate
+        with self.assertRaisesRegex(ValueError,'SHA不一致'):generate.complete_locked(self.args)
+        self.assertEqual(tree_hashes(self.final_output()),self.previous)
+
+    def test_publish_guard_rechecks_eye_manifest_after_material_application(self):
+        def mutate(args,rig,base,parts,*rest):
+            marker=args.character/'completion-source/manifest.json'
+            record=json.loads(marker.read_text());record['material_quality']='tampered'
+            marker.write_text(json.dumps(record));return rig,parts,{}
+        self.hidden_apply.side_effect=mutate
+        with self.assertRaisesRegex(ValueError,'SHA不一致'):generate.complete_locked(self.args)
+        self.assertEqual(tree_hashes(self.final_output()),self.previous)
+
     def test_hidden_extraction_failure_preserves_previous_output(self):
         self.hidden_apply.side_effect=ValueError('耳組立失敗')
         with self.assertRaisesRegex(ValueError,'耳組立失敗'):generate.complete_locked(self.args)
-        self.assertEqual(tree_hashes(self.args.output),self.previous)
+        self.assertEqual(tree_hashes(self.final_output()),self.previous)
         self.assertTrue((self.args.character/'completion-source/edited.png').exists())
+
+    def final_output(self):
+        if (self.args.character/'rig-current.json').exists():
+            return generation_path(self.args.character,reference(self.args.character)['generation'])
+        return self.args.output
 
     @staticmethod
     def render(args, run, workflow):
@@ -188,7 +256,7 @@ class CompletionOrchestrationTests(unittest.TestCase):
         generate.complete_locked(self.args)
         self.assertEqual(source_hashes(self.args.character), self.original)
         self.assertEqual(tree_hashes(self.args.base_rig.parent), self.baseline)
-        final = tree_hashes(self.args.output)
+        final = tree_hashes(self.final_output())
         self.assertEqual(final['parts/mouth_closed.png'], self.baseline['parts/mouth_closed.png'])
         self.assertNotEqual(final['parts/left_eyelid_upper.png'], self.baseline['parts/left_eyelid_upper.png'])
         self.assertNotIn('old-generation.txt', final)
@@ -197,13 +265,13 @@ class CompletionOrchestrationTests(unittest.TestCase):
         generate.complete_locked(self.args)
         self.assertEqual(self.inference.call_count, 1)
         self.assertEqual(self.extract.call_count, 1)
-        self.assertEqual(tree_hashes(self.args.output), final)
+        self.assertEqual(tree_hashes(self.final_output()), final)
 
     def test_inference_failure_preserves_previous_final(self):
         self.inference.side_effect = RuntimeError('合成推論失敗')
         with self.assertRaisesRegex(RuntimeError, '合成推論失敗'):
             generate.complete_locked(self.args)
-        self.assertEqual(tree_hashes(self.args.output), self.previous)
+        self.assertEqual(tree_hashes(self.final_output()), self.previous)
         self.assertEqual(source_hashes(self.args.character), self.original)
         self.extract.assert_not_called()
         self.assertEqual(len(list((self.args.character/'temp').glob('completion-*/failure.json'))), 1)
@@ -219,7 +287,7 @@ class CompletionOrchestrationTests(unittest.TestCase):
         Image.new('RGBA', (256, 256), (230, 191, 170, 255)).save(self.args.character/'source/input.png')
         generate.complete_locked(self.args)
         self.assertEqual(self.inference.call_count, 4)
-        record = json.loads((self.args.output/'completion.json').read_text(encoding='utf-8'))
+        record = json.loads((self.final_output()/'completion.json').read_text(encoding='utf-8'))
         self.assertEqual(record['identity']['source'], source_hashes(self.args.character))
 
     def test_mid_generation_input_change_rejects_publication(self):
@@ -230,7 +298,7 @@ class CompletionOrchestrationTests(unittest.TestCase):
         self.inference.side_effect = change_source
         with self.assertRaisesRegex(ValueError, '変更されました'):
             generate.complete_locked(self.args)
-        self.assertEqual(tree_hashes(self.args.output), self.previous)
+        self.assertEqual(tree_hashes(self.final_output()), self.previous)
         self.assertEqual(tree_hashes(self.args.base_rig.parent), self.baseline)
 
     def test_extraction_code_change_reuses_gpu_image(self):
@@ -247,7 +315,7 @@ class CompletionOrchestrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '抽出失敗'):
             generate.complete_locked(self.args)
         self.assertTrue((self.args.character/'completion-source/edited.png').is_file())
-        self.assertEqual(tree_hashes(self.args.output), self.previous)
+        self.assertEqual(tree_hashes(self.final_output()), self.previous)
         self.extract.side_effect = None
         generate.complete_locked(self.args)
         self.assertEqual(self.inference.call_count, 1)

@@ -217,7 +217,17 @@ impl PipelineContext {
         for entry in fs::read_dir(&self.characters_root)? {
             let path = entry?.path().join("character.json");
             if path.is_file() {
-                values.push(self.load_character_file(&path)?);
+                let mut value = self.load_character_file(&path)?;
+                if crate::generation_reference::present(
+                    path.parent()
+                        .ok_or_else(|| PipelineError::Invalid("キャラの親がありません".into()))?,
+                )? {
+                    // 一覧応答だけの印。工程の実行状態や保存済み manifest は変更しない。
+                    value
+                        .model
+                        .insert("published_rig_reference".into(), "rig-current.json".into());
+                }
+                values.push(value);
             }
         }
         values.sort_by(|a, b| b.updated_at_iso.cmp(&a.updated_at_iso));
@@ -738,8 +748,27 @@ impl PipelineContext {
                 println!("{value}");
             }
         })?;
-        let completed: serde_json::Value =
-            serde_json::from_reader(std::fs::File::open(directory.join("rig2d/rig.json"))?)?;
+        let reader = if crate::generation_reference::present(&directory)? {
+            Some(crate::generation_reference::Reader::acquire(
+                &directory,
+                u64::from(config.display.snapshot_part_bytes),
+            )?)
+        } else {
+            None
+        };
+        let rig_path = reader
+            .as_ref()
+            .map(|reader| reader.directory.join("rig.json"))
+            .unwrap_or_else(|| directory.join("rig2d/rig.json"));
+        let completed_result = std::fs::File::open(rig_path)
+            .map_err(PipelineError::from)
+            .and_then(|file| {
+                serde_json::from_reader::<_, serde_json::Value>(file).map_err(PipelineError::from)
+            });
+        if let Some(reader) = reader {
+            reader.finish()?;
+        }
+        let completed = completed_result?;
         let mut message = "Qwenの原寸閉眼・隠れ顔・耳補完を反映しました（素材充足と見た目の最終確認は別途必要です）".to_string();
         if let Some(warning) = completed["local_completion"]["hidden"]["warning"].as_str() {
             message.push_str(" 警告: ");

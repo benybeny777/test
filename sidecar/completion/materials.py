@@ -2,6 +2,10 @@
 import numpy as np
 from scipy import ndimage
 
+# 肌の明部推定と線縁の余白は、既存の曲線測定・補間と同じ基準を共有する。
+SKIN_REFERENCE_PERCENTILE=90
+INK_EDGE_PIXELS=2
+
 
 def closed_curve(pixels,box,protected,aperture,measurements=None,line_mask=None):
     """閉眼の暗い連続まつげを測定し、元の開口列へ対応させる。"""
@@ -9,7 +13,7 @@ def closed_curve(pixels,box,protected,aperture,measurements=None,line_mask=None)
     gray=pixels[t:b,l:r,:3].astype(float).mean(axis=2)
     available=~protected[t:b,l:r]
     if not available.any():raise ValueError('閉眼を測定する領域がありません')
-    low,high=np.percentile(gray[available],[1,90])
+    low,high=np.percentile(gray[available],[1,SKIN_REFERENCE_PERCENTILE])
     if high-low<1:raise ValueError('閉眼の線にコントラストがありません')
     # 傾いた1画素の線も連続成分として扱う。髪の保護領域は引き続き除外する。
     labels,count=ndimage.label((gray<(low+high)/2)&available,structure=np.ones((3,3)))
@@ -53,11 +57,23 @@ def reconstruct_closed_skin(edited,line_mask,allowed):
     from scipy.sparse.linalg import spsolve
     if edited.ndim!=3 or edited.shape[2]!=3 or line_mask.shape!=edited.shape[:2] or allowed.shape!=line_mask.shape:
         raise ValueError('閉眼肌の補間寸法が一致しません')
+    if line_mask.dtype!=bool or allowed.dtype!=bool:raise ValueError('閉眼線と許可域は真偽マスクが必要です')
     if not np.isfinite(edited).all():raise ValueError('閉眼肌に不正な画素があります')
     core=line_mask&allowed
     if not core.any():raise ValueError('除去する閉眼線がありません')
-    # 閾値を下回らない線の半透明縁も含める。髪や編集マスク外には広げない。
-    remove=ndimage.binary_dilation(core,iterations=2)&allowed
+    # 主曲線は変更せず、測定した列厚さの近傍だけから薄い睫毛片を分離する。
+    cy,cx=np.nonzero(core)
+    thickness=np.median([np.ptp(cy[cx==x])+1 for x in np.unique(cx)])
+    radius=max(INK_EDGE_PIXELS,int(np.ceil(thickness)))
+    near=(ndimage.distance_transform_edt(~core)<=radius)&allowed
+    background=ndimage.grey_closing(edited.astype(float),size=(radius*2+1,radius*2+1,1))
+    difference=(background-edited).mean(axis=2)
+    reference=ndimage.binary_dilation(near,iterations=radius)&allowed&~near
+    if reference.sum()<4:raise ValueError('閉眼線の周囲にノイズ推定用の肌が不足しています')
+    noise=float(np.percentile(difference[reference],SKIN_REFERENCE_PERCENTILE))
+    # 1階調以下は画像量子化の差であり、暗線として採用しない。
+    extra=near&(difference>max(noise,1))
+    remove=ndimage.binary_dilation(core|extra,iterations=INK_EDGE_PIXELS)&allowed
     labels,count=ndimage.label(remove)
     for label in range(1,count+1):
         ring=ndimage.binary_dilation(labels==label)&allowed&~remove
@@ -78,7 +94,8 @@ def reconstruct_closed_skin(edited,line_mask,allowed):
     clean=edited.astype(float).copy();clean[ys,xs]=np.clip(solved,0,255)
     brightening=float((clean[core]-edited[core]).mean())
     if brightening<5:raise ValueError('閉眼の暗線を肌から分離できません。下地へ焼き込みません')
-    return clean,remove,{'removed_line_pixels':int(core.sum()),'interpolated_pixels':int(remove.sum()),'line_brightening':brightening}
+    return clean,remove,{'removed_line_pixels':int((core|extra).sum()),'interpolated_pixels':int(remove.sum()),'line_brightening':brightening,
+                         'extra_pixels':int((extra&~core).sum()),'radius':radius,'noise':noise}
 
 
 def replace_closed_backing(backing,clean,weight,protected):

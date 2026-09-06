@@ -53,6 +53,12 @@
 | `comfy.unload_before_mesh` | bool | true | `LVS_COMFY_UNLOAD_BEFORE_MESH` | true固定 | 次回生成 |
 | `comfy.workflow_dir` | path | `workflows` | `LVS_COMFY_WORKFLOW_DIR` | 相対または絶対 | 次回生成 |
 | `display.language` | string | `ja` | `LVS_DISPLAY_LANGUAGE` | 空文字不可 | 次回起動 |
+| `display.snapshot_record_bytes` | u32 | 0.096 MB | `LVS_DISPLAY_SNAPSHOT_RECORD_BYTES` | 正数。1素材≤合計、base64チャンク＋ヘッダ≤JSONレコード。超過はエラー（縮小しない） | 保存後の次回キャラ読込 |
+| `display.snapshot_chunk_bytes` | u32 | 0.048 MB | `LVS_DISPLAY_SNAPSHOT_CHUNK_BYTES` | 正数。1素材≤合計、base64チャンク＋ヘッダ≤JSONレコード。超過はエラー（縮小しない） | 保存後の次回キャラ読込 |
+| `display.snapshot_part_bytes` | u32 | 32 MB | `LVS_DISPLAY_SNAPSHOT_PART_BYTES` | 正数。1素材≤合計、base64チャンク＋ヘッダ≤JSONレコード。超過はエラー（縮小しない） | 保存後の次回キャラ読込 |
+| `display.snapshot_total_bytes` | u32 | 256 MB | `LVS_DISPLAY_SNAPSHOT_TOTAL_BYTES` | 正数。1素材≤合計、base64チャンク＋ヘッダ≤JSONレコード。超過はエラー（縮小しない） | 保存後の次回キャラ読込 |
+| `display.snapshot_parts` | u32 | 256 | `LVS_DISPLAY_SNAPSHOT_PARTS` | 正数。1素材≤合計、base64チャンク＋ヘッダ≤JSONレコード。超過はエラー（縮小しない） | 保存後の次回キャラ読込 |
+| `display.snapshot_dimension` | u32 | 8192 | `LVS_DISPLAY_SNAPSHOT_DIMENSION` | 正数。1素材≤合計、base64チャンク＋ヘッダ≤JSONレコード。超過はエラー（縮小しない） | 保存後の次回キャラ読込 |
 | `display.preview_fps` | u32 | 30 | `LVS_DISPLAY_PREVIEW_FPS` | 1〜240 | 次回起動 |
 | `display.preview_scale` | f32 | 0.5 | `LVS_DISPLAY_PREVIEW_SCALE` | 0.1〜2.0 | 次回起動 |
 | `facepatch.alpha_threshold` | f32 | 0.030 | — | 0〜1 | 次回投影 |

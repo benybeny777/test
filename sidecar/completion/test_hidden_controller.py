@@ -12,6 +12,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'sidecar'))
 from hidden_controller import hidden_edits, ear_analysis, assert_result_sources
 from ear_runtime import choose_ears
 from hidden_jobs import JOBS
+from raw_reuse import sha
 import hidden_bridge
 
 
@@ -23,7 +24,7 @@ class ControllerTests(unittest.TestCase):
         self.args=SimpleNamespace(character=self.root,steps=50,seed=777,fast_disk=True,
             hidden_prompt='fixture hidden edit',side_prompt='fixture side edit')
         self.prepared=Image.new('RGB',(64,64),(180,160,140))
-        self.source={name:'sha' for name in ('source/input.png','source/isolated.png','analysis/analysis.json','analysis/masks.npz')}
+        self.source={name:sha(name.encode()) for name in ('source/input.png','source/isolated.png','analysis/analysis.json','analysis/masks.npz')}
         self.workflow={key:{'inputs':{}} for key in ('7','9','10','13')}
         self.args.overlay=Path(__file__).resolve().parents[2]/'workflows/qwen-edit-eyes-overlay.json'
         mask=np.zeros((64,64),np.uint8);mask[10:50,10:50]=255
@@ -113,6 +114,17 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual((self.root/'completion-source/edited.png').read_bytes(),b'closed-eye-sentinel')
         self.args.side_prompt+=' Keep shading.'
         self.run_edits();self.assertEqual(self.calls,['hidden-face','side-ears','side-ears'])
+        with self.assertRaisesRegex(ValueError,'SHA不一致'):assert_result_sources(second,lambda:None)
+
+    def test_analysis_only_change_reuses_two_raws_without_rewriting_origin(self):
+        first=self.run_edits()
+        before={job:(self.root/JOBS[job]['cache_directory']/'manifest.json').read_bytes() for job in JOBS}
+        self.source['analysis/analysis.json']=sha(b'new collar parser')
+        self.source['analysis/masks.npz']=sha(b'new arm mask')
+        second=self.run_edits();self.assertEqual(len(self.calls),2)
+        for job in JOBS:
+            self.assertEqual((self.root/JOBS[job]['cache_directory']/'manifest.json').read_bytes(),before[job])
+            self.assertEqual(second[job][2].origin(),first[job][2].origin())
         assert_result_sources(second,lambda:None)
 
     def test_second_job_failure_preserves_first_and_retry_skips_first(self):

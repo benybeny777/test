@@ -5,6 +5,7 @@ import importlib.util
 import importlib.metadata
 from contextlib import contextmanager
 import json
+from io import BytesIO
 import os
 from pathlib import Path
 import shutil
@@ -21,16 +22,18 @@ import psutil
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 from output_transaction import directory_output
+from reference_store import acquire as acquire_rig, publish as publish_rig
 from rig2d.texture import bleed_transparent_rgb
 from apply import apply_closed_eyes
 from materials import validate_masked_pixels
 from regions import eye_edit_mask, measured_head_region
 from hidden_bridge import prepare_hidden, apply_hidden, assert_hidden_sources
+from raw_reuse import open_raw,pin_generated
 
 spec = importlib.util.spec_from_file_location('completion_comfy_client', HERE.parent/'expression/generate.py')
 client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
-VERSION = 3
+VERSION = 4
 # 推論や入力準備の意味を変えた場合に上げる。抽出だけの変更ではGPUを再実行しない。
 IMAGE_GENERATION_VERSION = 3
 PROMPT = ('Close both eyes naturally, preserving the original character identity and original rendering style. '
@@ -103,19 +106,12 @@ def cache_valid(output, identity):
 
 def cached_edit(cache, identity, original, mask):
     """生成済み原寸画像だけを再利用する。素材抽出の合格とは区別する。"""
-    marker = cache/'manifest.json'
-    if not marker.exists():
-        return None
-    record = json.loads(marker.read_text(encoding='utf-8'))
-    if record['identity'] != identity:
-        return None
-    image = cache/'edited.png'
-    if cache.is_symlink() or image.is_symlink() or not image.is_file() or digest(image) != record['edited_sha256']:
-        raise ValueError('生成済み補完画像のSHA不一致または欠落があります')
-    with Image.open(image) as opened:
+    lease=open_raw(cache,identity,'eye')
+    if lease is None:return None
+    with Image.open(BytesIO(lease.image_bytes())) as opened:
         edited = np.array(opened.convert('RGBA'))
     validate_masked_pixels(edited, original, mask)
-    return image
+    return lease
 
 
 def stop_owned(process):
@@ -265,8 +261,8 @@ def complete_locked(args):
     cache = args.character/'completion-source'
     succeeded = False
     try:
-        edited_path = cached_edit(cache, generation_identity, np.array(white), mask)
-        if edited_path is None:
+        eye_lease = cached_edit(cache, generation_identity, np.array(white), mask)
+        if eye_lease is None:
             generated_path = generate_image(args, run, workflow)
             with Image.open(generated_path) as opened:
                 validate_masked_pixels(np.array(opened.convert('RGBA')), np.array(white), mask)
@@ -275,33 +271,38 @@ def complete_locked(args):
                 record = {'identity': generation_identity, 'edited_sha256': digest(pending/'edited.png'),
                           'status': 'generated', 'material_quality': 'unverified'}
                 (pending/'manifest.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
+                manifest_bytes=(pending/'manifest.json').read_bytes()
                 if source_hashes(args.character) != source or tree_hashes(run/'input') != inputs:
                     raise ValueError('補完画像公開の直前に原画・解析・編集入力が変更されました')
-            edited_path = cache/'edited.png'
+            eye_lease=pin_generated(cache,manifest_bytes,generation_identity,'eye')
         else:
             print(json.dumps({'event': 'completion_edit_cached', 'output': str(cache)}), flush=True)
         prepared_hidden = prepare_hidden(args,white,bounds,source,generation_identity,guard,generate_image,emit,run/'input/input.png',all_masks)
-        identity = {'version': VERSION, 'source': source, 'base': baseline, 'generation': generation_identity,
-                    'edited_sha256': digest(edited_path),
+        eye_lease.recheck()
+        identity = {'version': VERSION, 'source': source, 'base': baseline, 'generation_requested': generation_identity,
+                    'raw_origin':eye_lease.origin(),'edited_sha256':eye_lease.image_sha256,
                     'hidden': prepared_hidden['identity'],
                     'code': extraction_code}
-        if cache_valid(args.output, identity):
-            assert_hidden_sources(args,prepared_hidden,guard)
-            cached_rig = json.loads((args.output/'rig.json').read_text(encoding='utf-8'))
-            warning = cached_rig.get('local_hidden_completion',{}).get('warning')
-            if warning:
-                emit('completion_warning',message=warning)
-            print(json.dumps({'event': 'completion_cached', 'output': str(args.output)}), flush=True)
-            succeeded = True
-            return
-        with Image.open(edited_path) as opened:
+        if os.path.lexists(args.character/'rig-current.json'):
+            with acquire_rig(args.character) as (_,published_directory):
+                if cache_valid(published_directory, identity):
+                    assert_hidden_sources(args,prepared_hidden,guard)
+                    eye_lease.recheck()
+                    cached_rig = json.loads((published_directory/'rig.json').read_text(encoding='utf-8'))
+                    warning = cached_rig.get('local_completion',{}).get('hidden',{}).get('warning')
+                    if warning:
+                        emit('completion_warning',message=warning)
+                    print(json.dumps({'event': 'completion_cached', 'output': str(published_directory)}), flush=True)
+                    succeeded = True
+                    return
+        with Image.open(BytesIO(eye_lease.image_bytes())) as opened:
             edited = np.array(opened.convert('RGBA'))
         validate_masked_pixels(edited, np.array(white), mask)
         materials, measurements = apply_closed_eyes(args.character, base, rig, edited, original, mask, bounds)
         rig, materials, hidden_report = apply_hidden(args,rig,base,materials,isolated,all_masks,bounds,prepared_hidden,guard)
         if source_hashes(args.character) != source or tree_hashes(base) != baseline or tree_hashes(run/'input') != inputs:
             raise ValueError('補完中に原画・解析・リグ・編集入力が変更されました')
-        with directory_output(args.output) as pending:
+        def build_final(pending):
             shutil.copytree(base, pending, dirs_exist_ok=True)
             for name, image in materials.items():
                 bleed_transparent_rgb(image).save(pending/f'parts/{name}.png')
@@ -312,17 +313,21 @@ def complete_locked(args):
             outputs = tree_hashes(pending)
             if any(outputs.get(name) != sha for name, sha in baseline.items() if name not in allowed):
                 raise ValueError('許可された補完素材以外が変わりました')
-            record = {'identity': identity, 'outputs': outputs, 'edited_sha256': digest(edited_path), 'source_region': bounds}
+            record = {'identity': identity, 'outputs': outputs, 'edited_sha256': eye_lease.image_sha256, 'source_region': bounds}
             (pending/'completion.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
-            if source_hashes(args.character) != source or tree_hashes(base) != baseline:
+        def verify_final_sources():
+            if source_hashes(args.character) != source or tree_hashes(base) != baseline or tree_hashes(run/'input') != inputs:
                 raise ValueError('完成公開の直前に原画・解析・元リグが変更されました')
             current_code = {p.name: digest(p) for p in HERE.glob('*.py') if not p.name.startswith('test_')}
-            if digest(edited_path) != identity['edited_sha256'] or current_code != extraction_code:
+            if current_code != extraction_code:
                 raise ValueError('完成公開の直前に補完画像または抽出コードが変更されました')
             assert_hidden_sources(args,prepared_hidden,guard)
+            eye_lease.recheck()
+        publication = publish_rig(args.character,build_final,verify_final_sources)
+        if publication.get('cleanup_warning'):emit('completion_warning',message=publication['cleanup_warning'])
         if hidden_report.get('warning'):
             emit('completion_warning',message=hidden_report['warning'])
-        print(json.dumps({'event': 'completion_complete', 'output': str(args.output)}), flush=True)
+        print(json.dumps({'event': 'completion_complete', 'output': str(args.character/'rig-current.json'), 'generation': publication['generation']}), flush=True)
         succeeded = True
     except BaseException as error:
         (run/'failure.json').write_text(json.dumps({'error': str(error)}, ensure_ascii=False), encoding='utf-8')
