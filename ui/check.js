@@ -1,4 +1,4 @@
-import {createAvatarRenderer} from './shared/avatar-renderer.js?v=open-a10';
+import {createAvatarRenderer} from './shared/avatar-renderer.js?v=lifecycle11';
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
@@ -11,7 +11,10 @@ const requestedCharacter=new URL(location.href).searchParams.get('character');
 if(requestedCharacter)select.value=requestedCharacter;
 const mouthShape=document.querySelector('#mouth-shape');
 for(const [key,label] of [['close','閉口'],['a','あ'],['i','い'],['u','う'],['e','え'],['o','お']])mouthShape.add(new Option(label,key));
-const renderer=createAvatarRenderer(document.querySelector('#avatar'));
+const renderer=createAvatarRenderer(document.querySelector('#avatar'),{onError:error=>{
+  stopDemo();stopMotion();document.querySelector('#avatar').style.visibility='hidden';
+  status.textContent='描画に失敗しました。キャラを選び直してください: '+error.message;
+}});
 let state={},generation=0,currentRig,faceView=false;
 let demoFrame=0,demoStarted=0;
 let motionFrame=0;
@@ -27,12 +30,17 @@ for(const [key,title,min,max,value] of [['mouthOpenY','開き',0,1,0],['mouthFor
   label.append(input);document.querySelector('#controls').append(label);inputs.set(key,input);
 }
 function reset(){stopMotion();state={...state,mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,roll:0,armInset:0,armPose:{},idleSwayDegrees:0,preserveOriginalMouth:false};for(const [key,input] of inputs)input.value=state[key];}
-async function apply(){try{await renderer.applyState(state);return true;}catch(error){status.textContent=error.message;return false;}}
+async function apply(token=generation){
+  try{return await renderer.applyState(state)!==false&&token===generation;}
+  catch(error){if(token===generation)status.textContent=error.message;return false;}
+}
 async function load(){
   stopMotion();
   stopDemo();
   mouthShape.value='';
   const token=++generation;status.textContent='読込中';
+  renderer.clear();currentRig=null;state={};
+  document.querySelector('#source').removeAttribute('src');
   document.querySelector('#avatar').style.visibility='hidden';
   document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=true);
   try {
@@ -45,7 +53,7 @@ async function load(){
     const rigUrl=base+'rig2d/rig.json?v='+version;const rig=await loadLocalJson(rigUrl);
     if(token!==generation)return;
     currentRig=rig;state={rigUrl,showHiddenMaterial:document.querySelector('#hidden-material').checked,partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};reset();faceView=false;document.querySelector('#source').style.transform='';
-    document.querySelector('#source').src=base+'source/input.png';if(!await apply())return;
+    document.querySelector('#source').src=base+'source/input.png';if(!await apply(token)||token!==generation)return;
     document.querySelector('#avatar').style.visibility='visible';
     const approval=fixtures.find(([id])=>id===select.value)?.[2] ?? '見た目: 未承認。動作の成立と品質の合格は別です。';
     status.textContent=`素材充足: ${rig.material_readiness?.status ?? '未検査'} ／ ${approval}`;

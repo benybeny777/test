@@ -1,4 +1,4 @@
-import { createAvatarRenderer } from "/shared/avatar-renderer.js?v=grounded-rig3";
+import { createAvatarRenderer } from "/shared/avatar-renderer.js?v=lifecycle11";
 
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
@@ -14,7 +14,11 @@ let selectedStage = "isolate";
 let busy = false;
 let previewUrls = [];
 let backgroundUrl;
-const renderer = createAvatarRenderer($("#avatar"));
+const renderer = createAvatarRenderer($("#avatar"), {onError: error => {
+  $("#empty-preview").textContent = "描画に失敗しました。キャラクターを選び直してください。";
+  $("#empty-preview").hidden = false;
+  log("描画エラー: " + error.message);
+}});
 
 function log(message) {
   $("#log").textContent = typeof message === "string" ? message : JSON.stringify(message, null, 2);
@@ -92,6 +96,8 @@ function renderCharacters() {
       if (selected?.stages?.rig2d?.status === "complete") {
         action(loadPreview);
       } else {
+        renderer.clear();
+        $("#empty-preview").textContent = "完成キャラクターを選ぶと2.5Dプレビューを表示します。";
         $("#empty-preview").hidden = false;
       }
     });
@@ -155,7 +161,11 @@ function bytesUrl(bytes, type) {
 }
 
 async function loadPreview(expressionKey) {
+  renderer.clear();
+  $("#empty-preview").textContent = "プレビューを読み込み中です。";
+  $("#empty-preview").hidden = false;
   const character = requireCharacter();
+  try {
   const expression = expressionKey ?? $("#preview-expression").value;
   const mouth = $("#preview-mouth").value;
   const assets = await invoke("load_preview_assets", {
@@ -173,7 +183,7 @@ async function loadPreview(expressionKey) {
     previewUrls.push(url);
     partUrls[name] = url;
   }
-  await renderer.applyState({
+  const applied = await renderer.applyState({
     rigUrl,
     partUrls,
     expressionKey: expression,
@@ -186,7 +196,14 @@ async function loadPreview(expressionKey) {
     idleSwayPeriodMs: config.avatar.idle_sway_period_ms,
     ...framing(),
   });
-  $("#empty-preview").hidden = true;
+  if(applied!==false)$("#empty-preview").hidden = true;
+  } catch(error) {
+    renderer.clear();
+    previewUrls.forEach(url=>URL.revokeObjectURL(url));previewUrls=[];
+    $("#empty-preview").textContent = "プレビューの読み込みに失敗しました: " + error.message;
+    $("#empty-preview").hidden = false;
+    throw error;
+  }
 }
 
 $("#create").addEventListener("click", () => action(async () => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mouthGeometry,drawMouth,lipMesh} from '../ui/shared/mouth-geometry.js';
+import {mouthGeometry,drawMouth,lipMesh,MOUTH_PRESETS} from '../ui/shared/mouth-geometry.js';
 
 test('2軸の全域で輪郭と口角が有限で上下が交差しない',()=>{
   for(let o=0;o<=100;o++)for(let f=-100;f<=100;f++) {
@@ -24,6 +24,16 @@ test('不正な測定値を固定座標で補わない',()=>{
   for(const box of [null,[0,0,0,0],[0,0,NaN,10]])assert.throws(()=>mouthGeometry(box,0,0));
   assert.throws(()=>mouthGeometry([0,0,30,10],NaN,0));
   assert.throws(()=>drawMouth({},[0,0,30,10],0,0,null));
+});
+
+test('あは十分に開き、他の固定母音へ開口補正を漏らさない',()=>{
+  const layer={texture_box:[0,0,100,100],feature_box:[25,35,75,55],lip_seam:[[25,45],[50,45],[75,45]]};
+  for(const [name,[open,form]] of Object.entries(MOUTH_PRESETS)) {
+    const mesh=lipMesh(layer,open,form),gap=mesh.lower[2][0][1]-mesh.upper[2][1][1];
+    const roundness=Math.max(0,-form);
+    const expected=name==='a'?50*.58:50*(.42+.12*roundness)*open*(1-.2*form);
+    assert.ok(Math.abs(gap-expected)<1e-9,name);
+  }
 });
 
 test('上下唇メッシュは中立時に原画と一致し、外周を動かさない',()=>{

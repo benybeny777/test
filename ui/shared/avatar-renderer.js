@@ -9,7 +9,18 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
 export function randomBlinkDelay(state,random=Math.random){const low=state.blinkMinMs??2800;return low+random()*Math.max(0,(state.blinkMaxMs??6500)-low);}
 
-export function createAvatarRenderer(canvas){
+export function validateRenderBounds(rig){
+  const {width,height}=rig.canvas??{};
+  if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)throw new Error('描画キャンバスの寸法が不正です');
+  for(const name of ['face','scene_neck','left_arm','right_arm']){
+    const box=rig.layers?.[name]?.bbox;
+    if(!Array.isArray(box)||box.length!==4||!box.every(Number.isFinite)||
+       box[0]<0||box[1]<0||box[2]>width||box[3]>height||box[0]>=box[2]||box[1]>=box[3])
+      throw new Error('描画に必要な部位範囲が不正です: '+name);
+  }
+}
+
+export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
   const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
   renderer.setClearColor(0,0);renderer.setPixelRatio(devicePixelRatio||1);
   const scene=new THREE.Scene(),group=new THREE.Group();scene.add(group);
@@ -22,12 +33,16 @@ export function createAvatarRenderer(canvas){
   function release(){
     for(const mesh of meshes){group.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
     for(const texture of textures)texture.dispose();
-    meshes=[];textures=[];images.clear();faceTexture=null;faceAlpha=null;rig=null;
+    meshes=[];textures=[];images.clear();faceTexture=null;faceAlpha=null;rig=null;positions=null;worldUV=null;
+    faceCanvas.width=faceCanvas.height=0;
   }
   async function applyState(next){
+    if(disposed)throw new Error('破棄済みの描画画面には読み込めません');
     const token=++revision;
     if(next.rigUrl!==state.rigUrl||!rig){
       const incoming=await loadLocalJson(next.rigUrl);
+      if(disposed||token!==revision)return false;
+      validateRenderBounds(incoming);
       if(incoming.schema_version!==3||incoming.eye_rig_version!==3||incoming.lip_rig_version!==1||incoming.scene_graph_version!==1)
         throw new Error('独立部位または目口の素材がない旧リグです。分解から再生成してください');
       const graph=incoming.scene_graph;
@@ -47,7 +62,7 @@ export function createAvatarRenderer(canvas){
         if(!box||image.naturalWidth!==box[2]-box[0]||image.naturalHeight!==box[3]-box[1])throw new Error('素材寸法が一致しません: '+name);
         return [name,image];
       }));
-      if(disposed||token!==revision)return;
+      if(disposed||token!==revision)return false;
       release();rig=incoming;images=new Map(loaded);
       const {width:w,height:h}=rig.canvas;
       const template=new THREE.PlaneGeometry(w,h,64,96);
@@ -77,7 +92,10 @@ export function createAvatarRenderer(canvas){
       template.dispose();lastAppearance='';nextBlink=performance.now()+randomBlinkDelay(next);
     }
     state={...next};
+    return true;
   }
+  // 次の資産取得を待たず、古い読込と表示を無効化する。
+  function clear(){if(disposed)return;++revision;release();state={};renderer.clear();}
   function appearance(left,right,open,form){
     const repair=rig.hidden_motion?.repair_layer;
     const repairAmount=hiddenRepairAmount(rig.hidden_motion,state.yaw??0,state.pitch??0,state.showHiddenMaterial!==false);
@@ -98,6 +116,7 @@ export function createAvatarRenderer(canvas){
   }
   function render(now){
     if(disposed)return;
+    try{
     if(rig){
       const phase=(now-nextBlink)/Math.max(1,state.blinkDurationMs??180);
       const blink=state.expressionKey==='blink'?1:phase>=0&&phase<=1?Math.sin(phase*Math.PI):0;
@@ -135,9 +154,17 @@ export function createAvatarRenderer(canvas){
       group.scale.setScalar(Math.min(cw/w,ch/h)*(state.scale??1));group.position.set(state.offsetX??0,-(state.offsetY??0),0);
       renderer.render(scene,camera);
     }
-    frame=requestAnimationFrame(render);
+    }catch(error){
+      const failedUrl=state.rigUrl;
+      release();state={};
+      renderer.clear();
+      onError(error,{rigUrl:failedUrl});
+    }finally{
+      // 失敗時は空画面で待ち、次の正常なキャラ読込で描画を再開できる。
+      if(!disposed)frame=requestAnimationFrame(render);
+    }
   }
   function dispose(){disposed=true;++revision;cancelAnimationFrame(frame);observer.disconnect();release();renderer.dispose();renderer.forceContextLoss();faceCanvas.width=faceCanvas.height=0;}
   frame=requestAnimationFrame(render);
-  return {applyState,dispose};
+  return {applyState,clear,dispose};
 }
