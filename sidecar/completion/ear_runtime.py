@@ -5,9 +5,37 @@ import numpy as np
 from scipy import ndimage
 
 
+class EarSelectionError(ValueError):
+    """既存の選別失敗に、成功キャッシュとは別に保存する根拠を添える。"""
+    def __init__(self,message,diagnostics):
+        super().__init__(message)
+        self.ear_diagnostics=diagnostics
+
+
+def ear_selection_diagnostics(detections):
+    details={'stage':'ear_box_selection','detections':detections,'sides':{},
+             'candidate_scope':'設定閾値を通過してDINO後処理が返した候補。閾値未満の候補は含まない。'}
+    if not detections.get('face'):
+        details['reason']='face_not_detected';return details
+    face=max(detections['face'],key=lambda pair:pair[1])[0];cx=(face[0]+face[2])/2
+    details['selected_face']=face;details['max_ear_width_exclusive']=(face[2]-face[0])*.6
+    for left,name in ((True,'left'),(False,'right')):
+        entries=[];eligible=[]
+        for index,(box,score) in enumerate(detections.get('ear',[])):
+            reasons=[]
+            if (((box[0]+box[2])/2<cx)!=left):reasons.append('opposite_side')
+            if not 0<box[2]-box[0]<(face[2]-face[0])*.6:reasons.append('width_out_of_range')
+            entries.append({'index':index,'box':box,'score':score,'rejections':reasons})
+            if not reasons:eligible.append(index)
+        winner=max(eligible,key=lambda index:detections['ear'][index][1]) if eligible else None
+        details['sides'][name]={'candidates':entries,'selected_index':winner,
+            'status':'selected' if winner is not None else 'missing_after_selection'}
+    return details
+
+
 def choose_ears(detections, source_reference):
     if not detections.get('face'):
-        raise ValueError('耳解析対象の顔を検出できません')
+        raise EarSelectionError('耳解析対象の顔を検出できません',ear_selection_diagnostics(detections))
     face = max(detections['face'], key=lambda pair: pair[1])[0]
     cx = (face[0]+face[2])/2
     boxes = []
@@ -17,7 +45,7 @@ def choose_ears(detections, source_reference):
                       if ((box[0]+box[2])/2 < cx) == left and 0 < box[2]-box[0] < (face[2]-face[0])*.6]
         if not candidates:
             if not source_reference:
-                raise ValueError('生成耳を左右とも検出できません。固定座標で補いません')
+                raise EarSelectionError('生成耳を左右とも検出できません。固定座標で補いません',ear_selection_diagnostics(detections))
             boxes.append(None)
         else:
             boxes.append(max(candidates, key=lambda pair: pair[1]))

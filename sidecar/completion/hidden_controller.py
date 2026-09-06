@@ -6,11 +6,31 @@ from io import BytesIO
 from pathlib import Path
 import shutil
 import uuid
+import os
 import numpy as np
 from PIL import Image
 from output_transaction import directory_output
 from hidden_jobs import JOBS, generation_identity
 from raw_reuse import open_raw,pin_generated
+from reference_store import safe as safe_path
+
+
+def save_ear_failure(cache,identity,error):
+    """生成耳の選別失敗を診断へ保存する。manifest/masksには触れない。"""
+    details=getattr(error,'ear_diagnostics',None)
+    if details is None:return
+    # 公開世代と同じ、未作成の末端から全祖先までのreparse/junction検査を使う。
+    root=safe_path(cache.parent/'temp')
+    root.mkdir(exist_ok=True)
+    destination=safe_path(root/('ear-analysis-failure-'+uuid.uuid4().hex))
+    destination.mkdir()
+    record={'status':'failed','error':str(error),'identity':identity,'diagnostics':details}
+    staging=safe_path(destination/'failure.json.part')
+    with staging.open('w',encoding='utf-8') as stream:
+        json.dump(record,stream,ensure_ascii=False,indent=2);stream.flush();os.fsync(stream.fileno())
+    target=safe_path(destination/'failure.json')
+    os.replace(safe_path(staging),target)
+    return target
 
 
 def digest(path):
@@ -134,7 +154,17 @@ def ear_analysis(cache, image, source_reference, parser_identity, segment, asser
     assert_comfy_stopped(); guard()
     with Image.open(image) as opened:
         original = opened.convert('RGB')
-    masks, details = segment(original, source_reference)
+    try:
+        masks, details = segment(original, source_reference)
+    except ValueError as error:
+        try:
+            diagnostic_path=save_ear_failure(cache,identity,error)
+        except Exception as diagnostic_error:
+            raise RuntimeError(f'{error}\n耳解析の失敗診断も保存できません: {diagnostic_error}') from error
+        if diagnostic_path is not None:
+            error.ear_diagnostic_path=str(diagnostic_path)
+            error.args=(str(error)+'\n耳解析の失敗診断: '+str(diagnostic_path),)
+        raise
     if len(masks) != 2 or any(mask.dtype != bool or mask.shape != (original.height, original.width) for mask in masks):
         raise ValueError('耳解析の出力が原寸左右マスクではありません')
     if not source_reference and any(not mask.any() for mask in masks):
