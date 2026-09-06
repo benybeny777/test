@@ -1,10 +1,32 @@
 # DEVELOPMENT.md — 開発・ビルド・配布
 
+## 通常の局所補完
+
+現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の局所閉眼を適用した最終リグを`rig2d/`へ分離する。口は現状承認済みで、この工程から描き直さない。PicoAgent本体への組み込み、OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。
+
+```powershell
+cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>
+cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> rig2d
+cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> complete
+```
+
+`sidecar/completion/generate.py`はRustから呼ぶ製品サイドカーであり、`tools/qwen-eval/`の比較入口とは分離する。`sidecar/completion/models.json`の固定重みを検査し、管理下ComfyUIだけを127.0.0.1で起動する。カスタムノード・APIノードを無効にし、既存利用者ComfyUIの追加モデル設定を読まない。Pythonは共有3.12環境を使い、GPU処理を並行起動しない。
+
+モデル配置は`ai.models_dir`基準の`ai.completion_model_dir`（既定`models/qwen-eval/`）。開発取得入口は`cargo xtask setup completion`で、`tools/setup-completion-models.py`が採用済みImage-Edit・共通テキストエンコーダ・VAEの3ファイルだけを固定SHA検査後に配置する。既存の同一重みは再取得しない。比較用の`tools/qwen-eval/download.py`はLayeredを含む5ファイルの別入口であり、通常セットアップには使わない。モック取得検査とcargo checkは通過したが、新規環境への実ダウンロード・配布セットアップの検証は別途必要である。
+
+設定画面の「Qwen局所補完の設定」から保存し、次回の補完で読む。全キー・範囲・既定値は[SETTINGS.md](SETTINGS.md)を正本とする。原寸頭部ROIの目マスクだけを編集し、拡大素材を採用しない。このPCの比較実測では閉眼1体約15〜18分、RSS最大約16.3 GB・GPU全体最大約7.6 GB。通常入口の実走・全キャラ品質の証明とは分ける。
+
+`rig2d/completion.json`へ入力原画・透過原画・解析・基底リグ・固定モデル・コード・ワークフロー・生成条件の署名と出力SHAを記録する。同じ署名でも出力が改変されていたら明示失敗とし、生成中の入力変更も公開前に拒否する。マスク外画素を検査し、許可された閉眼素材以外を変更しない。失敗時は旧完成出力を保持して理由を画面に出す。成功後に処理専用一時ディレクトリを除去し、失敗時は`character/temp/`に診断を残す。
+
+以下の補完候補の節は比較履歴の再現手順であり、生成済み候補を通常完成出力へ手動コピーする入口ではない。通常入口の検証では同条件で複数原画を通し、原画保持、半閉眼、口パク、首・襟、透過を実表示で確認する。
+
 Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを行う。Node.js は不要。
 
 描画の開発用回帰検査は `node --test tools/test-mouth-geometry.mjs tools/test-eye-geometry.mjs tools/test-rig-motion.mjs tools/test-texture-alpha.mjs tools/test-avatar-lifecycle.mjs tools/test-native-scene-batch.mjs`。Node.jsは作業用のみ。同じ変位場の連続部位を`native-scene-batch.js`で原寸合成し、hidden_face/独立髪は境界として順序を保つ。顔のCPU再合成範囲と、GPUへ転送する合成テクスチャ全体を混同しない。口内の上歯はクリップ内・原画の唇より奥に描き、閉口と丸めた母音の回帰を検査する。
 
 ## 補完候補を従来の動作確認へ追加する
+
+確認サーバーの`/api/normal-characters`は通常4工程を完了し`completion.json`があるキャラのID・表示名だけを列挙する。確認画面は再読込時に選択肢へ追加し、内部設定やプロンプトは一覧へ出さない。素材ロード後に完了世代を再照合してから表示する。これはPipelineContextが先に状態を更新する前提の世代検査で、独立したsidecar直接実行との原子的な読取保証ではない。
 
 閉眼比較版7は、暗線の8近傍成分から列の局所厚さ・連続横幅・成分保持率を検査し、傾きや目尻の長い枝を全体高さだけで拒否しない。`curve_detection`へ採用列数・厚さ・測定範囲を残す。eye_baseは生成済みの肌を使い、検出線と縁だけを周囲の肌から調和補間して線を分離する。参照肌不足・暗線除去失敗は拒否し、`skin_reconstruction`へ範囲と明度差を記録する。白目用eye_backplateは肌へ変えない。`sidecar/.venv/Scripts/python.exe tools/qwen-eval/test_closed_preview.py`で採用・拒否・保護領域・素材分離を検査する。既存候補を上書きせず署名版を変更する。
 
@@ -167,8 +189,8 @@ PowerShell を使う場合は **PowerShell 7 の `pwsh`** を既定にする。�
 ```
 src-tauri/   Rust本体（設定・パイプライン・フェイスパッチ・リップシンク・配信・サイドカー制御）
 ui/          操作UI（webview）。ui/shared/ に three.js 描画コードを置く
-ui-stream/   OBSブラウザソース用ページ（UIなし・透過）。ui/shared/ を共有する
-sidecar/     Python 3.12（背景・表情、画像→3D、リギング）
+ui-stream/   旧OBS試作の説明（現行対象外。現行確認画面はui/check.html）
+sidecar/     Python 3.12（分解・2.5Dリグ・局所補完。旧3D試作も保持）
 docs/        ドキュメント
 xtask/       開発タスク
 temp/        一時作成物のみ。.gitignore 済み
@@ -182,6 +204,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask setup comfy` | 同梱 ComfyUI 本体・ワークフローと、監査済みの場合だけカスタムノード固定版を用意 |
 | `cargo xtask setup sidecar` | Python 3.12 ランタイムと依存を用意（**CUDA wheel は対応GPU検出時のみ**） |
 | `cargo xtask setup models` | モデルを取得 |
+| `cargo xtask setup completion` | 採用済みQwen局所補完の3モデルだけを取得し固定SHAを検証。Layeredは取得しない |
 | `cargo xtask setup sam2` | SAM 2.1 Hiera Tinyだけを固定リビジョンから取得し、全4ファイルのSHA-256を検証 |
 | `cargo xtask dev` | 開発起動 |
 | `cargo xtask build` | 配布ビルド |
@@ -191,7 +214,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask mesh --input <png> --output <dir>` | anime-segで背景除去し、TripoSRで2048² UVアトラス付きGLBを単発生成 |
 | `cargo xtask rig --input <glb> --output <dir> --name <表示名>` | A/Tポーズを検査し、19ボーンとheat diffusionウェイトを持つVRMを単発生成 |
 | `cargo run -p local-vtuber-studio --bin lipsync-probe` | 既定マイクを3秒だけ16kHzへ変換し、FFT判定窓を検査して停止 |
-| `cargo run -p local-vtuber-studio --bin stream-probe` | 透過OBSページを58090〜58099の空きポートで30秒配信し、女性3体の状態を切替 |
+| `cargo run -p local-vtuber-studio --bin stream-probe` | 旧OBS試作の記録。現行検証では使わず、ui/check.htmlを使用 |
 | `cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>` | 開発用にアプリと同じRustパイプラインをヘッドレス完走 |
 | `cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> <stage>` | 既存キャラの選択工程だけを再実行 |
 | `cargo run -p local-vtuber-studio --bin pipeline-probe -- --background <characterId> <backgroundId> "<prompt>"` | アプリと同じComfyUI管理経路でローカル背景を実生成 |

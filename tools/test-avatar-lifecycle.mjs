@@ -68,7 +68,7 @@ test('確認画面は旧ロード完了で次のキャラの待機・失敗画�
     createAvatarRenderer:()=>({clear(){},dispose(){},applyState(){entered.resolve();return old.promise;}}),
     loadLocalJson:async url=>url.includes('c_190454c86edb')?next.promise:
       url.includes('character.json')?{stages:{rig2d:{status:'complete',updatedAtIso:'now'}}}:rig()};
-  const api=vm.runInNewContext(source('check.js').replace('await load();','')+'\n({load});',env);
+  const api=vm.runInNewContext(source('check.js').replace('await initialize();','')+'\n({load});',env);
   node('#character').value='c_2700e1166676';applied=api.load();await entered.promise;
   node('#character').value='c_190454c86edb';const newer=api.load();
   old.resolve(true);await applied;

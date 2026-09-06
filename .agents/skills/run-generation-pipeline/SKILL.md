@@ -17,12 +17,15 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> <s
 cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> <stage>
 ```
 
-- 工程を isolate → decompose → rig2d の順に実行し、前段をディスクへ確定してから次へ進む。
+- 工程を isolate → decompose → rig2d → complete の順に実行し、前段をディスクへ確定してから次へ進む。
 - source/input.png は上書き・削除しない。
 - isolate は元のキャンバスを保つ。入力に明示された透過があれば保持し、不透明画像には背景除去を実行する。
 - decompose は承認済み固定版Grounding DINO baseで意味領域を検出し、SAM 2.1 Hiera Tinyで原寸マスクを求める。`cargo xtask setup grounding`で取得し、モデルを逐次ロードする。未検出を固定座標で補わない。analysis.jsonに候補と選別結果を保存する。
 - 目のSAM局所ROIはai.eye_context_marginから求める。解析署名の版2とsampling_regionを確認し、余白変更後に旧マスクを再利用しない。原寸のまつげ・髪・肌の境界を比較する。
 - rig2d は版2 manifestの座標と差分を lvs-anime25d-v1 の版3リグへ引き継ぐ。必須中立画像、実測座標、原寸で切詰めたtexture_boxを確認する。版2リグは再生成する。
+- rig2dの出力先はrig2d-base/とし、未補完リグを完成扱いしない。completeで利用者採用承認済みQwen-Image-Edit-2511を管理下ComfyUIで実行し、原寸の目だけを局所編集してrig2d/へ公開する。DINO/SAMと承認済みの口は維持し、Layeredや別モデルへ無断変更しない。
+- completeはsidecar/completion/generate.pyをRust経由で呼び、ai.completion_*と既存comfy設定を次回処理時に読む。モデル固定SHA、マスク外画素保持、入力原画/解析/基底リグの公開前SHAを検査する。completion.jsonの入力・条件・出力署名が一致する場合だけキャッシュを再利用する。出力欠損・改変は失敗にする。
+- 比較実測の閉眼1体約15〜18分を通常入口の実走実績に読み替えない。実走・目視の状態を分けて記録する。
 - 唇の分割にはmouth_closed.lip_seamとlip_rig_version: 1が必要。旧リグはdecomposeから再生成する。原画の唇は拡大素材や塗り直した色面へ差し替えず、上下メッシュの中立座標が原画と一致することを検査する。
 - 目にはeye_rig_version: 3、左右のeye_base/eyelid_upperとeye_aperture、eye_iris/eye_remainder/eye_backplateが必要。相補分割と白目補完の可視画素保持を検査する。旧リグはdecomposeから再生成する。
 - scene_graph_version: 1の独立素材と親子関係を検査する。表情領域が顔に含まれ、元の目が未分類素材に残らないことを閉眼表示で検証する。所有画素の完全被覆と隠れ領域の補完を混同しない。
@@ -34,7 +37,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 
 ## 再実行と診断
 
-入力を変えたら新キャラとして全工程を実行する。部位分類・目口検出・差分生成を変えたら decompose 以降を、リグ定義だけなら rig2d を再実行する。古いリグが新方式へ黙って混在しないよう形式版を検証する。
+入力を変えたら新キャラとして全工程を実行する。部位分類・目口検出・差分生成を変えたら decompose 以降を、リグ定義だけなら rig2d 以降を、局所補完条件だけなら complete を再実行する。古いリグが新方式へ黙って混在しないよう形式版と補完署名を検証する。
 
 再実行前に旧成果物を削除しない。分解・リグの正規入口はoutput_transactionで生成・公開を保護する。出力先の親のtemp/にあるpending/previousを手作業で消さず、次回の同じ工程の開始時に復旧させる。生成失敗、公開rename失敗、中断後の復旧をsidecar/test_output_transaction.pyで検査する。二段階renameは表示読者まで保護する原子的な世代切替ではないため、同時読み込みの保証を主張しない。
 

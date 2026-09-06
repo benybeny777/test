@@ -18,6 +18,21 @@ STATIC={'/ui/check.html','/ui/check.js','/ui/qwen-check.html','/ui/qwen-check.js
 ASSET=re.compile(r'/temp/t7-characters/c_[0-9a-f]{12}/(?:character\.json|source/input\.png|rig2d/rig\.json|rig2d/parts/[a-z_]+\.png)')
 
 
+def normal_characters(root=ROOT):
+    """通常補完を完了したキャラの表示名だけを返し、内部設定は列挙しない。"""
+    result=[]
+    directory=root/'temp/t7-characters'
+    for path in sorted(directory.glob('c_*/character.json')):
+        if not re.fullmatch(r'c_[0-9a-f]{12}',path.parent.name):continue
+        if not path.resolve().is_relative_to(directory.resolve()):continue
+        character=json.loads(path.read_text(encoding='utf-8'))
+        if not character.get('model',{}).get('rig2d_base'):continue
+        if character.get('stages',{}).get('complete',{}).get('status')!='complete':continue
+        if not (path.parent/'rig2d/completion.json').is_file():continue
+        result.append({'id':path.parent.name,'name':str(character['displayName'])})
+    return result
+
+
 def comparisons(root=ROOT):
     """比較レポートに記録された画像だけを公開し、ログやモデルは出さない。"""
     rows=[];assets={}
@@ -67,6 +82,18 @@ def resolve_asset(url,root=ROOT):
 class PreviewHandler(http.server.SimpleHTTPRequestHandler):
     """任意のリポジトリファイルの配信を拒否する。"""
     def send_head(self):
+        if urlsplit(self.path).path=='/api/normal-characters':
+            from io import BytesIO
+            try:
+                data=json.dumps({'characters':normal_characters()},ensure_ascii=False).encode('utf-8')
+            except (OSError,ValueError,KeyError,TypeError):
+                self.send_error(500,'Character index is invalid')
+                return None
+            self.send_response(200)
+            self.send_header('Content-Type','application/json; charset=utf-8')
+            self.send_header('Content-Length',str(len(data)))
+            self.end_headers()
+            return BytesIO(data)
         if urlsplit(self.path).path=='/api/qwen-comparisons':
             from io import BytesIO
             data=json.dumps({'runs':comparisons()[0]},ensure_ascii=False).encode('utf-8')

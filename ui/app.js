@@ -6,13 +6,15 @@ const $ = (selector) => document.querySelector(selector);
 const stages = [
   ["isolate", "1 背景除去"],
   ["decompose", "2 SAM 2.1レイヤー分解"],
-  ["rig2d", "3 2.5Dリグ"],
+  ["rig2d", "3 補完前2.5Dリグ"],
+  ["complete", "4 原寸の局所閉眼補完"],
 ];
 let characters = [];
 let selected;
 let selectedStage = "isolate";
 let busy = false;
 let previewUrls = [];
+let previewGeneration = 0;
 let backgroundUrl;
 const renderer = createAvatarRenderer($("#avatar"), {onError: error => {
   $("#empty-preview").textContent = "描画に失敗しました。キャラクターを選び直してください。";
@@ -73,6 +75,10 @@ async function refresh() {
   $("#eye-context-margin").value = config.ai.eye_context_margin;
   $("#sam-iou").value = config.ai.sam2_pred_iou_threshold;
   $("#sam-stability").value = config.ai.sam2_stability_threshold;
+  for (const key of ["model_dir", "steps", "seed", "resolution", "mask_margin", "timeout_seconds"]) {
+    $("#completion-" + key).value = config.ai["completion_" + key];
+  }
+  $("#completion-fast_disk").checked = config.ai.completion_fast_disk;
   characters = await invoke("list_characters");
   if (selected) {
     selected = characters.find((value) => value.characterId === selected.characterId);
@@ -93,7 +99,7 @@ function renderCharacters() {
       selected = character;
       renderCharacters();
       renderSelected();
-      if (selected?.stages?.rig2d?.status === "complete") {
+      if (previewReady(selected)) {
         action(loadPreview);
       } else {
         renderer.clear();
@@ -161,9 +167,10 @@ function bytesUrl(bytes, type) {
 }
 
 async function loadPreview(expressionKey) {
-  renderer.clear();
+  const token = ++previewGeneration;
+  let pendingUrls = [];
   $("#empty-preview").textContent = "プレビューを読み込み中です。";
-  $("#empty-preview").hidden = false;
+  $("#empty-preview").hidden = previewUrls.length > 0;
   const character = requireCharacter();
   try {
   const expression = expressionKey ?? $("#preview-expression").value;
@@ -173,14 +180,15 @@ async function loadPreview(expressionKey) {
     expressionKey: expression,
     mouthKey: mouth,
   });
+  if (token !== previewGeneration) return;
   const config = await invoke("get_config");
-  previewUrls.forEach((url) => URL.revokeObjectURL(url));
+  if (token !== previewGeneration) return;
   const rigUrl = bytesUrl(assets.rig, "application/json");
   const partUrls = {};
-  previewUrls = [rigUrl];
+  pendingUrls = [rigUrl];
   for (const [name, bytes] of Object.entries(assets.parts)) {
     const url = bytesUrl(bytes, "image/png");
-    previewUrls.push(url);
+    pendingUrls.push(url);
     partUrls[name] = url;
   }
   const applied = await renderer.applyState({
@@ -196,13 +204,19 @@ async function loadPreview(expressionKey) {
     idleSwayPeriodMs: config.avatar.idle_sway_period_ms,
     ...framing(),
   });
-  if(applied!==false)$("#empty-preview").hidden = true;
+  if (token !== previewGeneration || applied === false) return;
+  const previousUrls = previewUrls;
+  previewUrls = pendingUrls;
+  pendingUrls = [];
+  previousUrls.forEach(url => URL.revokeObjectURL(url));
+  $("#empty-preview").hidden = true;
   } catch(error) {
-    renderer.clear();
-    previewUrls.forEach(url=>URL.revokeObjectURL(url));previewUrls=[];
+    if (token !== previewGeneration) return;
     $("#empty-preview").textContent = "プレビューの読み込みに失敗しました: " + error.message;
-    $("#empty-preview").hidden = false;
+    $("#empty-preview").hidden = previewUrls.length > 0;
     throw error;
+  } finally {
+    pendingUrls.forEach(url => URL.revokeObjectURL(url));
   }
 }
 
@@ -221,7 +235,7 @@ $("#create").addEventListener("click", () => action(async () => {
 $("#refresh").addEventListener("click", () => action(refresh));
 $("#run-all").addEventListener("click", () => action(async () => {
   const character = requireCharacter();
-  log("全工程を開始しました。数分かかります。");
+  log("全工程を開始しました。原寸の局所補完には、このPCの比較実績で約15〜18分かかります。");
   selected = await invoke("run_full_pipeline", { characterId: character.characterId });
   await refresh();
   await loadPreview();
@@ -318,6 +332,24 @@ $("#save-sam-batch").addEventListener("click", () => action(async () => {
   await invoke("save_config", {config});
   log("保存しました。次回のレイヤー分解から反映します。");
 }));
+$("#save-completion").addEventListener("click", () => action(async () => {
+  const config = await invoke("get_config");
+  const modelDir = $("#completion-model_dir").value.trim();
+  if (!modelDir) throw new Error("局所補完モデルの保存先を指定してください");
+  config.ai.completion_model_dir = modelDir;
+  for (const [key, min, max] of [["steps", 1, 100], ["seed", 0, 4294967295], ["resolution", 256, 4096], ["timeout_seconds", 1, 4294967295]]) {
+    const value = Number($("#completion-" + key).value);
+    if (!Number.isInteger(value) || value < min || value > max) throw new Error(`局所補完の${key}は${min}〜${max}の整数です`);
+    config.ai["completion_" + key] = value;
+  }
+  if (config.ai.completion_resolution % 16 !== 0) throw new Error("局所補完のROI上限は16の倍数で指定してください");
+  const margin = Number($("#completion-mask_margin").value);
+  if (!Number.isFinite(margin) || margin <= 0 || margin > .5) throw new Error("局所補完のマスク余白は0超〜0.5で指定してください");
+  config.ai.completion_mask_margin = margin;
+  config.ai.completion_fast_disk = $("#completion-fast_disk").checked;
+  await invoke("save_config", {config});
+  log("局所補完設定を保存しました。再起動せず次回の局所補完から反映します。");
+}));
 const unlistenPipeline = await listen("pipeline-progress", (event) => log(event.payload));
 addEventListener("beforeunload", () => {
   unlistenPipeline();
@@ -326,6 +358,12 @@ addEventListener("beforeunload", () => {
   renderer.dispose();
 });
 await action(refresh);
-if (selected?.stages?.rig2d?.status === "complete") {
+if (previewReady(selected)) {
   await action(loadPreview);
+}
+
+function previewReady(character) {
+  // フォールバック許可: 補完工程導入前の保存済みキャラは既存リグを保持して表示する。
+  return character?.stages?.complete?.status === "complete" ||
+    (!character?.model?.rig2d_base && character?.stages?.rig2d?.status === "complete");
 }

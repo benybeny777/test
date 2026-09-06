@@ -7,8 +7,8 @@ export function localAssetUrl(source) {
   return url;
 }
 
-export async function loadLocalJson(source) {
-  const response = await fetch(localAssetUrl(source), {redirect: "error"});
+export async function loadLocalJson(source, {signal, cache} = {}) {
+  const response = await fetch(localAssetUrl(source), {redirect: "error", signal, cache});
   if (!response.ok) throw new Error("リグを読み込めません");
   return response.json();
 }

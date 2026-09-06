@@ -47,6 +47,7 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
         "setup" if args.get(1).map(String::as_str) == Some("sam2") => setup_sam2(),
         "setup" if args.get(1).map(String::as_str) == Some("grounding") => setup_grounding(),
+        "setup" if args.get(1).map(String::as_str) == Some("completion") => setup_completion(),
         "setup" if args.get(1).map(String::as_str) == Some("engines") => setup_engines(),
         "expression" => run_expression(&args[1..]),
         "expression-import" => run_expression_import(&args[1..]),
@@ -71,7 +72,7 @@ fn main() -> Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup sam2|setup grounding|setup engines>"
+                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup sam2|setup grounding|setup completion|setup engines>"
             );
             Ok(())
         }
@@ -244,6 +245,23 @@ fn setup_models() -> Result<()> {
     )?;
     setup_sam2()?;
     setup_grounding()
+}
+
+fn setup_completion() -> Result<()> {
+    if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        bail!("閉眼補完モデルは現在 Windows x64 専用です");
+    }
+    let root = root()?;
+    check_cuda_gpu(&root)?;
+    let python = root.join("sidecar/.venv/Scripts/python.exe");
+    if !python.exists() {
+        bail!("共有 Python 環境がありません。cargo xtask setup sidecar を実行してください");
+    }
+    run_at(
+        &root,
+        &python,
+        [OsStr::new("tools/setup-completion-models.py")],
+    )
 }
 
 fn setup_grounding() -> Result<()> {

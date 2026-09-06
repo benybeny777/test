@@ -15,6 +15,13 @@
 | キー | 型 | 既定値 | 環境変数 | 検証範囲 | 実行中反映 |
 |---|---|---|---|---|---|
 | `ai.blink_denoise` | f32 | 0.85 | `LVS_AI_BLINK_DENOISE` | 0〜1 | 次回生成 |
+| `ai.completion_model_dir` | path | `qwen-eval` | `LVS_AI_COMPLETION_MODEL_DIR` | 空文字不可。相対指定は `ai.models_dir` 基準。承認済みQwen-Image-Edit-2511の重み配置先 | 次回局所補完 |
+| `ai.completion_steps` | u32 | 50 | `LVS_AI_COMPLETION_STEPS` | 1〜100。局所補完の推論ステップ数 | 次回局所補完 |
+| `ai.completion_seed` | u32 | 777 | `LVS_AI_COMPLETION_SEED` | 0〜4294967295。局所補完の再現用シード | 次回局所補完 |
+| `ai.completion_resolution` | u32 | 1024 | `LVS_AI_COMPLETION_RESOLUTION` | 256〜4096の16倍数。原寸ROIの上限。引き伸ばし拡大はしない | 次回局所補完 |
+| `ai.completion_mask_margin` | f32 | 0.2 | `LVS_AI_COMPLETION_MASK_MARGIN` | 0超〜0.5。検出領域の幅・高さに対する編集マスク余白の倍率 | 次回局所補完 |
+| `ai.completion_timeout_seconds` | u32 | 14400 | `LVS_AI_COMPLETION_TIMEOUT_SECONDS` | 1以上。局所補完の推論タイムアウト（秒） | 次回局所補完 |
+| `ai.completion_fast_disk` | bool | true | `LVS_AI_COMPLETION_FAST_DISK` | 高速ディスクへのモデル退避を利用。処理速度とメモリ使用量に影響 | 次回局所補完 |
 | `ai.image_denoise` | f32 | 0.65 | `LVS_AI_IMAGE_DENOISE` | 0〜1 | 次回生成 |
 | `ai.llm_model` | string | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | `LVS_AI_LLM_MODEL` | 空文字不可 | 次回会話 |
 | `ai.mesh_model` | string | `triposr` | `LVS_AI_MESH_MODEL` | 空文字不可 | 次回生成 |

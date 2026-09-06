@@ -25,7 +25,7 @@ use crate::{
     store,
 };
 
-pub const STAGES: &[&str] = &["isolate", "decompose", "rig2d"];
+pub const STAGES: &[&str] = &["isolate", "decompose", "rig2d", "complete"];
 const BUILT_IN_EXPRESSIONS: &[(&str, &str, &str)] = &[
     ("smile", "笑顔", "smile, happy"),
     ("blink", "閉眼", "both eyelids shut"),
@@ -443,6 +443,11 @@ impl PipelineContext {
         validate_stage_input(&manifest, stage)?;
         let directory = self.character_dir(id)?;
         invalidate_from_stage(&mut manifest, &directory, stage)?;
+        if stage == "rig2d" || stage == "complete" {
+            manifest
+                .model
+                .insert("rig2d_base".into(), "rig2d-base/rig.json".into());
+        }
         set_stage(&mut manifest, stage, "running", "実行中");
         self.save_character(&manifest)?;
         let result = match stage {
@@ -450,6 +455,7 @@ impl PipelineContext {
             "mesh" => self.run_mesh(app, config, &manifest),
             "decompose" => self.run_decompose(app, config, &manifest),
             "rig2d" => self.run_rig2d(app, &manifest),
+            "complete" => self.run_completion(app, config, &manifest),
             "rig" => self.run_rig(app, &manifest),
             "capture" => self.run_capture(config, &manifest),
             "expression" => self.run_expression(app, config, &manifest),
@@ -616,7 +622,7 @@ impl PipelineContext {
             "--manifest".into(),
             OsString::from(directory.join("layers/manifest.json")),
             "--output".into(),
-            OsString::from(directory.join("rig2d/rig.json")),
+            OsString::from(directory.join("rig2d-base/rig.json")),
         ];
         self.run_sidecar(args, |value| {
             if let Some(app) = app {
@@ -624,6 +630,68 @@ impl PipelineContext {
             }
         })?;
         Ok("lvs-anime25d-v1リグの骨格を生成しました".into())
+    }
+
+    fn run_completion(
+        &self,
+        app: Option<&tauri::AppHandle>,
+        config: &AppConfig,
+        manifest: &CharacterManifest,
+    ) -> Result<String, PipelineError> {
+        let directory = self.character_dir(&manifest.character_id)?;
+        if !directory.join("rig2d-base/rig.json").is_file() {
+            return Err(PipelineError::Invalid(
+                "補完前リグがありません。rig2d工程から再実行してください".into(),
+            ));
+        }
+        let workflows = self.repository_root.join(&config.comfy.workflow_dir);
+        let mut args = vec![
+            self.repository_root
+                .join("sidecar/completion/generate.py")
+                .into_os_string(),
+            "--character".into(),
+            directory.clone().into_os_string(),
+            "--base-rig".into(),
+            directory.join("rig2d-base/rig.json").into_os_string(),
+            "--output".into(),
+            directory.join("rig2d").into_os_string(),
+            "--comfy".into(),
+            self.repository_root.join("ComfyUI").into_os_string(),
+            "--models".into(),
+            self.repository_root
+                .join(&config.ai.models_dir)
+                .join(&config.ai.completion_model_dir)
+                .into_os_string(),
+            "--workflow".into(),
+            workflows.join("qwen-edit-api.json").into_os_string(),
+            "--overlay".into(),
+            workflows
+                .join("qwen-edit-eyes-overlay.json")
+                .into_os_string(),
+            "--steps".into(),
+            config.ai.completion_steps.to_string().into(),
+            "--seed".into(),
+            config.ai.completion_seed.to_string().into(),
+            "--resolution".into(),
+            config.ai.completion_resolution.to_string().into(),
+            "--mask-margin-ratio".into(),
+            config.ai.completion_mask_margin.to_string().into(),
+            "--port".into(),
+            config.comfy.port.to_string().into(),
+            "--startup-timeout".into(),
+            config.comfy.startup_timeout_seconds.to_string().into(),
+            "--generation-timeout".into(),
+            config.ai.completion_timeout_seconds.to_string().into(),
+        ];
+        if config.ai.completion_fast_disk {
+            args.push("--fast-disk".into());
+        }
+        self.run_sidecar(args, |value| {
+            if let Some(app) = app {
+                let _ = app.emit("pipeline-progress", value);
+            }
+        })?;
+        Ok("Qwenの原寸局所閉眼補完を反映しました（見た目の最終確認は別途必要です）".into())
     }
 
     fn run_capture(
@@ -816,6 +884,7 @@ fn validate_stage_input(manifest: &CharacterManifest, stage: &str) -> Result<(),
     let prerequisite = match stage {
         "decompose" => Some("isolate"),
         "rig2d" => Some("decompose"),
+        "complete" => Some("rig2d"),
         _ => None,
     };
     if let Some(required) = prerequisite {
@@ -849,7 +918,7 @@ fn invalidate_from_stage(
     let facepatch = directory.join("facepatch");
     match stage {
         // 旧出力は生成側で成功後に置き換える。開始時には状態だけを失効させる。
-        "isolate" | "decompose" | "rig2d" => {}
+        "isolate" | "decompose" | "rig2d" | "complete" => {}
         "mesh" => {
             for name in [
                 "foreground.png",
@@ -1063,12 +1132,15 @@ mod tests {
         };
 
         validate_stage_input(&manifest, "rig2d").unwrap();
+        validate_stage_input(&manifest, "complete").unwrap();
         invalidate_from_stage(&mut manifest, &directory, "decompose").unwrap();
         assert!(validate_stage_input(&manifest, "rig2d").is_err());
+        assert!(validate_stage_input(&manifest, "complete").is_err());
 
         assert!(manifest.stages.contains_key("isolate"));
         assert!(!manifest.stages.contains_key("decompose"));
         assert!(!manifest.stages.contains_key("rig2d"));
+        assert!(!manifest.stages.contains_key("complete"));
         assert!(directory.join("source/isolated.png").is_file());
         assert_eq!(
             fs::read(directory.join("layers/manifest.json")).unwrap(),

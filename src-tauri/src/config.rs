@@ -7,6 +7,13 @@ use crate::store;
 
 pub const SETTING_KEYS: &[&str] = &[
     "ai.blink_denoise",
+    "ai.completion_model_dir",
+    "ai.completion_steps",
+    "ai.completion_seed",
+    "ai.completion_resolution",
+    "ai.completion_mask_margin",
+    "ai.completion_timeout_seconds",
+    "ai.completion_fast_disk",
     "ai.image_denoise",
     "ai.llm_model",
     "ai.mesh_model",
@@ -108,6 +115,13 @@ pub struct FacePatchConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct AiConfig {
+    pub completion_model_dir: String,
+    pub completion_steps: u32,
+    pub completion_seed: u32,
+    pub completion_resolution: u32,
+    pub completion_mask_margin: f32,
+    pub completion_timeout_seconds: u32,
+    pub completion_fast_disk: bool,
     pub models_dir: String,
     pub llm_model: String,
     pub stt_model: String,
@@ -179,6 +193,13 @@ struct ConfigFile {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct AiConfigFile {
+    completion_model_dir: Option<String>,
+    completion_steps: Option<u32>,
+    completion_seed: Option<u32>,
+    completion_resolution: Option<u32>,
+    completion_mask_margin: Option<f32>,
+    completion_timeout_seconds: Option<u32>,
+    completion_fast_disk: Option<bool>,
     models_dir: Option<String>,
     llm_model: Option<String>,
     stt_model: Option<String>,
@@ -302,6 +323,13 @@ impl Default for FacePatchConfig {
 impl Default for AiConfig {
     fn default() -> Self {
         Self {
+            completion_model_dir: "qwen-eval".into(),
+            completion_steps: 50,
+            completion_seed: 777,
+            completion_resolution: 1024,
+            completion_mask_margin: 0.2,
+            completion_timeout_seconds: 14_400,
+            completion_fast_disk: true,
             models_dir: "models".into(),
             llm_model: "qwen2.5-1.5b-instruct-q4_k_m.gguf".into(),
             stt_model: "ggml-small.bin".into(),
@@ -536,6 +564,29 @@ impl AppConfig {
         );
         string_environment!("LVS_PIPELINE_OUTPUT_DIR", self.pipeline.output_dir);
         string_environment!("LVS_AI_MODELS_DIR", self.ai.models_dir);
+        string_environment!("LVS_AI_COMPLETION_MODEL_DIR", self.ai.completion_model_dir);
+        parse_environment!("LVS_AI_COMPLETION_STEPS", self.ai.completion_steps, u32);
+        parse_environment!("LVS_AI_COMPLETION_SEED", self.ai.completion_seed, u32);
+        parse_environment!(
+            "LVS_AI_COMPLETION_RESOLUTION",
+            self.ai.completion_resolution,
+            u32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_MASK_MARGIN",
+            self.ai.completion_mask_margin,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_TIMEOUT_SECONDS",
+            self.ai.completion_timeout_seconds,
+            u32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_FAST_DISK",
+            self.ai.completion_fast_disk,
+            bool
+        );
         string_environment!("LVS_AI_LLM_MODEL", self.ai.llm_model);
         string_environment!("LVS_AI_STT_MODEL", self.ai.stt_model);
         string_environment!("LVS_AI_MESH_MODEL", self.ai.mesh_model);
@@ -629,6 +680,28 @@ impl AppConfig {
     fn apply_file(&mut self, file: ConfigFile) {
         if let Some(value) = file.ai {
             apply_optional(&mut self.ai.models_dir, value.models_dir);
+            apply_optional(
+                &mut self.ai.completion_model_dir,
+                value.completion_model_dir,
+            );
+            apply_optional(&mut self.ai.completion_steps, value.completion_steps);
+            apply_optional(&mut self.ai.completion_seed, value.completion_seed);
+            apply_optional(
+                &mut self.ai.completion_resolution,
+                value.completion_resolution,
+            );
+            apply_optional(
+                &mut self.ai.completion_mask_margin,
+                value.completion_mask_margin,
+            );
+            apply_optional(
+                &mut self.ai.completion_timeout_seconds,
+                value.completion_timeout_seconds,
+            );
+            apply_optional(
+                &mut self.ai.completion_fast_disk,
+                value.completion_fast_disk,
+            );
             apply_optional(&mut self.ai.llm_model, value.llm_model);
             apply_optional(&mut self.ai.stt_model, value.stt_model);
             apply_optional(&mut self.ai.image_denoise, value.image_denoise);
@@ -740,10 +813,17 @@ impl AppConfig {
             || !(0.0..=1.0).contains(&self.ai.grounding_threshold)
             || !(0.1..=2.0).contains(&self.ai.eye_context_margin)
             || !(0.0..=1.0).contains(&self.ai.sam2_stability_threshold)
+            || !(1..=100).contains(&self.ai.completion_steps)
+            || !(256..=4096).contains(&self.ai.completion_resolution)
+            || self.ai.completion_resolution % 16 != 0
+            || !(0.0..=0.5).contains(&self.ai.completion_mask_margin)
+            || self.ai.completion_mask_margin == 0.0
+            || self.ai.completion_timeout_seconds == 0
         {
             return Err(ConfigError::Validation("AI/ComfyUI設定が範囲外です".into()));
         }
         if self.ai.models_dir.trim().is_empty()
+            || self.ai.completion_model_dir.trim().is_empty()
             || self.ai.llm_model.trim().is_empty()
             || self.ai.stt_model.trim().is_empty()
             || self.ai.mesh_model.trim().is_empty()
@@ -919,6 +999,76 @@ mod tests {
             loaded.ai.eye_context_margin = invalid;
             assert!(loaded.validate().is_err());
         }
+    }
+
+    #[test]
+    fn completion_settings_roundtrip_precedence_and_ui_coverage() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let environment = |key: &str| match key {
+            "LVS_AI_COMPLETION_MODEL_DIR" => Some("custom-qwen".into()),
+            "LVS_AI_COMPLETION_STEPS" => Some("25".into()),
+            "LVS_AI_COMPLETION_SEED" => Some("42".into()),
+            "LVS_AI_COMPLETION_RESOLUTION" => Some("768".into()),
+            "LVS_AI_COMPLETION_MASK_MARGIN" => Some("0.3".into()),
+            "LVS_AI_COMPLETION_TIMEOUT_SECONDS" => Some("7200".into()),
+            "LVS_AI_COMPLETION_FAST_DISK" => Some("false".into()),
+            _ => None,
+        };
+        let loaded = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(loaded.ai.completion_model_dir, "custom-qwen");
+        assert_eq!(loaded.ai.completion_steps, 25);
+        assert_eq!(loaded.ai.completion_seed, 42);
+        assert_eq!(loaded.ai.completion_resolution, 768);
+        assert_eq!(loaded.ai.completion_mask_margin, 0.3);
+        assert_eq!(loaded.ai.completion_timeout_seconds, 7200);
+        assert!(!loaded.ai.completion_fast_disk);
+        let defaults = AppConfig::default();
+        defaults.save(&path).unwrap();
+        assert_eq!(
+            AppConfig::load_with_environment(&path, environment)
+                .unwrap()
+                .ai,
+            defaults.ai
+        );
+        std::fs::write(&path, r#"{"ai":{"completion_steps":60}}"#).unwrap();
+        let partial = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(partial.ai.completion_steps, 60);
+        assert_eq!(partial.ai.completion_seed, 42);
+        let serialized = serde_json::to_value(defaults).unwrap();
+        let html = include_str!("../../ui/index.html");
+        for key in SETTING_KEYS
+            .iter()
+            .filter(|key| key.starts_with("ai.completion_"))
+        {
+            let field = key.strip_prefix("ai.").unwrap();
+            assert!(serialized["ai"].get(field).is_some(), "{key}");
+            let control = field.replacen("completion_", "completion-", 1);
+            assert!(html.contains(&format!("id=\"{control}\"")), "{key}");
+        }
+    }
+
+    #[test]
+    fn completion_settings_reject_unsafe_values() {
+        for (key, invalid) in [
+            ("completion_model_dir", serde_json::json!(" ")),
+            ("completion_steps", serde_json::json!(0)),
+            ("completion_steps", serde_json::json!(101)),
+            ("completion_resolution", serde_json::json!(255)),
+            ("completion_resolution", serde_json::json!(4097)),
+            ("completion_resolution", serde_json::json!(1000)),
+            ("completion_mask_margin", serde_json::json!(0)),
+            ("completion_mask_margin", serde_json::json!(0.51)),
+            ("completion_timeout_seconds", serde_json::json!(0)),
+        ] {
+            let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+            value["ai"][key] = invalid;
+            let config: AppConfig = serde_json::from_value(value).unwrap();
+            assert!(config.validate().is_err(), "{key}");
+        }
+        let mut config = AppConfig::default();
+        config.ai.completion_mask_margin = f32::NAN;
+        assert!(config.validate().is_err());
     }
 
     #[test]

@@ -8,9 +8,7 @@ fixtures.push(['c_df85ec1d7960','女性A・閉眼修正候補']);
 fixtures.push(['c_386f432bc3dd','PicoAgent実写・原画から再生成','PicoAgentのphotoreal-prototype原画を共通工程で再生成。歯・閉眼・透過を検証中で、最終品質は未承認です。']);
 fixtures.push(['c_53640040c47a','PicoAgent実写・閉眼修正候補','PicoAgent実写の原寸局所閉眼と肌下地を取り込んだ比較候補です。口内の歯は共通描画。最終品質は未承認です。']);
 const select=document.querySelector('#character'),status=document.querySelector('#status');
-for(const [id,name] of fixtures)select.add(new Option(name,id));
 const requestedCharacter=new URL(location.href).searchParams.get('character');
-if(requestedCharacter)select.value=requestedCharacter;
 const mouthShape=document.querySelector('#mouth-shape');
 for(const [key,label] of [['close','閉口'],['a','あ'],['i','い'],['u','う'],['e','え'],['o','お']])mouthShape.add(new Option(label,key));
 const renderer=createAvatarRenderer(document.querySelector('#avatar'),{onError:error=>{
@@ -50,12 +48,20 @@ async function load(){
     document.title=`2.5D品質確認：${fixtures.find(([id])=>id===select.value)[1]}`;
     const base=`../temp/t7-characters/${encodeURIComponent(select.value)}/`;
     const character=await loadLocalJson(base+'character.json?read='+Date.now());
-    if(character.stages?.rig2d?.status!=='complete')throw new Error('このキャラのリグ再生成は未完了です');
-    const version=encodeURIComponent(character.stages.rig2d.updatedAtIso);
+    const finalStage=character.model?.rig2d_base?character.stages?.complete:character.stages?.rig2d;
+    if(finalStage?.status!=='complete')throw new Error('このキャラのリグ生成・局所補完は未完了です');
+    const version=encodeURIComponent(finalStage.updatedAtIso);
     const rigUrl=base+'rig2d/rig.json?v='+version;const rig=await loadLocalJson(rigUrl);
     if(token!==generation)return;
     currentRig=rig;state={rigUrl,showHiddenMaterial:document.querySelector('#hidden-material').checked,partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};reset();faceView=false;document.querySelector('#source').style.transform='';
     document.querySelector('#source').src=base+'source/input.png';if(!await apply(token)||token!==generation)return;
+    const latest=await loadLocalJson(base+'character.json',{cache:'no-store'});
+    if(token!==generation)return;
+    const latestStage=latest.model?.rig2d_base?latest.stages?.complete:latest.stages?.rig2d;
+    if(latestStage?.status!=='complete'||latestStage.updatedAtIso!==finalStage.updatedAtIso){
+      renderer.clear();currentRig=null;
+      throw new Error('読み込み中に生成世代が変わりました。生成完了後にキャラを選び直してください');
+    }
     document.querySelector('#avatar').style.visibility='visible';
     const approval=fixtures.find(([id])=>id===select.value)?.[2] ?? '見た目: 未承認。動作の成立と品質の合格は別です。';
     status.textContent=`素材充足: ${rig.material_readiness?.status ?? '未検査'} ／ ${approval}`;
@@ -115,4 +121,16 @@ function focusFace(){
 document.querySelector('#face').addEventListener('click',()=>{faceView=!faceView;focusFace();});
 addEventListener('resize',focusFace);
 addEventListener('beforeunload',()=>{stopDemo();stopMotion();++generation;renderer.dispose();},{once:true});
-await load();
+async function initialize(){
+ try {
+  const normal=await loadLocalJson('/api/normal-characters');
+  for(const character of normal.characters){
+    if(!/^c_[0-9a-f]{12}$/.test(character.id)||typeof character.name!=='string')throw new Error('通常生成のキャラ一覧が不正です');
+    if(!fixtures.some(([id])=>id===character.id))fixtures.push([character.id,'通常生成：'+character.name,'通常の4工程を完了した成果物です。原画と比較して見た目を確認してください。']);
+  }
+  for(const [id,name] of fixtures)select.add(new Option(name,id));
+  if(requestedCharacter)select.value=requestedCharacter;
+  await load();
+ } catch(error) {status.textContent='キャラ一覧を読み込めません: '+error.message;}
+}
+await initialize();

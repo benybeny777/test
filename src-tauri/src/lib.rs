@@ -97,11 +97,12 @@ fn get_config(state: State<'_, StudioState>) -> Result<AppConfig, String> {
 
 #[tauri::command]
 fn save_config(config: AppConfig, state: State<'_, StudioState>) -> Result<(), String> {
-    config.save(&state.config_path).map_err(error_text)?;
-    *state
+    let mut current = state
         .config
         .write()
-        .map_err(|_| "設定ロックが壊れました".to_owned())? = config;
+        .map_err(|_| "設定ロックが壊れました".to_owned())?;
+    config.save(&state.config_path).map_err(error_text)?;
+    *current = config;
     Ok(())
 }
 
@@ -172,6 +173,9 @@ fn add_expression(
     prompt: String,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
+    let _execution = state.execution.try_lock().map_err(|_| {
+        "生成中のため表情を変更できません。完了後に再実行してください".to_owned()
+    })?;
     state
         .pipeline
         .add_expression(&character_id, label, prompt)
@@ -184,6 +188,9 @@ fn remove_expression(
     key: String,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
+    let _execution = state.execution.try_lock().map_err(|_| {
+        "生成中のため表情を変更できません。完了後に再実行してください".to_owned()
+    })?;
     state
         .pipeline
         .remove_expression(&character_id, &key)
@@ -198,6 +205,9 @@ async fn import_expression(
     key: String,
     state: State<'_, StudioState>,
 ) -> Result<(), String> {
+    let _execution = state.execution.try_lock().map_err(|_| {
+        "生成中のため表情を取り込めません。完了後に再実行してください".to_owned()
+    })?;
     let pipeline = state.pipeline.clone();
     let config = state
         .config
@@ -218,6 +228,9 @@ fn update_framing(
     framing: Framing,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
+    let _execution = state.execution.try_lock().map_err(|_| {
+        "生成中のため構図を保存できません。完了後に再実行してください".to_owned()
+    })?;
     state
         .pipeline
         .update_framing(&character_id, "green_screen", framing)
@@ -255,6 +268,9 @@ fn load_preview_assets(
     mouth_key: String,
     state: State<'_, StudioState>,
 ) -> Result<PreviewAssets, String> {
+    let _execution = state.execution.try_lock().map_err(|_| {
+        "生成・公開中です。現在の表示は保持し、完了後に再読み込みしてください".to_owned()
+    })?;
     let _ = (&expression_key, &mouth_key);
     let directory = state
         .pipeline
@@ -430,6 +446,7 @@ mod network_tests {
             "sidecar/isolate",
             "sidecar/decompose",
             "sidecar/rig2d",
+            "sidecar/completion",
             "ui",
         ];
         let forbidden = [
@@ -491,7 +508,7 @@ mod network_tests {
                     if path == root.join("ui/shared/local-assets.js") && *token == "fetch(" {
                         assert!(text.contains("url.origin !== location.origin"));
                         assert!(
-                            text.contains("fetch(localAssetUrl(source), {redirect: \"error\"})")
+                            text.contains("fetch(localAssetUrl(source), {redirect: \"error\", signal, cache})")
                         );
                         continue;
                     }

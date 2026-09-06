@@ -1,11 +1,10 @@
+import {loadLocalJson} from './shared/local-assets.js';
 const status=document.querySelector('#status'),results=document.querySelector('#results'),button=document.querySelector('#reload');
 let controller=null;
 async function refresh(){
   controller?.abort();controller=new AbortController();button.disabled=true;
   try{
-    const response=await fetch('/api/qwen-comparisons',{cache:'no-store',signal:controller.signal});
-    if(!response.ok)throw new Error(`HTTP ${response.status}`);
-    const data=await response.json();results.replaceChildren();
+    const data=await loadLocalJson('/api/qwen-comparisons',{cache:'no-store',signal:controller.signal});results.replaceChildren();
     status.textContent=data.runs.length?`${data.runs.length}件の実験結果。合格の意味ではありません。`:'生成結果はまだありません。取得・生成の進捗は作業メッセージをご確認ください。';
     for(const run of data.runs){
       const section=document.createElement('section'),heading=document.createElement('h2'),state=document.createElement('p'),grid=document.createElement('div');

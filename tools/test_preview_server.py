@@ -5,10 +5,25 @@ import re
 import posixpath
 import json
 from pathlib import Path
-from preview_server import resolve_asset,ROOT,STATIC,comparisons
+from preview_server import resolve_asset,ROOT,STATIC,comparisons,normal_characters
 
 
 class PreviewServerTests(unittest.TestCase):
+    def test_normal_index_only_exposes_completed_pipeline_outputs(self):
+        parent=ROOT/'temp/tests';parent.mkdir(parents=True,exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as folder:
+            root=Path(folder);directory=root/'temp/t7-characters/c_123456789abc'
+            (directory/'rig2d').mkdir(parents=True)
+            path=directory/'character.json'
+            value={'displayName':'通常テスト','personaPrompt':'非公開','model':{'rig2d_base':'rig2d-base/rig.json'},'stages':{'complete':{'status':'running'}}}
+            path.write_text(json.dumps(value),encoding='utf-8')
+            self.assertEqual(normal_characters(root),[])
+            value['stages']['complete']['status']='complete'
+            path.write_text(json.dumps(value),encoding='utf-8')
+            self.assertEqual(normal_characters(root),[])
+            (directory/'rig2d/completion.json').write_text('{}')
+            self.assertEqual(normal_characters(root),[{'id':directory.name,'name':'通常テスト'}])
+
     def test_comparison_exposes_only_reported_images(self):
         parent=ROOT/'temp/tests';parent.mkdir(parents=True,exist_ok=True)
         with tempfile.TemporaryDirectory(dir=parent) as folder:

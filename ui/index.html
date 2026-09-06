@@ -45,6 +45,16 @@
           <label>候補予測IoU閾値<input id="sam-iou" type="number" min="0" max="1" step="0.01" value="0.7" /></label>
           <label>候補安定性閾値<input id="sam-stability" type="number" min="0" max="1" step="0.01" value="0.85" /></label>
           <button id="save-sam-batch" class="quiet">設定を保存（次回分解から反映）</button>
+          <details><summary>Qwen局所補完の設定</summary>
+            <label>モデル保存先（相対指定はモデルディレクトリ基準）<input id="completion-model_dir" type="text" /></label>
+            <label>推論ステップ数<input id="completion-steps" type="number" min="1" max="100" step="1" /></label>
+            <label>再現用シード<input id="completion-seed" type="number" min="0" max="4294967295" step="1" /></label>
+            <label>原寸ROIの上限（拡大しません）<input id="completion-resolution" type="number" min="256" max="4096" step="16" /></label>
+            <label>編集マスク余白の倍率<input id="completion-mask_margin" type="number" min="0.01" max="0.5" step="0.01" /></label>
+            <label>推論タイムアウト（秒）<input id="completion-timeout_seconds" type="number" min="1" max="4294967295" step="1" /></label>
+            <label><input id="completion-fast_disk" type="checkbox" />高速ディスクへのモデル退避を利用</label>
+            <button id="save-completion" class="quiet">局所補完設定を保存（次回補完から反映）</button>
+          </details>
           <div id="pipeline" class="pipeline"></div>
           <div class="actions"><button id="run-all">全工程を実行</button><button id="retry-stage" class="quiet">選択工程だけ実行</button></div>
           <pre id="log">キャラクターを選択してください</pre>
