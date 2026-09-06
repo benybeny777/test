@@ -15,10 +15,10 @@ def _digest(path):
         return hashlib.file_digest(stream,'sha256').hexdigest()
 
 
-def analyse_cached(image, detector_path, sam_path, threshold, emit, directory):
+def analyse_cached(image, detector_path, sam_path, threshold, emit, directory, eye_context_margin):
     """意味解析と素材補完を分離し、同じ解析をGPUで繰り返さない。"""
     directory=Path(directory)
-    identity={'version':1,'image':hashlib.sha256(image.tobytes()).hexdigest(),
+    identity={'version':2,'eye_context_margin':eye_context_margin,'image':hashlib.sha256(image.tobytes()).hexdigest(),
               'size':image.size,'threshold':threshold,'code':_digest(__file__),
               'transformers':importlib.metadata.version('transformers'),
               'torch':importlib.metadata.version('torch'),
@@ -39,7 +39,7 @@ def analyse_cached(image, detector_path, sam_path, threshold, emit, directory):
                 raise ValueError('解析キャッシュの寸法が不正です')
             emit('progress',stage='analysis_cache',progress=.8)
             return masks,saved['features'],saved['analysis']
-    result=analyse(image,detector_path,sam_path,threshold,emit)
+    result=analyse(image,detector_path,sam_path,threshold,emit,eye_context_margin)
     directory.mkdir(parents=True,exist_ok=True)
     staging=directory/'masks.npz.part'
     with staging.open('wb') as stream:
@@ -107,7 +107,17 @@ def coarse_pupil_box(pupil, eye):
     return area(pupil)>=area(eye)*.8
 
 
-def analyse(image, detector_path, sam_path, threshold, emit):
+def eye_context(box,size,margin):
+    """原寸の目周辺を局所解析する。検出矩形以外の固定座標へ降格しない。"""
+    if not np.isfinite(margin) or not .1<=margin<=2:raise ValueError('目の解析余白が範囲外です')
+    l,t,r,b=box
+    if not all(np.isfinite(box)) or not 0<=l<r<=size[0] or not 0<=t<b<=size[1]:
+        raise ValueError('目の検出矩形が原画範囲外です')
+    mx=(r-l)*margin;my=(b-t)*margin
+    return [max(0,int(np.floor(l-mx))),max(0,int(np.floor(t-my))),min(size[0],int(np.ceil(r+mx))),min(size[1],int(np.ceil(b+my)))]
+
+
+def analyse(image, detector_path, sam_path, threshold, emit, eye_context_margin):
     """2モデルを逐次ロードし、画像と同じ座標系の意味情報を返す。"""
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
     import torch
@@ -162,6 +172,9 @@ def analyse(image, detector_path, sam_path, threshold, emit):
     try:
         for index,(role,item) in enumerate(chosen.items()):
             crop=crops['detail' if role.endswith('_iris') else 'full' if role in ('clothes','left_arm','right_arm') else 'head']
+            if role in ('left_eye','right_eye'):
+                crop=eye_context(item['box'],rgb.size,eye_context_margin)
+                item['sampling_region']=crop
             im=rgb.crop(crop);box=item['box'];local=[box[0]-crop[0],box[1]-crop[1],box[2]-crop[0],box[3]-crop[1]]
             prompts={'input_boxes':[[local]]}
             if role=='hair':

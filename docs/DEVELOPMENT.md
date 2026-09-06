@@ -12,6 +12,8 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 ### 意味解析候補の比較
 
+`segment.py --roles eyes --box-context 0.5`は、検出矩形の各辺へ幅/高さの50%を足した原寸ROIを同じSAMへ入力する局所解析の比較である。出力を`box-context-0.5/`へ分離し、sampling_regionを記録する。候補矩形や元画像を変更せず、モデル内部の解析解像度と最終素材の原寸を混同しない。全頭部解析と原寸マスクを比較し、背景/髪の混入も調べてから通常経路への採否を判断する。
+
 細部比較では`tools/semantic-eval/evaluate.py dino --model-path models/grounding-dino-base --run-name <診断名> --labels eyebrow "eye pupil" --view head --measured-head`を使える。`--measured-head`は正規解析の顔座標を参照し、頭部比率の固定切り出しを使わない。候補の語句・座標・スコア・クロップ・所要時間を診断JSONに残す。`segment.py --run-name <同じ診断名> --roles eyebrow "eye pupil"`で既存SAM2へ渡す比較ができる。左右の細部を確定できない場合は明示失敗にし、未検出の原画を成功扱いしない。これらは比較専用で、検出候補を製品リグへ自動採用しない。
 
 通常経路のブラウザ検証はリポジトリルートで `sidecar/.venv/Scripts/python.exe tools/preview_server.py` を起動し、`http://127.0.0.1:8791/ui/check.html` を開く。原画と本体共通レンダラーを比較する。`--lan`は信頼できるLANでのスマホ確認に限る。サーバーは画面・共通描画JS・検証用キャラの画像/JSONだけを許可し、モデル・プロジェクト文書・ディレクトリ一覧を返さない。応答はno-storeとし、旧モジュールのキャッシュがある場合は版付きURLで開き直す。GPU生成後にまとめて確認し、使い終わった自分のサーバーだけを停止する。

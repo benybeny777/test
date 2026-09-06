@@ -574,6 +574,8 @@ impl PipelineContext {
             ),
             "--grounding-threshold".into(),
             config.ai.grounding_threshold.to_string().into(),
+            "--eye-context-margin".into(),
+            config.ai.eye_context_margin.to_string().into(),
             "--input".into(),
             OsString::from(directory.join("source/isolated.png")),
             "--output".into(),

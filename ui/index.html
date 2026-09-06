@@ -40,6 +40,7 @@
           <h2>生成パイプライン</h2>
           <label>意味解析モデル（モデルディレクトリ内）<input id="grounding-model" type="text" /></label>
           <label>意味領域検出閾値<input id="grounding-threshold" type="number" min="0" max="1" step="0.01" /></label>
+          <label>目の局所解析の余白（検出幅・高さに対する倍率）<input id="eye-context-margin" type="number" min="0.1" max="2" step="0.05" /></label>
           <label>SAM同時処理点数（原画解像度・探索点総数は維持）<input id="sam-batch" type="number" min="1" max="64" step="1" value="8" /></label>
           <label>候補予測IoU閾値<input id="sam-iou" type="number" min="0" max="1" step="0.01" value="0.7" /></label>
           <label>候補安定性閾値<input id="sam-stability" type="number" min="0" max="1" step="0.01" value="0.85" /></label>

@@ -66,6 +66,7 @@ async function refresh() {
   $("#sam-batch").value = config.ai.sam2_points_per_batch;
   $("#grounding-model").value = config.ai.grounding_model;
   $("#grounding-threshold").value = config.ai.grounding_threshold;
+  $("#eye-context-margin").value = config.ai.eye_context_margin;
   $("#sam-iou").value = config.ai.sam2_pred_iou_threshold;
   $("#sam-stability").value = config.ai.sam2_stability_threshold;
   characters = await invoke("list_characters");
@@ -288,6 +289,9 @@ $("#save-sam-batch").addEventListener("click", () => action(async () => {
   const model = $("#grounding-model").value.trim();
   if (!model) throw new Error("意味解析モデルの保存先を指定してください");
   config.ai.grounding_model = model;
+  const eyeMargin = Number($("#eye-context-margin").value);
+  if (!Number.isFinite(eyeMargin) || eyeMargin < .1 || eyeMargin > 2) throw new Error("目の解析余白は0.1〜2で指定してください");
+  config.ai.eye_context_margin = eyeMargin;
   for (const [id,key] of [["grounding-threshold","grounding_threshold"],["sam-iou","sam2_pred_iou_threshold"],["sam-stability","sam2_stability_threshold"]]) {
     const threshold = Number($("#"+id).value);
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) throw new Error("候補閾値は0〜1で指定してください");

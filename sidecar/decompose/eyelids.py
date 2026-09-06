@@ -2,6 +2,23 @@
 
 import numpy as np
 from scipy import ndimage
+from scipy.optimize import minimize, LinearConstraint
+
+
+def fit_upper_lid(coordinates, measured, bottom):
+    """低次の滑らかな曲線を、列ごとの下端を越えない制約下で求める。"""
+    matrix=np.polynomial.polynomial.polyvander(coordinates,min(2,len(measured)-1))
+    coefficients=np.linalg.lstsq(matrix,measured,rcond=None)[0]
+    fitted=matrix@coefficients
+    if np.any(fitted<0) or np.any(fitted>bottom):
+        result=minimize(lambda c:float(np.sum((matrix@c-measured)**2)),coefficients,
+                        jac=lambda c:2*matrix.T@(matrix@c-measured),method='SLSQP',
+                        constraints=[LinearConstraint(matrix,0,bottom)])
+        if not result.success:raise ValueError('上下が交差しないまぶた曲線を求められません')
+        coefficients=result.x;fitted=matrix@coefficients
+    if not np.isfinite(fitted).all() or np.any(fitted < -1e-7) or np.any(fitted>bottom+1e-7):
+        raise ValueError('まぶた曲線が実測境界を越えました')
+    return coefficients
 
 
 def partition_eye(eye, iris):
@@ -57,7 +74,8 @@ def close_eyelid(rgba, clean, bounds, feature, target=None, protected=None, with
     # 黒目やまつげの局所ピークをそのまま動かすと半閉眼が波打つ。
     # 原画内で測定した点列へ低次曲線を当て、まぶた全体の弧を保持する。
     coordinates=(np.arange(width)-first)/max(1,last-first)
-    coefficients=np.polynomial.polynomial.polyfit(coordinates[columns],rows[columns],min(2,len(columns)-1))
+    bottom=np.array([np.flatnonzero(visible[:,x])[-1]+.49 for x in columns])
+    coefficients=fit_upper_lid(coordinates[columns],rows[columns],bottom)
     rows=np.polynomial.polynomial.polyval(coordinates,coefficients)
     baseline=float(np.median(rows[columns]))+height*.45
     thickness=np.array([sum(alpha for _,alpha in band) for band in bands])

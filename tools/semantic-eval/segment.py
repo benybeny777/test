@@ -14,7 +14,9 @@ parser.add_argument('--backend',choices=['grounding-dino-base','Florence-2-large
 parser.add_argument('--characters',nargs='+',default=['c_2700e1166676','c_190454c86edb','c_828ead7c98ab'])
 parser.add_argument('--run-name',default='')
 parser.add_argument('--roles',nargs='+',default=['face','eyes','mouth','neck','collar'])
+parser.add_argument('--box-context',type=float,default=None)
 args=parser.parse_args()
+if args.box_context is not None and not 0<args.box_context<=2:raise ValueError('局所解析の余白は0より大きく2以下にしてください')
 path=root/'models/sam2.1-hiera-tiny'
 processor=Sam2Processor.from_pretrained(path,local_files_only=True)
 model,info=Sam2VideoModel.from_pretrained(path,local_files_only=True,output_loading_info=True)
@@ -34,6 +36,7 @@ for cid in args.characters:
         face=[value-report['crop'][index%2] for index,value in enumerate(face)]
     fl,ft,fr,fb=face;fw=fr-fl;fh=fb-ft
     dest=(root/'temp/grounded-masks-v2'/args.backend/args.run_name/cid).resolve()
+    if args.box_context is not None:dest=dest/f'box-context-{args.box_context:g}'
     if not dest.is_relative_to((root/'temp/grounded-masks-v2').resolve()):raise ValueError('診断出力がtemp外です')
     dest.mkdir(parents=True,exist_ok=True)
     result=[]
@@ -59,11 +62,19 @@ for cid in args.characters:
         else:boxes=boxes[:2 if role=='eyes' else 1]
         if role=='eyes':boxes.sort(key=lambda entry:entry[1][0])
         for index,(score,box) in enumerate(boxes):
-            inputs=processor(images=rgb,input_boxes=[[box]],return_tensors='pt').to('cuda')
+            region=[0,0,rgba.width,rgba.height]
+            if args.box_context is not None:
+                l,t,r,b=box;mx=(r-l)*args.box_context;my=(b-t)*args.box_context
+                region=[max(0,int(np.floor(l-mx))),max(0,int(np.floor(t-my))),min(rgba.width,int(np.ceil(r+mx))),min(rgba.height,int(np.ceil(b+my)))]
+            sample=rgb.crop(region)
+            local=[value-region[i%2] for i,value in enumerate(box)]
+            inputs=processor(images=sample,input_boxes=[[local]],return_tensors='pt').to('cuda')
             begin=time.monotonic()
             with torch.inference_mode():pred=model._single_frame_forward(**inputs)
             # 動画クラスの単一フレーム出力へ画像バッチ軸を補い、画像プロセッサへ渡す。
-            masks=processor.post_process_masks(pred.pred_masks.cpu().unsqueeze(0),inputs['original_sizes'].cpu())[0].reshape(-1,rgba.height,rgba.width)
+            sampled=processor.post_process_masks(pred.pred_masks.cpu().unsqueeze(0),inputs['original_sizes'].cpu())[0].reshape(-1,sample.height,sample.width)
+            masks=torch.zeros((sampled.shape[0],rgba.height,rgba.width),dtype=sampled.dtype)
+            masks[:,region[1]:region[3],region[0]:region[2]]=sampled
             # 単一フレームAPIは予測IoU最大のマスク1枚を返す。
             scores=[float(pred.iou_scores.max().cpu())]
             for k,sam_score in enumerate(scores):
@@ -79,6 +90,6 @@ for cid in args.characters:
                     clean=np.array(rgba);clean[~connected]=0
                     Image.fromarray(clean).save(dest/f'{role}-{index}-{k}-connected.png')
                     result.append({'role':role,'removed_island_pixels':int(mask.sum()-connected.sum())})
-            result.append({'role':role,'box':box,'grounding_score':score,'sam_scores':scores,'seconds':time.monotonic()-begin})
+            result.append({'role':role,'box':box,'sampling_region':region,'grounding_score':score,'sam_scores':scores,'seconds':time.monotonic()-begin})
     (dest/'report.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     print(json.dumps({'character':cid,'regions':sum('box' in item for item in result)}),flush=True)

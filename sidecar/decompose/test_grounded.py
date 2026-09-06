@@ -1,10 +1,17 @@
 """意味候補の包含関係と未検出時の扱いを固定する。"""
 import unittest
 import numpy as np
-from grounded import select_boxes, iris_white_points, coarse_pupil_box
+from grounded import select_boxes, iris_white_points, coarse_pupil_box, eye_context
 
 
 class GroundedSelectionTests(unittest.TestCase):
+    def test_eye_context_preserves_source_coordinates(self):
+        self.assertEqual(eye_context([20,30,40,50],(100,100),.5),[10,20,50,60])
+        self.assertEqual(eye_context([27,41,47,61],(107,111),.5),[17,31,57,71])
+        self.assertEqual(eye_context([0,0,20,20],(25,25),.5),[0,0,25,25])
+        for margin in (0,float('nan'),3):
+            with self.assertRaises(ValueError):eye_context([20,30,40,50],(100,100),margin)
+
     def test_fine_pupil_does_not_erase_white_highlights(self):
         self.assertFalse(coarse_pupil_box([15,10,25,25],[10,10,30,25]))
         self.assertTrue(coarse_pupil_box([10,10,30,25],[10,10,30,25]))

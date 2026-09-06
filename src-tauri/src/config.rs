@@ -14,6 +14,7 @@ pub const SETTING_KEYS: &[&str] = &[
     "ai.sam2_model",
     "ai.grounding_model",
     "ai.grounding_threshold",
+    "ai.eye_context_margin",
     "ai.sam2_points_per_batch",
     "ai.sam2_pred_iou_threshold",
     "ai.sam2_stability_threshold",
@@ -116,6 +117,7 @@ pub struct AiConfig {
     pub sam2_model: String,
     pub grounding_model: String,
     pub grounding_threshold: f32,
+    pub eye_context_margin: f32,
     pub sam2_points_per_batch: u32,
     pub sam2_pred_iou_threshold: f32,
     pub sam2_stability_threshold: f32,
@@ -186,6 +188,7 @@ struct AiConfigFile {
     sam2_model: Option<String>,
     grounding_model: Option<String>,
     grounding_threshold: Option<f32>,
+    eye_context_margin: Option<f32>,
     sam2_points_per_batch: Option<u32>,
     sam2_pred_iou_threshold: Option<f32>,
     sam2_stability_threshold: Option<f32>,
@@ -308,6 +311,7 @@ impl Default for AiConfig {
             sam2_model: "sam2.1-hiera-tiny".into(),
             grounding_model: "grounding-dino-base".into(),
             grounding_threshold: 0.20,
+            eye_context_margin: 0.5,
             sam2_points_per_batch: 8,
             sam2_pred_iou_threshold: 0.7,
             sam2_stability_threshold: 0.85,
@@ -542,6 +546,7 @@ impl AppConfig {
             self.ai.grounding_threshold,
             f32
         );
+        parse_environment!("LVS_AI_EYE_CONTEXT_MARGIN", self.ai.eye_context_margin, f32);
         parse_environment!(
             "LVS_AI_SAM2_POINTS_PER_BATCH",
             self.ai.sam2_points_per_batch,
@@ -632,6 +637,7 @@ impl AppConfig {
             apply_optional(&mut self.ai.sam2_model, value.sam2_model);
             apply_optional(&mut self.ai.grounding_model, value.grounding_model);
             apply_optional(&mut self.ai.grounding_threshold, value.grounding_threshold);
+            apply_optional(&mut self.ai.eye_context_margin, value.eye_context_margin);
             apply_optional(
                 &mut self.ai.sam2_points_per_batch,
                 value.sam2_points_per_batch,
@@ -732,6 +738,7 @@ impl AppConfig {
             || !(1..=64).contains(&self.ai.sam2_points_per_batch)
             || !(0.0..=1.0).contains(&self.ai.sam2_pred_iou_threshold)
             || !(0.0..=1.0).contains(&self.ai.grounding_threshold)
+            || !(0.1..=2.0).contains(&self.ai.eye_context_margin)
             || !(0.0..=1.0).contains(&self.ai.sam2_stability_threshold)
         {
             return Err(ConfigError::Validation("AI/ComfyUI設定が範囲外です".into()));
@@ -890,6 +897,28 @@ mod tests {
         })
         .unwrap();
         assert_eq!(loaded.display.preview_fps, 48);
+    }
+
+    #[test]
+    fn eye_context_setting_precedence_and_validation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let environment = |key: &str| (key == "LVS_AI_EYE_CONTEXT_MARGIN").then(|| "0.75".into());
+        let mut loaded = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(loaded.ai.eye_context_margin, 0.75);
+        loaded.ai.eye_context_margin = 0.25;
+        loaded.save(&path).unwrap();
+        assert_eq!(
+            AppConfig::load_with_environment(&path, environment)
+                .unwrap()
+                .ai
+                .eye_context_margin,
+            0.25
+        );
+        for invalid in [0.0, 2.1, f32::NAN] {
+            loaded.ai.eye_context_margin = invalid;
+            assert!(loaded.validate().is_err());
+        }
     }
 
     #[test]

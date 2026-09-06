@@ -358,6 +358,7 @@ def _decompose_image(
     stability_threshold: float = .85,
     grounding_model: Path | None = None,
     grounding_threshold: float = .20,
+    eye_context_margin: float = .5,
 ) -> Path:
     """入力画像を意味レイヤーへ分解し、manifestのパスを返す。"""
 
@@ -373,7 +374,7 @@ def _decompose_image(
             raise ValueError("SAM2モデルの指定が必要です")
         from grounded import analyse_cached
         grounded_result = analyse_cached(source, grounding_model, model_path, grounding_threshold,
-                                         _emit, published_dir.parent / 'analysis')
+                                         _emit, published_dir.parent / 'analysis', eye_context_margin)
         candidates = list(grounded_result[0].values())
         method = "grounding-dino-base+sam2.1"
     elif candidate_masks_dir is not None:
@@ -559,6 +560,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stability-threshold", type=float, default=.85)
     parser.add_argument("--grounding-model", type=Path)
     parser.add_argument("--grounding-threshold", type=float, default=.20)
+    parser.add_argument("--eye-context-margin", type=float, default=.5)
     return parser
 
 
@@ -579,6 +581,7 @@ def main() -> int:
             stability_threshold=args.stability_threshold,
             grounding_model=args.grounding_model,
             grounding_threshold=args.grounding_threshold,
+            eye_context_margin=args.eye_context_margin,
         )
     except Exception as error:
         LOGGER.exception("レイヤー分解に失敗しました")

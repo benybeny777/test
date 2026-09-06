@@ -1,10 +1,18 @@
 """原画由来の閉眼素材の位置・画素・保護領域を検証する。"""
 import unittest
 import numpy as np
-from eyelids import close_eyelid, partition_eye
+from eyelids import close_eyelid, partition_eye, fit_upper_lid
 
 
 class EyelidTests(unittest.TestCase):
+    def test_fitted_arc_does_not_cross_short_edge_columns(self):
+        x=np.linspace(0,1,8);measured=np.array([4,3,1,1,1,1,3,4.])
+        bottom=np.array([4.1,10,10,10,10,10,10,4.1])
+        coefficients=fit_upper_lid(x,measured,bottom)
+        result=np.polynomial.polynomial.polyval(x,coefficients)
+        self.assertTrue((result<=bottom+1e-7).all())
+        self.assertTrue((result>=0).all())
+
     def test_iris_partition_preserves_every_eye_pixel_without_overlap(self):
         eye=np.zeros((12,20),bool);eye[2:10,2:18]=True
         iris=np.zeros_like(eye);iris[:,8:12]=True

@@ -19,6 +19,7 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> 
 - source/input.png は上書き・削除しない。
 - isolate は元のキャンバスを保つ。入力に明示された透過があれば保持し、不透明画像には背景除去を実行する。
 - decompose は承認済み固定版Grounding DINO baseで意味領域を検出し、SAM 2.1 Hiera Tinyで原寸マスクを求める。`cargo xtask setup grounding`で取得し、モデルを逐次ロードする。未検出を固定座標で補わない。analysis.jsonに候補と選別結果を保存する。
+- 目のSAM局所ROIはai.eye_context_marginから求める。解析署名の版2とsampling_regionを確認し、余白変更後に旧マスクを再利用しない。原寸のまつげ・髪・肌の境界を比較する。
 - rig2d は版2 manifestの座標と差分を lvs-anime25d-v1 の版3リグへ引き継ぐ。必須中立画像、実測座標、原寸で切詰めたtexture_boxを確認する。版2リグは再生成する。
 - 唇の分割にはmouth_closed.lip_seamとlip_rig_version: 1が必要。旧リグはdecomposeから再生成する。原画の唇は拡大素材や塗り直した色面へ差し替えず、上下メッシュの中立座標が原画と一致することを検査する。
 - 目にはeye_rig_version: 3、左右のeye_base/eyelid_upperとeye_aperture、eye_iris/eye_remainder/eye_backplateが必要。相補分割と白目補完の可視画素保持を検査する。旧リグはdecomposeから再生成する。
