@@ -56,6 +56,18 @@ test('clearは完了待ちの旧キャラを無効にする',async()=>{
   const old=h.renderer.applyState({rigUrl:'a'});h.renderer.clear();pending.resolve(rig());
   assert.equal(await old,false);h.tick();assert.equal(h.counts().rendered,0);h.renderer.dispose();
 });
+test('公開直前の世代照合失敗は現在の描画を解放しない',async()=>{
+  const h=harness();await h.renderer.applyState({rigUrl:'a'});h.tick();
+  await assert.rejects(h.renderer.applyState({rigUrl:'b'},{beforeCommit:async()=>{throw new Error('世代変更');}}),/世代変更/);
+  h.tick();assert.equal(h.counts().rendered,2);assert.equal(h.counts().cleared,0);h.renderer.dispose();
+});
+test('候補照合待ちの取消は旧表示を維持する',async()=>{
+  const h=harness();await h.renderer.applyState({rigUrl:'a'});
+  const wait=deferred(),entered=deferred();
+  const candidate=h.renderer.applyState({rigUrl:'b'},{beforeCommit:()=>{entered.resolve();return wait.promise;}});
+  await entered.promise;h.renderer.cancelPending();wait.resolve(true);
+  assert.equal(await candidate,false);h.tick();assert.equal(h.counts().rendered,1);assert.equal(h.counts().cleared,0);h.renderer.dispose();
+});
 test('確認画面は旧ロード完了で次のキャラの待機・失敗画面を上書きしない',async()=>{
   const nodes=new Map();
   const node=selector=>{if(!nodes.has(selector))nodes.set(selector,{value:'',checked:true,style:{},textContent:'',
@@ -75,4 +87,18 @@ test('確認画面は旧ロード完了で次のキャラの待機・失敗画�
   assert.equal(node('#avatar').style.visibility,'hidden');assert.equal(node('#status').textContent,'読込中');
   next.reject(new Error('次のキャラの読込失敗'));await newer;
   assert.equal(node('#avatar').style.visibility,'hidden');assert.equal(node('#status').textContent,'次のキャラの読込失敗');
+});
+test('確認画面は次候補の失敗時に表示キャラと選択名を旧キャラへ戻す',async()=>{
+  const nodes=new Map();const node=key=>{if(!nodes.has(key))nodes.set(key,{value:'',checked:true,style:{},textContent:'',add(){},append(){},addEventListener(){}});return nodes.get(key);};
+  let failed=false,cleared=0,commits=0,lastUrl;
+  const env={document:{querySelector:node,querySelectorAll:()=>[],createElement:()=>node(Symbol())},Option:class{},URL,
+    location:{href:'http://localhost/ui/check.html'},history:{replaceState(_a,_b,url){lastUrl=url;}},addEventListener(){},cancelAnimationFrame(){},MOUTH_PRESETS:{close:[0,0]},
+    createAvatarRenderer:()=>({clear(){cleared++;},dispose(){},async applyState(_state,{beforeCommit}){if(await beforeCommit()===false)return false;commits++;return true;}}),
+    loadLocalJson:async url=>{if(failed)throw new Error('候補取得失敗');return url.includes('character.json')?{stages:{rig2d:{status:'complete',updatedAtIso:'now'}}}:rig();}};
+  const api=vm.runInNewContext(source('check.js').replace('await initialize();','')+'\n({load});',env);
+  node('#character').value='c_2700e1166676';await api.load();
+  assert.equal(commits,1);assert.equal(node('#avatar').style.visibility,'visible');
+  failed=true;node('#character').value='c_190454c86edb';await api.load();
+  assert.equal(cleared,0);assert.equal(commits,1);assert.equal(node('#character').value,'c_2700e1166676');
+  assert.equal(lastUrl.searchParams.get('character'),'c_2700e1166676');assert.match(node('#status').textContent,/女性A.*保持/);
 });

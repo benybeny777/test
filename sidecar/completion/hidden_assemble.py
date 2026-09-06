@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 from hidden_materials import extract_hidden_roi, extract_ear_repair, separate_hair_pixels, validate_neutral, ear_policy
+from hidden_regions import scene_support
 
 
 def crop_box(layer, size):
@@ -72,21 +73,10 @@ def assemble_hidden(rig, parts, source, masks, bald, side, region, settings,
         raise ValueError('補完前の全中立合成が原画と一致しません')
     updated = copy.deepcopy(rig)
     output = {name: image.copy() for name, image in parts.items()}
-    face = np.zeros((height, width), bool)
+    face,surface,hair = scene_support(rig,parts,source,masks)
     fl, ft, fr, fb = crop_box(rig['layers']['scene_face'], size)
-    face[ft:fb, fl:fr] = parts['scene_face'][:, :, 3] > 0
-    surface = face.copy()
-    if 'scene_residual' in rig['layers']:
-        sl, st, sr, sb = crop_box(rig['layers']['scene_residual'], size)
-        surface[st:sb, sl:sr] |= parts['scene_residual'][:, :, 3] > 0
     features = [masks[name][t:b, l:r] for name in ('left_eye', 'right_eye', 'mouth')]
     face_box = rig['layers']['face']['bbox']; face_width = face_box[2]-face_box[0]
-    # 通常リグが所有する境界画素も保持する。意味マスクだけへ戻すと分解後の縁を失う。
-    hair = masks['hair'].copy()
-    for node in rig['scene_graph']:
-        if node['role'] == 'hair':
-            sl,st,sr,sb = crop_box(rig['layers'][node['layer']],size)
-            hair[st:sb,sl:sr] |= parts[node['layer']][:,:,3] > 0
     bundle = extract_hidden_roi(source[t:b, l:r], bald, side, face[t:b, l:r], hair[t:b, l:r],
                                 features, face_width, settings, surface[t:b, l:r])
     hair[t:b, l:r] = bundle['refined_hair']

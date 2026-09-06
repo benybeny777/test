@@ -15,7 +15,7 @@ const renderer=createAvatarRenderer(document.querySelector('#avatar'),{onError:e
   stopDemo();stopMotion();document.querySelector('#avatar').style.visibility='hidden';
   status.textContent='描画に失敗しました。キャラを選び直してください: '+error.message;
 }});
-let state={},generation=0,currentRig,faceView=false;
+let state={},generation=0,currentRig,faceView=false,displayedCharacter=null;
 let demoFrame=0,demoStarted=0;
 let motionFrame=0;
 function stopMotion(){cancelAnimationFrame(motionFrame);motionFrame=0;document.querySelector('#motion-demo').textContent='待機動作テスト';}
@@ -39,36 +39,49 @@ async function load(){
   stopDemo();
   mouthShape.value='';
   const token=++generation;status.textContent='読込中';
-  renderer.clear();currentRig=null;state={};
-  document.querySelector('#source').removeAttribute('src');
-  document.querySelector('#avatar').style.visibility='hidden';
+  renderer.cancelPending?.();
+  const requested=select.value;
+  if(!currentRig)document.querySelector('#avatar').style.visibility='hidden';
   document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=true);
   try {
     if(!fixtures.some(([id])=>id===select.value))throw new Error('指定されたキャラは確認一覧にありません。キャラを選び直してください');
-    document.title=`2.5D品質確認：${fixtures.find(([id])=>id===select.value)[1]}`;
-    const base=`../temp/t7-characters/${encodeURIComponent(select.value)}/`;
+    const base=`../temp/t7-characters/${encodeURIComponent(requested)}/`;
     const character=await loadLocalJson(base+'character.json?read='+Date.now());
     const finalStage=character.model?.rig2d_base?character.stages?.complete:character.stages?.rig2d;
     if(finalStage?.status!=='complete')throw new Error('このキャラのリグ生成・局所補完は未完了です');
     const version=encodeURIComponent(finalStage.updatedAtIso);
     const rigUrl=base+'rig2d/rig.json?v='+version;const rig=await loadLocalJson(rigUrl);
     if(token!==generation)return;
-    currentRig=rig;state={rigUrl,showHiddenMaterial:document.querySelector('#hidden-material').checked,partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};reset();faceView=false;document.querySelector('#source').style.transform='';
-    document.querySelector('#source').src=base+'source/input.png';if(!await apply(token)||token!==generation)return;
-    const latest=await loadLocalJson(base+'character.json',{cache:'no-store'});
-    if(token!==generation)return;
-    const latestStage=latest.model?.rig2d_base?latest.stages?.complete:latest.stages?.rig2d;
-    if(latestStage?.status!=='complete'||latestStage.updatedAtIso!==finalStage.updatedAtIso){
-      renderer.clear();currentRig=null;
-      throw new Error('読み込み中に生成世代が変わりました。生成完了後にキャラを選び直してください');
-    }
+    const candidate={rigUrl,showHiddenMaterial:document.querySelector('#hidden-material').checked,
+      mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,roll:0,armInset:0,armPose:{},idleSwayDegrees:0,
+      partUrls:Object.fromEntries(Object.keys(rig.layers).map(name=>[name,base+`rig2d/parts/${name}.png?v=${version}`]))};
+    const loaded=await renderer.applyState(candidate,{beforeCommit:async()=>{
+      if(token!==generation)return false;
+      const latest=await loadLocalJson(base+'character.json',{cache:'no-store'});
+      if(token!==generation)return false;
+      const latestStage=latest.model?.rig2d_base?latest.stages?.complete:latest.stages?.rig2d;
+      if(latestStage?.status!=='complete'||latestStage.updatedAtIso!==finalStage.updatedAtIso)
+        throw new Error('読み込み中に生成世代が変わりました。生成完了後にキャラを選び直してください');
+      return true;
+    }});
+    if(loaded===false||token!==generation)return;
+    currentRig=rig;state=candidate;displayedCharacter=requested;faceView=false;
+    for(const [key,input] of inputs)input.value=state[key];
+    document.querySelector('#source').style.transform='';document.querySelector('#source').src=base+'source/input.png';
+    document.title=`2.5D品質確認：${fixtures.find(([id])=>id===displayedCharacter)[1]}`;
     document.querySelector('#avatar').style.visibility='visible';
     const approval=fixtures.find(([id])=>id===select.value)?.[2] ?? '見た目: 未承認。動作の成立と品質の合格は別です。';
     status.textContent=`素材充足: ${rig.material_readiness?.status ?? '未検査'} ／ ${approval}`;
     if(rig.local_completion?.hidden?.warning)status.textContent+='\n補完の未達: '+rig.local_completion.hidden.warning;
     if(rig.experimental_hidden)status.textContent+=rig.experimental_hidden.redraw_ear_contour?'\n耳輪郭の修正比較: 原画ファイルは保持し、可動モデルの耳・頬の境界を修正しています。既存むぎと切り替えて比較してください。':'\n補完比較: 中立の原画を保持。動作時は耳・頬の境界だけを補修します。補完表示のオン/オフで比較できます。';
     if(rig.experimental_closed_eyes)status.textContent+='\n閉眼素材の比較: 全開は原画の目を保持し、編集画像から測定した閉眼曲線へ連続して閉じます。目以外の編集結果は採用していません。';
-  }catch(error){if(token===generation)status.textContent=error.message;}
+  }catch(error){if(token===generation){
+    if(displayedCharacter){
+      select.value=displayedCharacter;
+      const url=new URL(location.href);url.searchParams.set('character',displayedCharacter);history.replaceState(null,'',url);
+      status.textContent=error.message+'\n表示は前回の「'+fixtures.find(([id])=>id===displayedCharacter)[1]+'」を保持しています。';
+    }else status.textContent=error.message;
+  }}
   finally{if(token===generation)document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=false);}
 }
 select.addEventListener('change',()=>{

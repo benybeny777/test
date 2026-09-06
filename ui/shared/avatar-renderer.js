@@ -39,7 +39,7 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
     meshes=[];textures=[];batches=[];images.clear();faceBatch=null;faceTexture=null;faceAlpha=null;rig=null;positions=null;worldUV=null;
     faceCanvas.width=faceCanvas.height=0;
   }
-  async function applyState(next){
+  async function applyState(next,{beforeCommit}={}){
     if(disposed)throw new Error('破棄済みの描画画面には読み込めません');
     const token=++revision;
     if(next.rigUrl!==state.rigUrl||!rig){
@@ -65,6 +65,8 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
         if(!box||image.naturalWidth!==box[2]-box[0]||image.naturalHeight!==box[3]-box[1])throw new Error('素材寸法が一致しません: '+name);
         return [name,image];
       }));
+      if(disposed||token!==revision)return false;
+      if(beforeCommit&&await beforeCommit()===false)return false;
       if(disposed||token!==revision)return false;
       release();rig=incoming;images=new Map(loaded);
       const {width:w,height:h}=rig.canvas;
@@ -114,6 +116,8 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
   }
   // 次の資産取得を待たず、古い読込と表示を無効化する。
   function clear(){if(disposed)return;++revision;release();state={};renderer.clear();}
+  // 表示を維持したまま、先行する非同期候補だけを無効化する。
+  function cancelPending(){if(!disposed)++revision;}
   function appearance(left,right,open,form){
     const repair=rig.hidden_motion?.repair_layer;
     const repairAmount=hiddenRepairAmount(rig.hidden_motion,state.yaw??0,state.pitch??0,state.showHiddenMaterial!==false);
@@ -190,5 +194,5 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
   }
   function dispose(){disposed=true;++revision;cancelAnimationFrame(frame);observer.disconnect();release();renderer.dispose();renderer.forceContextLoss();faceCanvas.width=faceCanvas.height=0;}
   frame=requestAnimationFrame(render);
-  return {applyState,clear,dispose};
+  return {applyState,clear,cancelPending,dispose};
 }

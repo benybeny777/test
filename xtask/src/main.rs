@@ -582,6 +582,26 @@ fn verify_python_sidecars() -> Result<()> {
     if !python.exists() {
         bail!("sidecar environment is missing; run `cargo xtask setup sidecar`");
     }
+    // 通常補完と保存保護を、旧工程だけの検査から取りこぼさない。
+    for (directory, pattern) in [
+        ("sidecar/completion", "test_*.py"),
+        ("sidecar", "test_output_transaction.py"),
+        ("tools", "test_preview_server.py"),
+    ] {
+        run_at(
+            &root,
+            &python,
+            [
+                OsStr::new("-m"),
+                OsStr::new("unittest"),
+                OsStr::new("discover"),
+                OsStr::new("-s"),
+                OsStr::new(directory),
+                OsStr::new("-p"),
+                OsStr::new(pattern),
+            ],
+        )?;
+    }
     run_at(
         &root,
         &python,

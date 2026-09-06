@@ -3,6 +3,7 @@ pub mod engines;
 pub mod facepatch;
 pub mod lipsync;
 pub mod pipeline;
+pub mod recovery;
 pub mod sidecar;
 pub mod store;
 
@@ -28,6 +29,12 @@ struct StudioState {
     pipeline: PipelineContext,
     engines: EngineContext,
     execution: tokio::sync::Mutex<()>,
+    startup_warnings: Vec<String>,
+}
+
+#[tauri::command]
+fn startup_warnings(state: State<'_, StudioState>) -> Vec<String> {
+    state.startup_warnings.clone()
 }
 
 #[derive(Serialize)]
@@ -499,6 +506,7 @@ pub fn run() {
                 }
             };
             eprintln!("キャラクターデータ: {}", output.display());
+            let startup_warnings = recovery::recover_final_rigs(&output);
             app.manage(StudioState {
                 config: RwLock::new(config),
                 config_path,
@@ -508,11 +516,13 @@ pub fn run() {
                 },
                 engines: EngineContext { repository_root },
                 execution: tokio::sync::Mutex::new(()),
+                startup_warnings,
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
+            startup_warnings,
             save_config,
             create_character,
             list_characters,

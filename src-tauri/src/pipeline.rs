@@ -676,6 +676,8 @@ impl PipelineContext {
             config.ai.completion_resolution.to_string().into(),
             "--mask-margin-ratio".into(),
             config.ai.completion_mask_margin.to_string().into(),
+            "--mask-core-ratio".into(),
+            config.ai.completion_mask_core_ratio.to_string().into(),
             "--port".into(),
             config.comfy.port.to_string().into(),
             "--startup-timeout".into(),

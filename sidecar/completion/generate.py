@@ -32,7 +32,7 @@ client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
 VERSION = 3
 # 推論や入力準備の意味を変えた場合に上げる。抽出だけの変更ではGPUを再実行しない。
-IMAGE_GENERATION_VERSION = 2
+IMAGE_GENERATION_VERSION = 3
 PROMPT = ('Close both eyes naturally, preserving the original character identity and original rendering style. '
           'Relaxed closed eyelids with a thin natural eyelash line. Edit only the eyes within the mask. '
           'Preserve the original hair, eyebrows, nose, mouth, skin texture, lighting, pose and image framing. '
@@ -200,7 +200,7 @@ def complete_locked(args):
         raise ValueError('管理専用ポートを指定してください')
     if (args.comfy/'extra_model_paths.yaml').exists():
         raise ValueError('既存ComfyUIの追加モデル設定は利用しません')
-    if not 1 <= args.steps <= 100 or not 256 <= args.resolution <= 4096 or not 0 < args.mask_margin_ratio <= .5:
+    if not 1 <= args.steps <= 100 or not 256 <= args.resolution <= 4096 or not 0 < args.mask_margin_ratio <= .5 or not 0 <= args.mask_core_ratio < 1:
         raise ValueError('補完の生成設定が範囲外です')
     if args.startup_timeout <= 0 or args.generation_timeout <= 0 or not args.prompt.strip():
         raise ValueError('補完の待機時間または編集指示が不正です')
@@ -226,7 +226,7 @@ def complete_locked(args):
                 'comfy_code': comfy_code,
                 'runtime': {name: importlib.metadata.version(name) for name in ('numpy', 'scipy', 'Pillow', 'torch', 'transformers')},
                 'workflow': digest(args.workflow), 'overlay': digest(args.overlay),
-                'parameters': {k: getattr(args, k) for k in ('steps', 'seed', 'resolution', 'mask_margin_ratio', 'prompt', 'fast_disk')}}
+                'parameters': {k: getattr(args, k) for k in ('steps', 'seed', 'resolution', 'mask_margin_ratio', 'mask_core_ratio', 'prompt', 'fast_disk')}}
     rig = json.loads(args.base_rig.read_text(encoding='utf-8'))
     metadata = json.loads((args.character/'analysis/analysis.json').read_text(encoding='utf-8'))
     with Image.open(args.character/'source/isolated.png') as opened:
@@ -238,7 +238,7 @@ def complete_locked(args):
     with np.load(args.character/'analysis/masks.npz', allow_pickle=False) as masks:
         all_masks = {name:masks[name].copy() for name in masks.files}
         mask = eye_edit_mask([masks[s+'_eye'][t:b, l:r] for s in ('left', 'right')],
-                             masks['hair'][t:b, l:r], original[:, :, 3], args.mask_margin_ratio)
+                             masks['hair'][t:b, l:r], original[:, :, 3], args.mask_margin_ratio,args.mask_core_ratio)
     run = args.character/'temp'/('completion-'+uuid.uuid4().hex)
     for name in ('input', 'output', 'temp', 'user'):
         (run/name).mkdir(parents=True)
@@ -350,6 +350,7 @@ def main():
                           ('startup-timeout', 600), ('generation-timeout', 14400)):
         parser.add_argument('--'+name, type=int, default=default)
     parser.add_argument('--mask-margin-ratio', type=float, default=.2)
+    parser.add_argument('--mask-core-ratio', type=float, required=True)
     parser.add_argument('--fast-disk', action='store_true')
     parser.add_argument('--prompt', default=PROMPT)
     for name in ('hidden-prompt','side-prompt'):

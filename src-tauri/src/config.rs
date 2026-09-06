@@ -12,6 +12,7 @@ pub const SETTING_KEYS: &[&str] = &[
     "ai.completion_seed",
     "ai.completion_resolution",
     "ai.completion_mask_margin",
+    "ai.completion_mask_core_ratio",
     "ai.completion_timeout_seconds",
     "ai.completion_fast_disk",
     "ai.completion_hidden_prompt",
@@ -127,6 +128,7 @@ pub struct AiConfig {
     pub completion_seed: u32,
     pub completion_resolution: u32,
     pub completion_mask_margin: f32,
+    pub completion_mask_core_ratio: f32,
     pub completion_timeout_seconds: u32,
     pub completion_fast_disk: bool,
     pub completion_hidden_prompt: String,
@@ -212,6 +214,7 @@ struct AiConfigFile {
     completion_seed: Option<u32>,
     completion_resolution: Option<u32>,
     completion_mask_margin: Option<f32>,
+    completion_mask_core_ratio: Option<f32>,
     completion_timeout_seconds: Option<u32>,
     completion_fast_disk: Option<bool>,
     completion_hidden_prompt: Option<String>,
@@ -349,6 +352,7 @@ impl Default for AiConfig {
             completion_seed: 777,
             completion_resolution: 1024,
             completion_mask_margin: 0.2,
+            completion_mask_core_ratio: 0.0,
             completion_timeout_seconds: 14_400,
             completion_fast_disk: true,
             completion_hidden_prompt: "Remove only the hair. Reconstruct the face, ears, neck and clothing that were hidden behind the hair. Preserve the exact existing facial features, expression, skin tone, clothing design, pose and rendering style. Keep a plain white background. Do not add objects or change the character identity.".into(),
@@ -639,6 +643,11 @@ impl AppConfig {
             f32
         );
         parse_environment!(
+            "LVS_AI_COMPLETION_MASK_CORE_RATIO",
+            self.ai.completion_mask_core_ratio,
+            f32
+        );
+        parse_environment!(
             "LVS_AI_COMPLETION_TIMEOUT_SECONDS",
             self.ai.completion_timeout_seconds,
             u32
@@ -784,6 +793,10 @@ impl AppConfig {
                 value.completion_mask_margin,
             );
             apply_optional(
+                &mut self.ai.completion_mask_core_ratio,
+                value.completion_mask_core_ratio,
+            );
+            apply_optional(
                 &mut self.ai.completion_timeout_seconds,
                 value.completion_timeout_seconds,
             );
@@ -907,6 +920,7 @@ impl AppConfig {
             || self.ai.completion_resolution % 16 != 0
             || !(0.0..=0.5).contains(&self.ai.completion_mask_margin)
             || self.ai.completion_mask_margin == 0.0
+            || !(0.0..1.0).contains(&self.ai.completion_mask_core_ratio)
             || self.ai.completion_timeout_seconds == 0
             || !(0.0..=0.15).contains(&self.ai.completion_hidden_band_ratio)
             || self.ai.completion_hidden_band_ratio == 0.0
@@ -1112,6 +1126,7 @@ mod tests {
             "LVS_AI_COMPLETION_SEED" => Some("42".into()),
             "LVS_AI_COMPLETION_RESOLUTION" => Some("768".into()),
             "LVS_AI_COMPLETION_MASK_MARGIN" => Some("0.3".into()),
+            "LVS_AI_COMPLETION_MASK_CORE_RATIO" => Some("0.5".into()),
             "LVS_AI_COMPLETION_TIMEOUT_SECONDS" => Some("7200".into()),
             "LVS_AI_COMPLETION_FAST_DISK" => Some("false".into()),
             "LVS_AI_COMPLETION_HIDDEN_PROMPT" => Some("hidden test".into()),
@@ -1129,6 +1144,7 @@ mod tests {
         assert_eq!(loaded.ai.completion_seed, 42);
         assert_eq!(loaded.ai.completion_resolution, 768);
         assert_eq!(loaded.ai.completion_mask_margin, 0.3);
+        assert_eq!(loaded.ai.completion_mask_core_ratio, 0.5);
         assert_eq!(loaded.ai.completion_timeout_seconds, 7200);
         assert!(!loaded.ai.completion_fast_disk);
         assert_eq!(loaded.ai.completion_hidden_prompt, "hidden test");
@@ -1174,6 +1190,8 @@ mod tests {
             ("completion_resolution", serde_json::json!(1000)),
             ("completion_mask_margin", serde_json::json!(0)),
             ("completion_mask_margin", serde_json::json!(0.51)),
+            ("completion_mask_core_ratio", serde_json::json!(-0.01)),
+            ("completion_mask_core_ratio", serde_json::json!(1)),
             ("completion_timeout_seconds", serde_json::json!(0)),
             ("completion_hidden_prompt", serde_json::json!(" ")),
             ("completion_side_prompt", serde_json::json!("")),
@@ -1192,6 +1210,16 @@ mod tests {
         let mut config = AppConfig::default();
         config.ai.completion_mask_margin = f32::NAN;
         assert!(config.validate().is_err());
+        let mut config = AppConfig::default();
+        assert_eq!(config.ai.completion_mask_core_ratio, 0.0);
+        for valid in [0.0, 0.5, 0.999] {
+            config.ai.completion_mask_core_ratio = valid;
+            assert!(config.validate().is_ok());
+        }
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            config.ai.completion_mask_core_ratio = invalid;
+            assert!(config.validate().is_err());
+        }
     }
 
     #[test]

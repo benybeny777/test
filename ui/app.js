@@ -75,7 +75,7 @@ async function refresh() {
   $("#eye-context-margin").value = config.ai.eye_context_margin;
   $("#sam-iou").value = config.ai.sam2_pred_iou_threshold;
   $("#sam-stability").value = config.ai.sam2_stability_threshold;
-  for (const key of ["model_dir", "steps", "seed", "resolution", "mask_margin", "timeout_seconds"]) {
+  for (const key of ["model_dir", "steps", "seed", "resolution", "mask_margin", "mask_core_ratio", "timeout_seconds"]) {
     $("#completion-" + key).value = config.ai["completion_" + key];
   }
   $("#completion-fast_disk").checked = config.ai.completion_fast_disk;
@@ -349,6 +349,9 @@ $("#save-completion").addEventListener("click", () => action(async () => {
   const margin = Number($("#completion-mask_margin").value);
   if (!Number.isFinite(margin) || margin <= 0 || margin > .5) throw new Error("局所補完のマスク余白は0超〜0.5で指定してください");
   config.ai.completion_mask_margin = margin;
+  const coreRatio = Number($("#completion-mask_core_ratio").value);
+  if (!Number.isFinite(coreRatio) || coreRatio < 0 || coreRatio >= 1) throw new Error("目の編集余白の内側割合は0以上1未満で指定してください");
+  config.ai.completion_mask_core_ratio = coreRatio;
   config.ai.completion_fast_disk = $("#completion-fast_disk").checked;
   for (const [key, max] of [["hidden_band_ratio", .15], ["hidden_motion_ratio", .4], ["hair_edge_band_ratio", .05], ["hair_edge_gain", 255], ["ear_context", 2]]) {
     const value = Number($("#completion-" + key).value);
@@ -374,6 +377,10 @@ await action(refresh);
 if (previewReady(selected)) {
   await action(loadPreview);
 }
+await action(async()=>{
+  const warnings=await invoke('startup_warnings');
+  if(warnings.length)log(warnings.join('\n'));
+});
 
 function previewReady(character) {
   // フォールバック許可: 補完工程導入前の保存済みキャラは既存リグを保持して表示する。

@@ -20,7 +20,12 @@ try{
   page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`http://127.0.0.1:8791/ui/check.html?character=${id}`);
   await page.getByRole('button',{name:'中立状態へ戻す',exact:true}).waitFor();
-  await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('素材充足:'));
+  await page.waitForFunction(()=>{
+    const text=document.querySelector('#status')?.textContent;
+    return text&&text!=='読込中';
+  });
+  const initialStatus=await page.locator('#status').textContent();
+  if(!initialStatus.startsWith('素材充足:'))throw new Error('確認画面の読込に失敗しました: '+initialStatus);
   const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
   const capture=async name=>{
     await settle();

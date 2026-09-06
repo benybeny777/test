@@ -77,6 +77,21 @@ class CompletionTests(unittest.TestCase):
         shifted = eye_edit_mask([np.pad(eye, pad)], np.pad(hair, pad), np.pad(alpha, pad), .2)
         self.assertTrue(np.array_equal(original, shifted[7:71, 11:107]))
 
+    def test_plateau_preserves_outer_extent_and_protected_pixels(self):
+        eye=np.zeros((64,96),bool);eye[20:40,30:65]=True
+        hair=np.zeros_like(eye);hair[:,28:32]=True
+        alpha=np.full(eye.shape,254,np.uint8);alpha[:4]=0
+        old=eye_edit_mask([eye],hair,alpha,.2)
+        new=eye_edit_mask([eye],hair,alpha,.2,.5)
+        self.assertTrue(np.array_equal(old>0,new>0))
+        self.assertTrue(np.all(new[hair|(alpha==0)]==0))
+        self.assertGreater(int((new==255).sum()),int((old==255).sum()))
+        self.assertTrue(np.all(new>=old))
+        shifted=eye_edit_mask([np.pad(eye,((7,9),(11,13)))],np.pad(hair,((7,9),(11,13))),np.pad(alpha,((7,9),(11,13))),.2,.5)
+        self.assertTrue(np.array_equal(new,shifted[7:71,11:107]))
+        for invalid in (-.01,1,float('nan')):
+            with self.assertRaises(ValueError):eye_edit_mask([eye],hair,alpha,.2,invalid)
+
     def test_native_roi_never_resizes_to_fit_limit(self):
         bounds = measured_head_region([300, 250, 500, 450], [340, 440, 470, 510], (1000, 1200), 1024)
         self.assertEqual((bounds[2]-bounds[0]) % 16, 0)
@@ -129,7 +144,7 @@ class CompletionOrchestrationTests(unittest.TestCase):
         self.args = SimpleNamespace(character=character, base_rig=character/'rig2d-base/rig.json',
                                     output=character/'rig2d', comfy=character/'comfy', models=character/'models',
                                     workflow=workflow, overlay=overlay, port=58120, steps=50, seed=777,
-                                    resolution=256, mask_margin_ratio=.2, startup_timeout=600,
+                                    resolution=256, mask_margin_ratio=.2, mask_core_ratio=0, startup_timeout=600,
                                     generation_timeout=14400, prompt='Close eyes', fast_disk=True,
                                     grounding_model=character/'models',sam_model=character/'models',
                                     hidden_prompt='Remove hair',side_prompt='Reveal ears',grounding_threshold=.3,
@@ -198,9 +213,12 @@ class CompletionOrchestrationTests(unittest.TestCase):
         self.args.seed += 1
         generate.complete_locked(self.args)
         self.assertEqual(self.inference.call_count, 2)
-        Image.new('RGBA', (256, 256), (230, 191, 170, 255)).save(self.args.character/'source/input.png')
+        self.args.mask_core_ratio = .5
         generate.complete_locked(self.args)
         self.assertEqual(self.inference.call_count, 3)
+        Image.new('RGBA', (256, 256), (230, 191, 170, 255)).save(self.args.character/'source/input.png')
+        generate.complete_locked(self.args)
+        self.assertEqual(self.inference.call_count, 4)
         record = json.loads((self.args.output/'completion.json').read_text(encoding='utf-8'))
         self.assertEqual(record['identity']['source'], source_hashes(self.args.character))
 

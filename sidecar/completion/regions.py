@@ -3,9 +3,10 @@ import math
 import numpy as np
 from scipy import ndimage
 
-def eye_edit_mask(eyes,hair,alpha,margin_ratio):
+def eye_edit_mask(eyes,hair,alpha,margin_ratio,core_ratio=0):
     """目を中心に編集可能領域を作り、髪・透明背景への描き出しを抑える。"""
     if not 0<margin_ratio<=.5:raise ValueError('目の編集余白が範囲外です')
+    if not 0<=core_ratio<1:raise ValueError('目の編集余白の内側割合が範囲外です')
     region=np.zeros(alpha.shape,dtype=float)
     for eye in eyes:
         ys,xs=np.nonzero(eye)
@@ -13,10 +14,13 @@ def eye_edit_mask(eyes,hair,alpha,margin_ratio):
         margin=max(2,round((int(xs.max())-int(xs.min())+1)*margin_ratio))
         expanded=ndimage.binary_dilation(eye,iterations=margin)&~hair&(alpha>0)
         if not np.any(expanded&eye):raise ValueError('可視の目が編集範囲にありません')
-        # 目そのものは確実に編集し、減衰は目の外側だけに置く。髪の近さで目を弱編集にしない。
+        # 余白の外縁は増やさず、指定した内側までは255、その外側だけを減衰させる。
+        # core_ratio=0は従来と同じ。髪との近さで目そのものを弱編集にしない。
         weight=np.clip(1-ndimage.distance_transform_edt(~eye)/margin,0,1)*expanded
         region=np.maximum(region,weight)
-    return np.rint(region*255).astype(np.uint8)
+    # 元の量子化済みmask0まで厳密に保護する。浮動小数の微小値を新しい編集画素へ変えない。
+    baseline=np.rint(region*255)
+    return np.rint(np.minimum(255,baseline/(1-core_ratio))).astype(np.uint8)
 
 
 def measured_head_region(face,neck,size,limit):

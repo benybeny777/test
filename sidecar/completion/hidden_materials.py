@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
+from hidden_regions import enclosed_hair_regions, hair_boundary_candidates, white_reference
 
 def separate_hair_pixels(pixels, hair, is_hair):
     """独立移動する髪との重複を、顔以外の未分類素材からも除く。"""
@@ -13,14 +14,10 @@ def separate_hair_pixels(pixels, hair, is_hair):
 
 def refine_side_hair(source, edited, face, hair, features, band, gain):
     """横髪除去で明るくなった連続境界だけを髪へ戻し、目口を保護する。"""
-    distance=ndimage.distance_transform_edt(~hair)
-    candidate=(distance>0)&(distance<=band)&face&(source[:,:,3]>0)
-    candidate &= (edited[:,:,:3].astype(float)-source[:,:,:3]).mean(axis=2)>gain
-    for feature in features:candidate &= ~ndimage.binary_dilation(feature,iterations=band)
-    eye_rows=np.nonzero(features[0]|features[1])[0]
-    mouth_rows=np.nonzero(features[2])[0]
-    if not eye_rows.size or not mouth_rows.size:raise ValueError('横髪境界の保護に必要な目口の領域がありません')
-    candidate[:eye_rows.min()]=False;candidate[mouth_rows.min():]=False
+    candidate=hair_boundary_candidates(source,face,hair,features,band)
+    # 生成へ渡した白合成入力と比較し、半透明の白混合を編集差と誤認しない。
+    reference=white_reference(source)
+    candidate &= (edited[:,:,:3].astype(float)-reference[:,:,:3]).mean(axis=2)>gain
     return ndimage.binary_propagation(hair,mask=hair|candidate)
 
 
@@ -52,14 +49,6 @@ def hidden_material(source, generated, face, hair, feature_masks, radius):
     corrected=np.rint(np.clip(generated[:,:,:3].astype(float)+correction,0,255)).astype(np.uint8)
     result=np.zeros_like(source);result[:,:,:3]=corrected;result[:,:,3]=np.where(hidden,source[:,:,3],0)
     return result,hidden
-
-
-def enclosed_hair_regions(hair,protected,opaque):
-    """髪の閉領域を一体として回収する。目口を含む穴は領域全体を除外する。"""
-    holes=ndimage.binary_fill_holes(hair)&~hair
-    labels,_=ndimage.label(holes)
-    blocked=np.unique(labels[protected])
-    return holes&~np.isin(labels,blocked)&opaque
 
 
 @dataclass(frozen=True)
