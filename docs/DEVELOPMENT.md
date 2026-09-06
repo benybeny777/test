@@ -2,6 +2,8 @@
 
 Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを行う。Node.js は不要。
 
+描画の開発用回帰検査は `node --test tools/test-mouth-geometry.mjs tools/test-eye-geometry.mjs tools/test-rig-motion.mjs tools/test-texture-alpha.mjs tools/test-avatar-lifecycle.mjs tools/test-native-scene-batch.mjs`。Node.jsは作業用のみ。同じ変位場の連続部位を`native-scene-batch.js`で原寸合成し、hidden_face/独立髪は境界として順序を保つ。顔のCPU再合成範囲と、GPUへ転送する合成テクスチャ全体を混同しない。口内の上歯はクリップ内・原画の唇より奥に描き、閉口と丸めた母音の回帰を検査する。
+
 ## 補完候補を従来の動作確認へ追加する
 
 比較仕様版19のむぎ候補IDは`c_2379190bb3b3`。利用者承認により可動モデルの耳輪郭を描き直す。原画ファイルは保持するが、中立合成も許可した耳周辺26,120画素が変わる。目口と許可領域外の変更はエラーにする。耳の形で進めることは利用者承認済み。髪との接合部の品質は未合格。
@@ -50,7 +52,7 @@ sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_preview.py --character te
 sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_eye_preview.py --character temp/t7-characters/c_190454c86edb --base temp/t7-characters/c_2379190bb3b3 --comparison temp/qwen-eval-edit-mugi-closed-eyes-bf16 --allow-unmasked-comparison
 ```
 
-生成画像から閉眼曲線と暗いまぶたの透過素材だけを抽出する。肌ごと重ねる版1は半閉眼で二重線を生じたため不採用。左右上まぶたPNGとリグ定義だけを変更し、原画・肌下地・他PNGは親と同一に保つ。入力4SHA・親素材・生成画像を公開前にも照合し、原子的に別候補へ保存する。閉眼曲線が測れない場合はエラーにする。左右別に開き0/0.5/1と連続まばたきを確認する。拡大生成や口の変化を持ち込まない。
+生成画像から閉眼曲線と暗いまぶたの透過素材だけを抽出する。肌ごと重ねる版1は半閉眼で二重線を生じたため不採用。承認済み版2では左右上まぶたPNGとリグ定義だけを変更し、原画・肌下地・他PNGは親と同一に保つ。新規版5では前述の目の肌下地のアルファ制限も行い、他素材は保持する。入力4SHA・親素材・生成画像を公開前にも照合し、原子的に別候補へ保存する。閉眼曲線が測れない場合はエラーにする。左右別に開き0/0.5/1と連続まばたきを確認する。拡大生成や口の変化を持ち込まない。
 
 ## 必要なもの
 

@@ -1,14 +1,15 @@
-import {createAvatarRenderer} from './shared/avatar-renderer.js?v=lifecycle11';
+import {createAvatarRenderer} from './shared/avatar-renderer.js?v=native-batch12';
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
 // 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
-const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_2379190bb3b3','むぎ・耳輪郭修正候補'],['c_df28cf7d4d11','むぎ・耳＋閉眼修正候補','耳・閉眼の見た目は利用者承認済み。口・他原画の品質は別に検証しています。']];
+const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_2379190bb3b3','むぎ・耳輪郭修正候補'],['c_df28cf7d4d11','むぎ・耳＋閉眼修正候補','耳・閉眼の見た目は利用者承認済み。口・他原画の品質は別に検証しています。']];
 fixtures.push(['c_df85ec1d7960','女性A・閉眼修正候補']);
+fixtures.push(['c_386f432bc3dd','PicoAgent実写・原画から再生成','PicoAgentのphotoreal-prototype原画を共通工程で再生成。歯・閉眼・透過を検証中で、最終品質は未承認です。']);
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 for(const [id,name] of fixtures)select.add(new Option(name,id));
 const requestedCharacter=new URL(location.href).searchParams.get('character');
-if(requestedCharacter)select.value=requestedCharacter;
+if(fixtures.some(([id])=>id===requestedCharacter))select.value=requestedCharacter;
 const mouthShape=document.querySelector('#mouth-shape');
 for(const [key,label] of [['close','閉口'],['a','あ'],['i','い'],['u','う'],['e','え'],['o','お']])mouthShape.add(new Option(label,key));
 const renderer=createAvatarRenderer(document.querySelector('#avatar'),{onError:error=>{

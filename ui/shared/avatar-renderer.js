@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three/three.module.min.js';
 import {localAssetUrl,loadLocalJson} from './local-assets.js';
-import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=open-a3';
+import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=local-lips5';
 import {eyeAperture,drawBlink} from './eye-geometry.js?v=closed-curve2';
-import {bleedTransparentRgb} from './texture-alpha.js';
+import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from './native-scene-batch.js';
 import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=ear-repair1';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -26,14 +26,15 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
   const scene=new THREE.Scene(),group=new THREE.Group();scene.add(group);
   const camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);camera.position.z=2;
   const faceCanvas=document.createElement('canvas'),ctx=faceCanvas.getContext('2d');
-  let rig,state={},images=new Map(),meshes=[],textures=[],positions,worldUV,faceTexture,faceAlpha;
+  let rig,state={},images=new Map(),meshes=[],textures=[],batches=[],positions,worldUV,faceBatch,faceTexture,faceAlpha;
   let revision=0,disposed=false,frame,nextBlink=Infinity,lastAppearance='';
   const resize=()=>renderer.setSize(Math.max(1,canvas.clientWidth),Math.max(1,canvas.clientHeight),false);
   const observer=new ResizeObserver(resize);observer.observe(canvas);resize();
   function release(){
     for(const mesh of meshes){group.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
     for(const texture of textures)texture.dispose();
-    meshes=[];textures=[];images.clear();faceTexture=null;faceAlpha=null;rig=null;positions=null;worldUV=null;
+    for(const batch of batches)batch.dispose();
+    meshes=[];textures=[];batches=[];images.clear();faceBatch=null;faceTexture=null;faceAlpha=null;rig=null;positions=null;worldUV=null;
     faceCanvas.width=faceCanvas.height=0;
   }
   async function applyState(next){
@@ -69,16 +70,22 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
       positions=template.attributes.position;worldUV=template.attributes.uv.array.slice();
       const face=images.get('scene_face');faceCanvas.width=face.naturalWidth;faceCanvas.height=face.naturalHeight;
       ctx.drawImage(face,0,0);faceAlpha=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height).data.filter((_,i)=>i%4===3);
-      for(const [index,part] of graph.entries()){
+      try{
+      for(const [index,plan] of planSceneBatches(graph,Boolean(rig.hidden_motion)).entries()){
+        const part=plan.parts[0];
         const geometry=template.clone();
-        geometry.setAttribute('position',rig.hidden_motion&&part.role==='hair'?positions.clone():positions);
-        const box=rig.layers[part.layer].texture_box,uv=geometry.attributes.uv;
+        geometry.setAttribute('position',plan.separate&&rig.hidden_motion&&part.role==='hair'?positions.clone():positions);
+        const box=sceneBatchBox(plan.parts,rig.layers),uv=geometry.attributes.uv;
         for(let i=0;i<uv.count;i++)uv.setXY(i,(worldUV[i*2]*w-box[0])/(box[2]-box[0]),1-((1-worldUV[i*2+1])*h-box[1])/(box[3]-box[1]));
-        // Canvasは透明RGBを失うため、合成後に色を補完した画素を直接アップロードする。
-        const texture=part.role==='face'?new THREE.DataTexture(new Uint8Array(faceCanvas.width*faceCanvas.height*4),faceCanvas.width,faceCanvas.height):new THREE.Texture(images.get(part.layer));
-        if(part.role==='face'){texture.flipY=true;texture.magFilter=THREE.LinearFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;texture.generateMipmaps=true;}
+        let texture;
+        if(plan.separate)texture=new THREE.Texture(images.get(part.layer));
+        else{
+          const batch=createNativeSceneBatch(plan.parts,rig.layers,images);batches.push(batch);
+          texture=new THREE.DataTexture(batch.data,batch.width,batch.height);
+          texture.flipY=true;texture.magFilter=THREE.LinearFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;texture.generateMipmaps=true;
+          if(plan.parts.some(p=>p.role==='face')){faceBatch=batch;faceTexture=texture;}
+        }
         texture.colorSpace=THREE.SRGBColorSpace;texture.needsUpdate=true;textures.push(texture);
-        if(part.role==='face')faceTexture=texture;
         const material=new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,depthTest:false});
         // 全部位で同じ頂点格子を共有し、切詰めテクスチャの外は描かない。
         material.onBeforeCompile=shader=>{
@@ -87,9 +94,12 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
           shader.fragmentShader=shader.fragmentShader.replace(marker,'if(any(lessThan(vMapUv,vec2(0.0)))||any(greaterThan(vMapUv,vec2(1.0)))) discard;\n'+marker);
         };
         material.customProgramCacheKey=()=> 'lvs-independent-crop-v1';
-        const mesh=new THREE.Mesh(geometry,material);mesh.userData.role=part.role;mesh.renderOrder=index;mesh.frustumCulled=false;group.add(mesh);meshes.push(mesh);
+        const mesh=new THREE.Mesh(geometry,material);mesh.userData.role=plan.separate?part.role:'batch';mesh.renderOrder=index;mesh.frustumCulled=false;group.add(mesh);meshes.push(mesh);
       }
-      template.dispose();lastAppearance='';nextBlink=performance.now()+randomBlinkDelay(next);
+      }
+      catch(error){release();throw error;}
+      finally{template.dispose();}
+      lastAppearance='';nextBlink=performance.now()+randomBlinkDelay(next);
     }
     state={...next};
     return true;
@@ -109,10 +119,13 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
     if(open>0||form!==0){const base=rig.layers.mouth_open.texture_box;ctx.drawImage(images.get('mouth_open'),base[0],base[1]);
       drawTexturedMouth(ctx,images.get('mouth_closed'),rig.layers.mouth_closed,open,form,rig.layers.mouth_open.line_color);}
     ctx.restore();
-    const pixels=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height).data;
+    const framePixels=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height),pixels=framePixels.data;
     // 元のアルファを再設定し、顔マスクを二重乗算して輪郭を薄くしない。
     for(let i=0;i<faceAlpha.length;i++)pixels[i*4+3]=faceAlpha[i];
-    faceTexture.image.data.set(bleedTransparentRgb(pixels,faceCanvas.width,faceCanvas.height));faceTexture.needsUpdate=true;
+    ctx.putImageData(framePixels,0,0);
+    faceBatch.update(faceCanvas);
+    // CPUは顔の行だけを更新するが、DataTextureは共有群全体を再転送しmipmapを更新する。
+    faceTexture.needsUpdate=true;
   }
   function render(now){
     if(disposed)return;

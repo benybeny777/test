@@ -1,4 +1,4 @@
-import { createAvatarRenderer } from "/shared/avatar-renderer.js?v=lifecycle11";
+import { createAvatarRenderer } from "/shared/avatar-renderer.js?v=native-batch12";
 
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;

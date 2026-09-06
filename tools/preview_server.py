@@ -12,6 +12,7 @@ STATIC={'/ui/check.html','/ui/check.js','/ui/qwen-check.html','/ui/qwen-check.js
         '/ui/shared/mouth-geometry.js',
         '/ui/shared/eye-geometry.js',
         '/ui/shared/texture-alpha.js',
+        '/ui/shared/native-scene-batch.js',
         '/ui/shared/rig-motion.js',
         '/ui/shared/vendor/three/three.module.min.js','/ui/shared/vendor/three/three.core.min.js'}
 ASSET=re.compile(r'/temp/t7-characters/c_[0-9a-f]{12}/(?:character\.json|source/input\.png|rig2d/rig\.json|rig2d/parts/[a-z_]+\.png)')

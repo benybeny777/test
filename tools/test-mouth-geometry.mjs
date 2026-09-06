@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mouthGeometry,drawMouth,lipMesh,MOUTH_PRESETS} from '../ui/shared/mouth-geometry.js';
+import {mouthGeometry,drawMouth,lipMesh,localLipStrips,upperTeethGeometry,drawTexturedMouth,MOUTH_PRESETS} from '../ui/shared/mouth-geometry.js';
 
 test('2軸の全域で輪郭と口角が有限で上下が交差しない',()=>{
   for(let o=0;o<=100;o++)for(let f=-100;f<=100;f++) {
@@ -64,4 +64,64 @@ test('すぼめた口は笑った口角を弱め、横引きより丸い縦横�
   assert.ok(b.width<a.width);assert.ok(b.height/b.width>a.height/a.width);
   const puckered=lipMesh(layer,0,-1);
   for(const column of puckered.upper.slice(1,-1))assert.equal(column[1][1],45);
+});
+
+test('上歯は閉口で消え、開口の内側に収まり、すぼめで露出が減る',()=>{
+  const layer={texture_box:[0,0,100,100],feature_box:[25,35,75,55],lip_seam:[[25,45],[37.5,45],[50,45],[62.5,45],[75,45]]};
+  assert.equal(upperTeethGeometry(lipMesh(layer,0,0)),null);
+  for(const [opening,form] of Object.values(MOUTH_PRESETS)){
+    const mesh=lipMesh(layer,opening,form),teeth=upperTeethGeometry(mesh);if(!teeth)continue;
+    assert.ok(teeth.opacity>0&&teeth.opacity<=1);
+    for(let i=0;i<teeth.top.length;i++){
+      const [x,y]=teeth.top[i];assert.ok(Number.isFinite(x)&&Number.isFinite(y));
+      assert.ok(x>=mesh.upper[1][1][0]&&x<=mesh.upper.at(-2)[1][0]);
+      assert.ok(teeth.bottom[i][1]>=y);
+      // 帯の下端も上下唇間の同じ線形補間に収まる。
+      const j=mesh.upper.findIndex((column,index)=>index>0&&column[1][0]>=x);
+      const a=mesh.upper[j-1][1],b=mesh.upper[j][1],t=(x-a[0])/(b[0]-a[0]);
+      const upper=a[1]+(b[1]-a[1])*t;
+      const lower=mesh.lower[j-1][0][1]+(mesh.lower[j][0][1]-mesh.lower[j-1][0][1])*t;
+      assert.ok(y>=upper-1e-9);assert.ok(teeth.bottom[i][1]<=lower+1e-9);
+    }
+  }
+  const wide=upperTeethGeometry(lipMesh(layer,.7,.8)),round=upperTeethGeometry(lipMesh(layer,.7,-.8));
+  assert.ok(round.top.at(-1)[0]-round.top[0][0]<wide.top.at(-1)[0]-wide.top[0][0]);
+  assert.ok(round.bottom[8][1]-round.top[8][1]<wide.bottom[8][1]-wide.top[8][1]);
+  assert.ok(round.opacity<wide.opacity);
+});
+
+test('原画閉口は画像だけを描き、上歯は口内クリップ後・原画唇より前に描く',()=>{
+  const layer={texture_box:[0,0,100,100],feature_box:[25,35,75,55],lip_seam:[[25,45],[50,45],[75,45]]};
+  const events=[],stack=[];
+  const ctx={globalAlpha:1,save(){stack.push(this.globalAlpha);},restore(){this.globalAlpha=stack.pop();},
+    beginPath(){},moveTo(){},lineTo(){},closePath(){},ellipse(){},transform(){},
+    createLinearGradient(){return {stops:[],addColorStop(offset,color){this.stops.push([offset,color]);}};},
+    clip(){events.push('clip');},fill(){events.push(this.fillStyle);},drawImage(){events.push('image');}};
+  drawTexturedMouth(ctx,{},layer,0,0,[80,30,40]);assert.deepEqual(events,['image']);events.length=0;
+  const before=JSON.stringify(layer);drawTexturedMouth(ctx,{},layer,1,0,[80,30,40]);
+  const tooth=events.findIndex(event=>event?.stops?.some(([,color])=>color==='rgb(239,230,214)'));
+  assert.ok(tooth>events.indexOf('clip'));assert.ok(tooth<events.lastIndexOf('image'));
+  assert.equal(events[tooth].stops.length,3);assert.notEqual(events[tooth].stops[0][1],events[tooth].stops[1][1]);
+  assert.equal(ctx.globalAlpha,1);assert.equal(stack.length,0);assert.equal(JSON.stringify(layer),before);
+});
+
+test('広い口切出しでも鼻下まで引かず、局所アンカーで原画座標へ戻る',()=>{
+  const layer={texture_box:[427,415,633,572],feature_box:[483,471,577,516],lip_seam:[[483,497],[530,494],[577,473.5]]};
+  const original=JSON.stringify(layer);
+  for(const [open,form] of Object.values(MOUTH_PRESETS)){
+    const mesh=lipMesh(layer,open,form),strips=localLipStrips(mesh);
+    for(let i=0;i<mesh.source.length;i++){
+      assert.deepEqual(strips.sourceUpper[i][0],strips.targetUpper[i][0]);
+      assert.deepEqual(strips.sourceLower[i][3],strips.targetLower[i][3]);
+      assert.ok(strips.sourceUpper[i][0][1]>450,'鼻下の上側は変形範囲に含めない');
+      assert.ok(strips.sourceLower[i][3][1]<=572);
+      assert.deepEqual(strips.targetUpper[i][3],mesh.upper[i][1]);
+      assert.deepEqual(strips.targetLower[i][0],mesh.lower[i][0]);
+      for(const columns of [strips.targetUpper,strips.targetLower])for(let row=1;row<4;row++)
+        assert.ok(columns[i][row][1]>=columns[i][row-1][1],'縦の帯を折り返さない');
+    }
+  }
+  assert.equal(JSON.stringify(layer),original);
+  const neutral=localLipStrips(lipMesh(layer,0,0));
+  assert.deepEqual(neutral.sourceUpper,neutral.targetUpper);assert.deepEqual(neutral.sourceLower,neutral.targetLower);
 });

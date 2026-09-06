@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import * as THREE from '../ui/shared/vendor/three/three.module.min.js';
+import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from '../ui/shared/native-scene-batch.js';
 
 const source=name=>readFileSync(new URL('../ui/'+name,import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
@@ -17,7 +18,7 @@ function rig(){
 function harness(){
   let frame,fail=false,rendered=0,cleared=0;
   const errors=[];
-  const context={save(){},restore(){},clearRect(){},translate(){},drawImage(){},
+  const context={save(){},restore(){},clearRect(){},translate(){},drawImage(){},putImageData(){},
     getImageData(){return {data:new Uint8ClampedArray([0,0,0,255])};}};
   class Renderer{
     setClearColor(){}setPixelRatio(){}setSize(){}dispose(){}forceContextLoss(){}
@@ -29,6 +30,8 @@ function harness(){
     requestAnimationFrame:callback=>{frame=callback;return 1;},cancelAnimationFrame:()=>{frame=undefined;},
     loadLocalJson:async()=>rig(),localAssetUrl:url=>({href:url}),lipMesh(){},eyeAperture(){},
     validateHiddenMotion(){},hiddenRepairAmount:()=>0,drawBlink(){},drawTexturedMouth(){},
+    planSceneBatches,sceneBatchBox,
+    createNativeSceneBatch:(parts,layers,images)=>createNativeSceneBatch(parts,layers,images,()=>({getContext:()=>context})),
     bleedTransparentRgb:data=>data,headDisplacement:()=>[0,0],armDisplacement:()=>[0,0],MOUTH_PRESETS:{close:[0,0]}};
   const api=vm.runInNewContext(source('shared/avatar-renderer.js')+'\n({createAvatarRenderer,validateRenderBounds});',env);
   const renderer=api.createAvatarRenderer({clientWidth:1,clientHeight:1},{onError:error=>errors.push(error.message)});
