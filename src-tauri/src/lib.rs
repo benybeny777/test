@@ -280,7 +280,73 @@ fn load_preview_assets(
         .pipeline
         .character_dir(&character_id)
         .map_err(error_text)?;
-    read_consistent_preview(&directory, |path| fs::read(path))
+    read_consistent_preview(&directory, |path| read_preview_file(&directory, path))
+}
+
+fn read_preview_file(directory: &Path, path: &Path) -> std::io::Result<Vec<u8>> {
+    let relative = path
+        .strip_prefix(directory)
+        .map_err(std::io::Error::other)?;
+    let mut current = directory.to_path_buf();
+    for component in std::iter::once(None).chain(relative.components().map(Some)) {
+        if let Some(component) = component {
+            if !matches!(component, std::path::Component::Normal(_)) {
+                return Err(std::io::Error::other("プレビュー素材の格納先が不正です"));
+            }
+            current.push(component);
+        }
+        let metadata = fs::symlink_metadata(&current)?;
+        let mut linked = metadata.file_type().is_symlink();
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            linked |= metadata.file_attributes()
+                & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+                != 0;
+        }
+        if linked {
+            return Err(std::io::Error::other(
+                "プレビュー素材のリンク参照は禁止です",
+            ));
+        }
+    }
+    fs::read(path)
+}
+
+fn preview_part_names(bytes: &[u8]) -> Result<Vec<String>, String> {
+    let rig: serde_json::Value = serde_json::from_slice(bytes).map_err(error_text)?;
+    let layers = rig
+        .get("layers")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| "リグの素材一覧がありません".to_owned())?;
+    for required in RIG2D_PARTS {
+        if !layers.contains_key(*required) {
+            return Err(format!("必須リグ素材がありません: {required}"));
+        }
+    }
+    for (name, layer) in layers {
+        let reserved = matches!(name.as_str(), "con" | "prn" | "aux" | "nul")
+            || ["com", "lpt"].iter().any(|prefix| {
+                name.strip_prefix(prefix).is_some_and(|suffix| {
+                    suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9')
+                })
+            });
+        if name.is_empty()
+            || name.len() > 128
+            || reserved
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return Err(format!("リグ素材の識別子が不正です: {name}"));
+        }
+        // URLは取得先として利用せず、正規の固定表記だけを受け付ける。
+        let expected = format!("/assets/rig2d/parts/{name}.png");
+        if layer.get("url").and_then(serde_json::Value::as_str) != Some(expected.as_str()) {
+            return Err(format!("リグ素材URLが正規形式ではありません: {name}"));
+        }
+    }
+    Ok(layers.keys().cloned().collect())
 }
 
 fn preview_generation(bytes: &[u8]) -> Result<(String, String), String> {
@@ -308,17 +374,16 @@ fn read_consistent_preview(
     // character.jsonを更新しない診断サイドカーの直接公開はこの保証に含まない。
     let manifest_path = directory.join("character.json");
     let before = preview_generation(&read(&manifest_path).map_err(error_text)?)?;
+    let rig = read(&directory.join("rig2d/rig.json")).map_err(error_text)?;
+    let names = preview_part_names(&rig)?;
     let mut parts = BTreeMap::new();
-    for name in RIG2D_PARTS {
+    for name in names {
         parts.insert(
-            (*name).to_owned(),
+            name.clone(),
             read(&directory.join("rig2d/parts").join(format!("{name}.png"))).map_err(error_text)?,
         );
     }
-    let assets = PreviewAssets {
-        rig: read(&directory.join("rig2d/rig.json")).map_err(error_text)?,
-        parts,
-    };
+    let assets = PreviewAssets { rig, parts };
     let after = preview_generation(&read(&manifest_path).map_err(error_text)?)?;
     if before != after {
         return Err("読み込み中に生成世代が変わりました。完了後に再読み込みしてください".into());
@@ -472,6 +537,20 @@ pub fn run() {
 mod preview_tests {
     use super::*;
 
+    fn rig_bytes(extra: &[&str]) -> Vec<u8> {
+        let layers: BTreeMap<_, _> = RIG2D_PARTS
+            .iter()
+            .chain(extra.iter())
+            .map(|name| {
+                (
+                    *name,
+                    serde_json::json!({"url":format!("/assets/rig2d/parts/{name}.png")}),
+                )
+            })
+            .collect();
+        serde_json::to_vec(&serde_json::json!({"layers":layers})).unwrap()
+    }
+
     fn manifest(stage: &str, status: &str, timestamp: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({
             "schemaVersion": 1, "characterId": "fixture", "displayName": "確認",
@@ -490,14 +569,20 @@ mod preview_tests {
                 if path.file_name().unwrap() == "character.json" {
                     state_reads += 1;
                     Ok(manifest(stage, "complete", "generation-1"))
+                } else if path.file_name().unwrap() == "rig.json" {
+                    Ok(rig_bytes(&["scene_hidden_face", "neck", "collar"]))
                 } else {
                     Ok(b"original material".to_vec())
                 }
             })
             .unwrap();
             assert_eq!(state_reads, 2);
-            assert_eq!(assets.parts.len(), RIG2D_PARTS.len());
-            assert_eq!(assets.rig, b"original material");
+            assert_eq!(assets.parts.len(), RIG2D_PARTS.len() + 3);
+            assert_eq!(assets.parts["scene_hidden_face"], b"original material");
+            assert_eq!(
+                assets.rig,
+                rig_bytes(&["scene_hidden_face", "neck", "collar"])
+            );
         }
     }
 
@@ -518,6 +603,8 @@ mod preview_tests {
                     } else {
                         manifest(stage, status, timestamp)
                     })
+                } else if path.file_name().unwrap() == "rig.json" {
+                    Ok(rig_bytes(&[]))
                 } else {
                     Ok(b"potentially mixed material".to_vec())
                 }
@@ -533,6 +620,61 @@ mod preview_tests {
             Ok(manifest("complete", "running", "generation-2"))
         });
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn preview_rejects_missing_parts_unsafe_names_and_foreign_urls() {
+        for name in [
+            "../secret",
+            "folder/secret",
+            "C:\\secret",
+            "part:stream",
+            "nul",
+            "com1",
+            "name.png",
+            "",
+        ] {
+            assert!(preview_part_names(&rig_bytes(&[name])).is_err(), "{name}");
+        }
+        let mut rig: serde_json::Value = serde_json::from_slice(&rig_bytes(&[])).unwrap();
+        rig["layers"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mouth_closed");
+        assert!(preview_part_names(&serde_json::to_vec(&rig).unwrap()).is_err());
+        let mut rig: serde_json::Value = serde_json::from_slice(&rig_bytes(&[])).unwrap();
+        rig["layers"]["mouth_closed"]["url"] =
+            serde_json::json!("https://example.invalid/image.png");
+        assert!(preview_part_names(&serde_json::to_vec(&rig).unwrap()).is_err());
+    }
+
+    #[test]
+    fn preview_file_reader_restricts_directory_and_missing_files() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../temp");
+        fs::create_dir_all(&workspace).unwrap();
+        let fixture = tempfile::tempdir_in(workspace).unwrap();
+        let file = fixture.path().join("material.png");
+        fs::write(&file, b"fixture").unwrap();
+        assert_eq!(
+            read_preview_file(fixture.path(), &file).unwrap(),
+            b"fixture"
+        );
+        assert!(read_preview_file(fixture.path(), &fixture.path().join("../secret.png")).is_err());
+        assert!(read_preview_file(fixture.path(), &fixture.path().join("missing.png")).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Windowsのリンク作成特権が必要。開発者モードまたは特権環境で明示実行する"]
+    fn preview_file_reader_rejects_real_symlink() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../temp");
+        fs::create_dir_all(&workspace).unwrap();
+        let fixture = tempfile::tempdir_in(workspace).unwrap();
+        let file = fixture.path().join("material.png");
+        fs::write(&file, b"fixture").unwrap();
+        let linked = fixture.path().join("linked.png");
+        std::os::windows::fs::symlink_file(&file, &linked).unwrap();
+        assert!(read_preview_file(fixture.path(), &linked).is_err());
     }
 }
 
