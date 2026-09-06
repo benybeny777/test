@@ -1,6 +1,5 @@
 """承認済みQwen二方式を同じ原寸ROIで比較する。正規素材へは採用しない。"""
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,37 +16,29 @@ sys.path.insert(0,str(ROOT/'sidecar/expression'))
 from generate import request_json,wait_for_server
 from download import LOCK,digest
 
+SOURCE_FILES={'source_sha256':'source/input.png','isolated_sha256':'source/isolated.png','analysis_sha256':'analysis/analysis.json','masks_sha256':'analysis/masks.npz'}
+
+
+def source_hashes(character):
+    return {key:digest(character/path) for key,path in SOURCE_FILES.items()}
+
+
+def verify_source(character,recorded):
+    current=source_hashes(character)
+    if any(recorded.get(key)!=value for key,value in current.items()):
+        raise ValueError('原画または解析マスクが比較開始時と一致しません')
+
 
 def graph(mode,width,height,prompt,steps,seed,layers):
-    def node(name,**inputs):return {'class_type':name,'inputs':inputs}
-    result={
-        '1':node('UNETLoader',unet_name=f'qwen_image_{"layered" if mode=="layered" else "edit_2511"}_bf16.safetensors',weight_dtype='default'),
-        '2':node('CLIPLoader',clip_name='qwen_2.5_vl_7b.safetensors',type='qwen_image',device='default'),
-        '3':node('VAELoader',vae_name=f'qwen_image_{"layered_" if mode=="layered" else ""}vae.safetensors'),
-        '4':node('LoadImage',image='input.png'),
-        '5':node('ModelSamplingAuraFlow',model=['1',0],shift=1.0 if mode=='layered' else 3.1),
-        '6':node('CFGNorm',model=['5',0],strength=1.0),
-        '10':node('KSampler',model=['6',0],positive=['7',0],negative=['8',0],latent_image=['9',0],seed=seed,steps=steps,cfg=4.0,sampler_name='euler',scheduler='simple',denoise=1.0),
-        '12':node('VAEDecode',samples=['11',0] if mode=='layered' else ['10',0],vae=['3',0]),
-        '13':node('SaveImage',images=['12',0],filename_prefix='candidate'),
-    }
+    if mode not in ('layered','edit'):raise ValueError('未承認の比較方式です')
+    result=json.loads((ROOT/f'workflows/qwen-{mode}-api.json').read_text(encoding='utf-8'))
+    result['9']['inputs'].update(width=width,height=height)
+    result['10']['inputs'].update(steps=steps,seed=seed)
     if mode=='layered':
-        result.update({
-            '14':node('CLIPTextEncode',clip=['2',0],text=prompt),
-            '15':node('CLIPTextEncode',clip=['2',0],text=''),
-            '16':node('VAEEncode',pixels=['4',0],vae=['3',0]),
-            '7':node('ReferenceLatent',conditioning=['14',0],latent=['16',0]),
-            '8':node('ReferenceLatent',conditioning=['15',0],latent=['16',0]),
-            '9':node('EmptyQwenImageLayeredLatentImage',width=width,height=height,layers=layers,batch_size=1),
-            # 全体再生成の0枚目も保存し、残りのレイヤーとの合成を比較できるようにする。
-            '11':node('LatentCutToBatch',samples=['10',0],dim='t',slice_size=1),
-        })
+        result['14']['inputs']['text']=prompt
+        result['9']['inputs']['layers']=layers
     else:
-        result.update({
-            '7':node('TextEncodeQwenImageEditPlus',clip=['2',0],prompt=prompt,vae=['3',0],image1=['4',0]),
-            '8':node('TextEncodeQwenImageEditPlus',clip=['2',0],prompt='',vae=['3',0],image1=['4',0]),
-            '9':node('EmptySD3LatentImage',width=width,height=height,batch_size=1),
-        })
+        result['7']['inputs']['prompt']=prompt
     return result
 
 
@@ -71,7 +62,7 @@ def prepare_input(character,output,resolution,view):
     padded.alpha_composite(prepared)
     padded.convert('RGB').save(output/'input/input.png')
     prepared.save(output/'reference.png')
-    return padded.size,{'source_sha256':digest(character/'source/input.png'),'isolated_sha256':digest(character/'source/isolated.png'),'source_region':bounds,'source_size':source.size,'prepared_size':prepared.size,'view':view,'upscaled':False}
+    return padded.size,{**source_hashes(character),'source_region':bounds,'source_size':source.size,'prepared_size':prepared.size,'view':view,'upscaled':False}
 
 
 def resources(process):
@@ -112,6 +103,7 @@ def main():
     parser.add_argument('--layers',type=int,default=4)
     parser.add_argument('--port',type=int,default=58125)
     parser.add_argument('--timeout',type=int,default=14400)
+    parser.add_argument('--fast-disk',action='store_true',help='非量子化のままNVMeからの動的読込を優先する')
     parser.add_argument('--prompt')
     args=parser.parse_args()
     output=args.output.resolve();comfy=args.comfy.resolve()
@@ -133,6 +125,8 @@ def main():
     (output/'workflow.json').write_text(json.dumps(workflow,indent=2),encoding='utf-8')
     report={'mode':args.mode,'source':source,'parameters':{'steps':args.steps,'seed':args.seed,'layers':args.layers,'prompt':prompt,'size':size},'quality':'unverified','product_adopted':False,'status':'running','resources':[]}
     command=[sys.executable,str(comfy/'main.py'),'--listen','127.0.0.1','--port',str(args.port),'--base-directory',str(output),'--models-directory',str(ROOT/'models/qwen-eval'),'--temp-directory',str(output/'temp'),'--disable-auto-launch','--disable-all-custom-nodes','--disable-api-nodes','--preview-method','none']
+    if args.fast_disk:command.append('--fast-disk')
+    report['command']=command
     environment=dict(os.environ,HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',HF_HUB_DISABLE_TELEMETRY='1')
     started=time.monotonic()
     with (output/'comfy.log').open('w',encoding='utf-8') as log:
@@ -166,6 +160,7 @@ def main():
                                 if image.size!=size:raise ValueError('生成寸法が一致しません')
                                 if args.mode=='layered' and image.mode!='RGBA':raise ValueError('RGBAレイヤーではありません')
                             report['images'].append(str(path.relative_to(output)))
+                        verify_source(args.character,source)
                         report['status']='complete';break
                 time.sleep(5)
             else:raise TimeoutError('生成の待機時間を超過しました')
@@ -175,7 +170,6 @@ def main():
             # Popenで保持した子だけを停止し、成功/失敗/中断の全経路で回収する。
             stop_owned(process)
             report['seconds']=round(time.monotonic()-started,2)
-            if digest(args.character/'source/input.png')!=source['source_sha256']:raise ValueError('原画が変更されています')
             (output/'report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf-8')
             print(json.dumps({'event':report['status'],'seconds':report['seconds'],'report':str(output/'report.json')}),flush=True)
 

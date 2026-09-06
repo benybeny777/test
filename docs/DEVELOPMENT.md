@@ -16,7 +16,9 @@ Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを
 
 比較実行は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/run.py layered --character temp/t7-characters/<ID> --output temp/<新規比較名> --comfy <本アプリ管理ComfyUI>`。もう一方は`layered`を`edit`へ変更する。既定は同じ原寸1024pxの頭/首ROI、50step、seed777。`--view full`は比較専用の長辺1024px以下への縮小で、拡大は行わない。`--prompt`で比較条件を明示的に変えられる。既定のEditは髪除去と隠れた顔/首/服の補完、Layeredは内容記述から4レイヤーへ分解する。**用途が異なるため、出力枚数を品質の順位と扱わない。**
 
-専用localhostポートでComfyUIを起動し、APIノード/カスタムノード/Hub通信を無効化する。生成は逐次、DynamicVRAMで非量子化重みを必要時に読み込む。入力範囲、原画SHA、ワークフロー、全出力（Layeredの0枚目の全体再生成も含む）、ログ、プロセスRAMとGPU全体使用量の時系列を保存し、終了/失敗時に起動したプロセスツリーを回収する。GPU全体使用量には他アプリを含み、プロセス専用VRAMと混同しない。品質判定後も診断素材を正規リグへ無断で昇格しない。
+専用localhostポートでComfyUIを起動し、APIノード/カスタムノード/Hub通信を無効化する。生成は逐次、DynamicVRAMで非量子化重みを必要時に読み込む。`--fast-disk`はNVMeからの動的読込を優先する比較指定であり、精度や解像度は変えない。ワークフローの正本は`workflows/qwen-layered-api.json`と`qwen-edit-api.json`。入力範囲、原画・透過原画・解析JSON・マスクのSHA、実行ワークフロー、全出力（Layeredの0枚目の全体再生成も含む）、ログ、プロセスRAMとGPU全体使用量の時系列を保存し、終了/失敗時に起動したプロセスツリーを回収する。GPU全体使用量には他アプリを含み、プロセス専用VRAMと混同しない。品質判定後も診断素材を正規リグへ無断で昇格しない。
+
+完了出力は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/analyze.py temp/<比較名> --character temp/t7-characters/<ID>`で解析する。生成時の原画/透過原画/解析/マスクのSHAが一致しない場合は拒否する。Layeredの全体再生成と残りレイヤーの合成誤差、入力との差、目口等の可視画素差、メモリピークを`metrics.json`に保存する。画素差は形状や造形の良否を証明しないため、見た目の判定は別に行う。
 
 `tools/semantic-eval/inspect-components.py`は正規解析で保存した衣服の検出矩形を同じSAMへ渡し、最大連結領域と全領域を比較する。原寸マスクと上位の成分画像・面積を`temp/clothing-components/`へ保存する。左右に離れた衣服をノイズとして捨てていないかを確認する診断であり、その画像を製品へコピーしない。
 

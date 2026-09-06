@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 from PIL import Image
-from run import graph,prepare_input,ROOT
+from run import graph,prepare_input,ROOT,verify_source
 
 
 class CompareTests(unittest.TestCase):
@@ -38,12 +38,16 @@ class CompareTests(unittest.TestCase):
             source=Image.fromarray(pixels)
             source.save(character/'source/input.png');source.save(character/'source/isolated.png')
             (character/'analysis/analysis.json').write_text(json.dumps({'analysis':{'selected':{'face':{'box':[400,100,700,500]},'neck':{'box':[450,500,650,650]}}}}))
+            np.savez(character/'analysis/masks.npz',face=np.ones((1056,1104),dtype=bool))
             size,metadata=prepare_input(character,output,1024,'head')
             with Image.open(output/'reference.png') as image:reference=np.asarray(image)
             left,top,right,bottom=metadata['source_region']
             np.testing.assert_array_equal(reference,pixels[top:bottom,left:right])
             self.assertEqual(size,(1024,1024))
             self.assertFalse(metadata['upscaled'])
+            verify_source(character,metadata)
+            np.savez(character/'analysis/masks.npz',face=np.zeros((1056,1104),dtype=bool))
+            with self.assertRaisesRegex(ValueError,'マスク'):verify_source(character,metadata)
 
 
 if __name__=='__main__':unittest.main()
