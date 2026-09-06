@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import sys
 import numpy as np
 from PIL import Image
 from scipy import ndimage
@@ -121,6 +122,7 @@ def build(character,base,comparison):
 
 
 if __name__=='__main__':
+    sys.stdout.reconfigure(encoding='utf-8');sys.stderr.reconfigure(encoding='utf-8')
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--character',type=Path,required=True);parser.add_argument('--base',type=Path,required=True)
     parser.add_argument('--comparison',type=Path,required=True)

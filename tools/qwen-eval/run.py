@@ -1,6 +1,7 @@
 """承認済みQwen二方式を同じ原寸ROIで比較する。正規素材へは採用しない。"""
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -42,7 +43,21 @@ def graph(mode,width,height,prompt,steps,seed,layers):
     return result
 
 
-def prepare_input(character,output,resolution,view):
+def measured_head_region(face,neck,size,limit):
+    """原画の顔と首の寸法から、拡縮しない頭部比較範囲を求める。"""
+    if any(len(box)!=4 or not all(math.isfinite(v) for v in box) or box[2]<=box[0] or box[3]<=box[1] for box in (face,neck)):
+        raise ValueError('頭部比較の実測座標が不正です')
+    fw,fh=face[2]-face[0],face[3]-face[1]
+    left=face[0]-.4*fw;right=face[2]+.4*fw
+    top=face[1]-.55*fh;bottom=max(face[3],neck[3])+.15*fh
+    extent=max(256,math.ceil(max(right-left,bottom-top)/16)*16)
+    if extent>limit or extent>min(size):raise ValueError('原寸の頭部範囲が比較上限に収まりません。縮小せず条件を見直してください')
+    x=max(0,min(size[0]-extent,round((left+right-extent)/2)))
+    y=max(0,min(size[1]-extent,round((top+bottom-extent)/2)))
+    return x,y,x+extent,y+extent
+
+
+def prepare_input(character,output,resolution,view,head_framing='fixed'):
     with Image.open(character/'source/isolated.png') as opened:source=opened.convert('RGBA')
     if view=='head':
         metadata=json.loads((character/'analysis/analysis.json').read_text(encoding='utf-8'))
@@ -51,7 +66,7 @@ def prepare_input(character,output,resolution,view):
         width=min(source.width,resolution);height=min(source.height,resolution)
         left=max(0,min(source.width-width,round((face[0]+face[2]-width)/2)))
         top=max(0,min(source.height-height,round((face[1]+neck[3]-height)/2)))
-        bounds=(left,top,left+width,top+height)
+        bounds=measured_head_region(face,neck,source.size,resolution) if head_framing=='measured' else (left,top,left+width,top+height)
         prepared=source.crop(bounds)
     else:
         bounds=(0,0,source.width,source.height)
@@ -97,6 +112,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--comfy',type=Path,required=True)
     parser.add_argument('--view',choices=['head','full'],default='head')
+    parser.add_argument('--head-framing',choices=['fixed','measured'],default='fixed')
     parser.add_argument('--resolution',type=int,default=1024)
     parser.add_argument('--steps',type=int,default=50)
     parser.add_argument('--seed',type=int,default=777)
@@ -119,7 +135,8 @@ def main():
         print(json.dumps({'event':'checking_model','file':model.name}),flush=True)
         if digest(model)!=item['sha256']:raise ValueError(f'固定重みSHA不一致: {model.name}')
     for name in ['input','output','temp','user']:(output/name).mkdir(parents=True)
-    size,source=prepare_input(args.character,output,args.resolution,args.view)
+    size,source=prepare_input(args.character,output,args.resolution,args.view,args.head_framing)
+    if args.head_framing!='fixed':source['head_framing']=args.head_framing
     prompt=args.prompt or ('A front-facing female character with hair, a face with eyes and mouth, ears, a neck, and clothing against a plain white background.' if args.mode=='layered' else 'Remove only the hair. Reconstruct the face, ears, neck and clothing that were hidden behind the hair. Preserve the exact existing facial features, expression, skin tone, clothing design, pose and rendering style. Keep a plain white background. Do not add objects or change the character identity.')
     workflow=graph(args.mode,*size,prompt,args.steps,args.seed,args.layers)
     (output/'workflow.json').write_text(json.dumps(workflow,indent=2),encoding='utf-8')
@@ -174,4 +191,6 @@ def main():
             print(json.dumps({'event':report['status'],'seconds':report['seconds'],'report':str(output/'report.json')}),flush=True)
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    sys.stdout.reconfigure(encoding='utf-8');sys.stderr.reconfigure(encoding='utf-8')
+    main()

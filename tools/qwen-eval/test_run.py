@@ -6,10 +6,17 @@ import unittest
 
 import numpy as np
 from PIL import Image
-from run import graph,prepare_input,ROOT,verify_source
+from run import graph,prepare_input,ROOT,verify_source,measured_head_region
 
 
 class CompareTests(unittest.TestCase):
+    def test_measured_head_is_native_translation_invariant_and_bounded(self):
+        box=measured_head_region([500,200,620,330],[530,320,590,350],(1200,1400),1024)
+        shifted=measured_head_region([600,300,720,430],[630,420,690,450],(1200,1400),1024)
+        self.assertEqual(shifted,tuple(value+100 for value in box))
+        self.assertEqual(box[2]-box[0],256)
+        with self.assertRaises(ValueError):measured_head_region([0,0,1000,1000],[0,900,100,1100],(2000,2000),1024)
+
     def test_original_precision_and_layers(self):
         value=graph('layered',1024,1024,'test',50,777,4)
         self.assertEqual(value['1']['inputs']['weight_dtype'],'default')
