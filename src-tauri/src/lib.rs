@@ -38,6 +38,15 @@ struct PreviewAssets {
 }
 
 const RIG2D_PARTS: &[&str] = &[
+    "scene_torso",
+    "scene_left_arm",
+    "scene_right_arm",
+    "scene_neck",
+    "scene_face",
+    "scene_hair",
+    "scene_residual",
+    "left_eye_backplate",
+    "right_eye_backplate",
     "left_eye_iris",
     "right_eye_iris",
     "left_eye_remainder",

@@ -1,141 +1,123 @@
-import * as THREE from "./vendor/three/three.module.min.js";
-import {localAssetUrl, loadLocalJson} from "./local-assets.js";
-import {drawTexturedMouth,lipMesh,MOUTH_PRESETS as MOUTHS} from "./mouth-geometry.js";
+import * as THREE from './vendor/three/three.module.min.js';
+import {localAssetUrl,loadLocalJson} from './local-assets.js';
+import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js';
 import {eyeAperture,drawBlink} from './eye-geometry.js';
+import {bleedTransparentRgb} from './texture-alpha.js';
 
-const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
-const smooth = (a,b,x) => { const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
+export function randomBlinkDelay(state,random=Math.random){const low=state.blinkMinMs??2800;return low+random()*Math.max(0,(state.blinkMaxMs??6500)-low);}
 
-export function randomBlinkDelay(state, random = Math.random) {
-  const low=state.blinkMinMs ?? 2800;
-  return low+random()*Math.max(0,(state.blinkMaxMs ?? 6500)-low);
-}
-
-export function createAvatarRenderer(canvas) {
+export function createAvatarRenderer(canvas){
   const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
-  renderer.setClearColor(0,0);
-  renderer.setPixelRatio(devicePixelRatio || 1);
-  const scene=new THREE.Scene();
-  const camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);
-  camera.position.z=2;
-  const sheet=document.createElement("canvas");
-  const ctx=sheet.getContext("2d");
-  let rig,mesh,texture,images=new Map(),state={},revision=0,disposed=false,frame;
-  let nextBlink=Infinity,lastAppearance="";
-  const observer=new ResizeObserver(resize);
-  function resize() {
-    renderer.setSize(Math.max(1,canvas.clientWidth),Math.max(1,canvas.clientHeight),false);
+  renderer.setClearColor(0,0);renderer.setPixelRatio(devicePixelRatio||1);
+  const scene=new THREE.Scene(),group=new THREE.Group();scene.add(group);
+  const camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);camera.position.z=2;
+  const faceCanvas=document.createElement('canvas'),ctx=faceCanvas.getContext('2d');
+  let rig,state={},images=new Map(),meshes=[],textures=[],positions,worldUV,faceTexture;
+  let revision=0,disposed=false,frame,nextBlink=Infinity,lastAppearance='';
+  const resize=()=>renderer.setSize(Math.max(1,canvas.clientWidth),Math.max(1,canvas.clientHeight),false);
+  const observer=new ResizeObserver(resize);observer.observe(canvas);resize();
+  function release(){
+    for(const mesh of meshes){group.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
+    for(const texture of textures)texture.dispose();
+    meshes=[];textures=[];images.clear();faceTexture=null;rig=null;
   }
-  function release() {
-    if(mesh) { scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();mesh=null; }
-    texture?.dispose(); texture=null;images.clear();
-  }
-  async function applyState(next) {
+  async function applyState(next){
     const token=++revision;
-    if(next.rigUrl!==state.rigUrl || !rig) {
+    if(next.rigUrl!==state.rigUrl||!rig){
       const incoming=await loadLocalJson(next.rigUrl);
-      if(incoming.schema_version!==3) throw new Error("旧リグです。リグ工程から再生成してください");
-      if(incoming.lip_rig_version!==1)throw new Error('唇の分割がない旧リグです。分解工程から再生成してください');
+      if(incoming.schema_version!==3||incoming.eye_rig_version!==3||incoming.lip_rig_version!==1||incoming.scene_graph_version!==1)
+        throw new Error('独立部位または目口の素材がない旧リグです。分解から再生成してください');
+      const graph=incoming.scene_graph;
+      if(!Array.isArray(graph)||graph.length<6||new Set(graph.map(p=>p.role)).size!==graph.length||!graph.some(p=>p.role==='face'))
+        throw new Error('独立部位の構造が不正です');
       lipMesh(incoming.layers?.mouth_closed,0,0);
-      if(incoming.eye_rig_version!==2)throw new Error('虹彩の分割がない旧リグです。分解から再生成してください');
       for(const side of ['left','right'])eyeAperture(incoming.layers?.[side+'_eye_base'],1);
-      const names=['neutral','mouth_open','mouth_closed',...['left','right'].flatMap(side=>[side+'_eye_iris',side+'_eye_remainder',side+'_eye_base',side+'_eyelid_upper'])];
+      const names=[...graph.map(p=>p.layer),'mouth_open','mouth_closed',...['left','right'].flatMap(side=>
+        ['eye_iris','eye_backplate','eye_base','eyelid_upper'].map(part=>side+'_'+part))];
       const loaded=await Promise.all(names.map(async name=>{
-        const layer=incoming.layers[name];
-        if(!layer) throw new Error(`必須レイヤーがありません: ${name}`);
-        const src=next.partUrls?.[name] ?? layer.url;
-        const asset=localAssetUrl(src);
-        const image=new Image();image.src=asset.href;await image.decode();
+        const layer=incoming.layers[name];if(!layer)throw new Error('必須素材がありません: '+name);
+        const image=new Image();image.src=localAssetUrl(next.partUrls?.[name]??layer.url).href;await image.decode();
         const box=layer.texture_box;
-        if(!box || image.naturalWidth!==box[2]-box[0] || image.naturalHeight!==box[3]-box[1]) throw new Error(`切詰めレイヤー寸法が一致しません: ${name}`);
+        if(!box||image.naturalWidth!==box[2]-box[0]||image.naturalHeight!==box[3]-box[1])throw new Error('素材寸法が一致しません: '+name);
         return [name,image];
       }));
-      if(disposed || token!==revision) return;
+      if(disposed||token!==revision)return;
       release();rig=incoming;images=new Map(loaded);
-      sheet.width=rig.canvas.width;sheet.height=rig.canvas.height;
-      texture=new THREE.CanvasTexture(sheet);
-      texture.colorSpace=THREE.SRGBColorSpace;
-      const geometry=new THREE.PlaneGeometry(sheet.width,sheet.height,64,96);
-      const material=new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false});
-      mesh=new THREE.Mesh(geometry,material);mesh.frustumCulled=false;scene.add(mesh);
-      nextBlink=performance.now()+randomBlinkDelay(next);
-      lastAppearance="";
+      const {width:w,height:h}=rig.canvas;
+      const template=new THREE.PlaneGeometry(w,h,64,96);
+      positions=template.attributes.position;worldUV=template.attributes.uv.array.slice();
+      const face=images.get('scene_face');faceCanvas.width=face.naturalWidth;faceCanvas.height=face.naturalHeight;
+      for(const [index,part] of graph.entries()){
+        const geometry=template.clone();geometry.setAttribute('position',positions);
+        const box=rig.layers[part.layer].texture_box,uv=geometry.attributes.uv;
+        for(let i=0;i<uv.count;i++)uv.setXY(i,(worldUV[i*2]*w-box[0])/(box[2]-box[0]),1-((1-worldUV[i*2+1])*h-box[1])/(box[3]-box[1]));
+        // Canvasは透明RGBを失うため、合成後に色を補完した画素を直接アップロードする。
+        const texture=part.role==='face'?new THREE.DataTexture(new Uint8Array(faceCanvas.width*faceCanvas.height*4),faceCanvas.width,faceCanvas.height):new THREE.Texture(images.get(part.layer));
+        if(part.role==='face'){texture.flipY=true;texture.magFilter=THREE.LinearFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;texture.generateMipmaps=true;}
+        texture.colorSpace=THREE.SRGBColorSpace;texture.needsUpdate=true;textures.push(texture);
+        if(part.role==='face')faceTexture=texture;
+        const material=new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,depthTest:false});
+        // 全部位で同じ頂点格子を共有し、切詰めテクスチャの外は描かない。
+        material.onBeforeCompile=shader=>{
+          const marker='#include <map_fragment>';
+          if(!shader.fragmentShader.includes(marker))throw new Error('部位クリップのシェーダーが未対応です');
+          shader.fragmentShader=shader.fragmentShader.replace(marker,'if(any(lessThan(vMapUv,vec2(0.0)))||any(greaterThan(vMapUv,vec2(1.0)))) discard;\n'+marker);
+        };
+        material.customProgramCacheKey=()=> 'lvs-independent-crop-v1';
+        const mesh=new THREE.Mesh(geometry,material);mesh.renderOrder=index;mesh.frustumCulled=false;group.add(mesh);meshes.push(mesh);
+      }
+      template.dispose();lastAppearance='';nextBlink=performance.now()+randomBlinkDelay(next);
     }
     state={...next};
   }
-  function appearance(left,right,open,form) {
-    const key=[left,right,open,form,state.preserveOriginalMouth?1:0].map(v=>v.toFixed(3)).join(",");
-    if(key===lastAppearance) return;
-    lastAppearance=key;
-    ctx.clearRect(0,0,sheet.width,sheet.height);
-    // 重複部位の半透明画素を重ねず、中立は原画のアルファを完全保持する。
-    const drawLayer=name=>{const box=rig.layers[name].texture_box;ctx.drawImage(images.get(name),box[0],box[1]);};
-    drawLayer("neutral");
-    drawBlink(ctx,images,rig,'left',1-left);
-    drawBlink(ctx,images,rig,'right',1-right);
-    if(!state.preserveOriginalMouth || open>0 || form!==0) {
-      // 下地は変形させず、元の口を消した同じ座標へ合成する。
-      // 中立の閉口では原画の唇をそのまま保持する。
-      if(open>0 || form!==0)drawLayer("mouth_open");
-      const layer=rig.layers.mouth_open;
-      const box=layer.feature_box;
-      if(!box) throw new Error("口の実測座標がありません");
-      drawTexturedMouth(ctx,images.get('mouth_closed'),rig.layers.mouth_closed,open,form,layer.line_color);
-    }
-    texture.needsUpdate=true;
+  function appearance(left,right,open,form){
+    const key=[left,right,open,form,state.preserveOriginalMouth?1:0].map(v=>v.toFixed(3)).join(',');
+    if(key===lastAppearance)return;lastAppearance=key;
+    const box=rig.layers.scene_face.texture_box;
+    ctx.save();ctx.clearRect(0,0,faceCanvas.width,faceCanvas.height);ctx.translate(-box[0],-box[1]);
+    ctx.drawImage(images.get('scene_face'),box[0],box[1]);
+    drawBlink(ctx,images,rig,'left',left);drawBlink(ctx,images,rig,'right',right);
+    if(open>0||form!==0){const base=rig.layers.mouth_open.texture_box;ctx.drawImage(images.get('mouth_open'),base[0],base[1]);
+      drawTexturedMouth(ctx,images.get('mouth_closed'),rig.layers.mouth_closed,open,form,rig.layers.mouth_open.line_color);}
+    ctx.globalCompositeOperation='destination-in';ctx.drawImage(images.get('scene_face'),box[0],box[1]);ctx.restore();
+    const pixels=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height).data;
+    faceTexture.image.data.set(bleedTransparentRgb(pixels,faceCanvas.width,faceCanvas.height));faceTexture.needsUpdate=true;
   }
-  function render(now) {
-    if(disposed) return;
-    if(rig) {
-      const duration=Math.max(1,state.blinkDurationMs ?? 180);
-      const phase=(now-nextBlink)/duration;
-      const blink=state.expressionKey==='blink' ? 1 : (phase>=0 && phase<=1 ? Math.sin(phase*Math.PI) : 0);
-      if(phase>1) nextBlink=now+randomBlinkDelay(state);
-      let [open,form]=MOUTHS[state.mouthKey] ?? MOUTHS.close;
-      open=clamp(state.mouthOpenY ?? open,0,1);form=clamp(state.mouthForm ?? form,-1,1);
-      appearance(state.eyeLOpen===undefined?blink:1-clamp(state.eyeLOpen,0,1),
-        state.eyeROpen===undefined?blink:1-clamp(state.eyeROpen,0,1),open,form);
-      const w=sheet.width,h=sheet.height,face=rig.layers.face.bbox;
-      const neckBox=rig.layers.neck?.bbox;
-      const neck=neckBox ? neckBox[3] : face[3];
-      const cx=face ? (face[0]+face[2])/2 : w/2;
-      const wave=Math.sin(now/(state.idleSwayPeriodMs ?? 4200)*Math.PI*2);
-      const sway=(state.idleSwayDegrees ?? .7)*wave;
-      const positions=mesh.geometry.attributes.position,uv=mesh.geometry.attributes.uv;
-      // 全パーツを同じ連続変位場へ通す。首・肩に独立回転の裂け目を作らない。
-      for(let i=0;i<positions.count;i++) {
-        const x=uv.getX(i)*w,y=(1-uv.getY(i))*h;
-        const head=1-smooth(face[3],Math.max(face[3]+1,neck),y);
-        let dx=head*clamp(state.yaw ?? 0,-30,30)*w*.00055;
-        let dy=head*clamp(state.pitch ?? 0,-30,30)*h*.00035;
+  function render(now){
+    if(disposed)return;
+    if(rig){
+      const phase=(now-nextBlink)/Math.max(1,state.blinkDurationMs??180);
+      const blink=state.expressionKey==='blink'?1:phase>=0&&phase<=1?Math.sin(phase*Math.PI):0;
+      if(phase>1)nextBlink=now+randomBlinkDelay(state);
+      let [open,form]=MOUTH_PRESETS[state.mouthKey]??MOUTH_PRESETS.close;
+      open=clamp(state.mouthOpenY??open,0,1);form=clamp(state.mouthForm??form,-1,1);
+      appearance(state.eyeLOpen===undefined?1-blink:clamp(state.eyeLOpen,0,1),state.eyeROpen===undefined?1-blink:clamp(state.eyeROpen,0,1),open,form);
+      const {width:w,height:h}=rig.canvas,face=rig.layers.face.bbox,neck=rig.layers.neck?.bbox?.[3]??face[3],cx=(face[0]+face[2])/2;
+      const wave=Math.sin(now/(state.idleSwayPeriodMs??4200)*Math.PI*2),sway=(state.idleSwayDegrees??.7)*wave;
+      // 部位は独立テクスチャ・メッシュ。未補完の接続部を裂かない共通変位場を当面共有する。
+      for(let i=0;i<positions.count;i++){
+        const x=worldUV[i*2]*w,y=(1-worldUV[i*2+1])*h,head=1-smooth(face[3],Math.max(face[3]+1,neck),y);
+        let dx=head*clamp(state.yaw??0,-30,30)*w*.00055,dy=head*clamp(state.pitch??0,-30,30)*h*.00035;
         dx+=(h-y)/h*sway*w*.002;
-        const side=x<cx?"left":"right";
-        const arm=rig.layers[side+"_arm"].bbox;
-        if(arm) {
-          const shoulder=arm[1]+(arm[3]-arm[1])*.10;
-          const influence=smooth(w*.06,w*.26,Math.abs(x-cx))*smooth(shoulder,shoulder+(arm[3]-shoulder)*.45,y);
-          const angle=clamp(state.armPose?.[side+"UpperArm"]?.[2] ?? 0,-30,30)*Math.PI/180;
-          dx+=-(y-shoulder)*Math.sin(angle)*influence;
-          dy+=(y-shoulder)*(Math.cos(angle)-1)*influence;
-        }
-        const hair=(state.hairSway ?? wave)*(state.idleSwayDegrees ?? .7);
-        dx+=hair*w*.001*head*smooth(w*.045,w*.13,Math.abs(x-cx));
+        const side=x<cx?'left':'right',arm=rig.layers[side+'_arm'].bbox;
+        const shoulder=arm[1]+(arm[3]-arm[1])*.10;
+        const influence=smooth(w*.06,w*.26,Math.abs(x-cx))*smooth(shoulder,shoulder+(arm[3]-shoulder)*.45,y);
+        const angle=clamp(state.armPose?.[side+'UpperArm']?.[2]??0,-30,30)*Math.PI/180;
+        dx+=-(y-shoulder)*Math.sin(angle)*influence;dy+=(y-shoulder)*(Math.cos(angle)-1)*influence;
+        dx+=(state.hairSway??wave)*(state.idleSwayDegrees??.7)*w*.001*head*smooth(w*.045,w*.13,Math.abs(x-cx));
         positions.setXYZ(i,x-w/2+dx,h/2-y-dy,0);
       }
       positions.needsUpdate=true;
       const cw=Math.max(1,canvas.clientWidth),ch=Math.max(1,canvas.clientHeight);
       camera.left=-cw/2;camera.right=cw/2;camera.top=ch/2;camera.bottom=-ch/2;camera.updateProjectionMatrix();
-      const fit=Math.min(cw/w,ch/h)*(state.scale ?? 1);
-      mesh.scale.setScalar(fit);mesh.position.set(state.offsetX ?? 0,-(state.offsetY ?? 0),0);
+      group.scale.setScalar(Math.min(cw/w,ch/h)*(state.scale??1));group.position.set(state.offsetX??0,-(state.offsetY??0),0);
       renderer.render(scene,camera);
     }
     frame=requestAnimationFrame(render);
   }
-  function dispose() {
-    disposed=true;++revision;cancelAnimationFrame(frame);observer.disconnect();
-    release();renderer.dispose();renderer.forceContextLoss();
-    sheet.width=sheet.height=0;
-  }
-  observer.observe(canvas);resize();frame=requestAnimationFrame(render);
+  function dispose(){disposed=true;++revision;cancelAnimationFrame(frame);observer.disconnect();release();renderer.dispose();renderer.forceContextLoss();faceCanvas.width=faceCanvas.height=0;}
+  frame=requestAnimationFrame(render);
   return {applyState,dispose};
 }

@@ -38,8 +38,10 @@ class RigCreationTests(unittest.TestCase):
                 image=Image.new("RGBA", (80, 120))
                 image.paste((100,90,80,255),(11,17,25,32))
                 image.save(root / part["path"])
+            graph=[{'role':part['name'].removeprefix('scene_'),'layer':part['name'],'parent':None,'owned_pixels':1}
+                   for part in parts if part['name'].startswith('scene_')]
             manifest.write_text(
-                json.dumps({"schema_version": 2, "canvas": {"width": 80, "height": 120}, "parts": parts}),
+                json.dumps({"schema_version": 2, "canvas": {"width": 80, "height": 120}, "parts": parts,'scene_graph':graph}),
                 encoding="utf-8",
             )
             output = MODULE.create_rig(manifest, root / "output" / "rig.json")
@@ -54,7 +56,7 @@ class RigCreationTests(unittest.TestCase):
             self.assertFalse(Path(rig["layers_manifest"]).is_absolute())
             self.assertTrue((root / "output" / "parts" / "mouth_open.png").is_file())
             original = output.read_bytes()
-            for defect in ("empty", "size", "corrupt", "duplicate", "outside", "seam", "eye", "eye_mismatch"):
+            for defect in ("empty", "size", "corrupt", "duplicate", "outside", "seam", "eye", "eye_mismatch", "graph_missing", "graph_cycle"):
                 with self.subTest(defect=defect):
                     data = json.loads(manifest.read_text(encoding="utf-8"))
                     target = root / parts[-1]["path"]
@@ -72,13 +74,15 @@ class RigCreationTests(unittest.TestCase):
                     elif defect in ('eye', 'eye_mismatch'):
                         next(part for part in data['parts'] if part['name']=='left_eye_base')['eye_aperture'] = (
                             [[12,27,26,24],[24,20,26,24]] if defect == 'eye' else [[12,20,26,23],[24,20,26,24]])
+                    elif defect=='graph_missing':data['scene_graph']=[]
+                    elif defect=='graph_cycle':data['scene_graph'][0]['parent']=data['scene_graph'][0]['role']
                     else:
                         data["parts"][-1]["path"] = "../outside.png"
                     manifest.write_text(json.dumps(data), encoding="utf-8")
                     with self.assertRaises((ValueError, OSError)):
                         MODULE.create_rig(manifest, output)
                     self.assertEqual(output.read_bytes(), original)
-                    manifest.write_text(json.dumps({"schema_version": 2, "canvas": {"width": 80, "height": 120}, "parts": parts}), encoding="utf-8")
+                    manifest.write_text(json.dumps({"schema_version": 2, "canvas": {"width": 80, "height": 120}, "parts": parts,'scene_graph':graph}), encoding="utf-8")
 
     def test_rejects_missing_parts(self):
         with tempfile.TemporaryDirectory() as directory:

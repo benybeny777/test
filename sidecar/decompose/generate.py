@@ -448,15 +448,34 @@ def _decompose_image(
             parts[feature+'_remainder']=remainder
             scores[feature+'_iris']=analysis['selected'][feature+'_iris']['score']
             scores[feature+'_remainder']=scores[feature+'_iris']
+            from sclera import eye_backplate
+            backplate=eye_backplate(rgba,parts[feature+'_open'],iris)
+            name=feature+'_backplate'
+            parts[name]=parts[feature+'_open']
+            scores[name]=scores[feature+'_iris']
+            eye_materials[name]=(backplate,list(_bbox(parts[name])),color,None,feature)
     parts_dir = output_dir / "parts"
     parts_dir.mkdir(parents=True, exist_ok=True)
     layer_paths: list[tuple[str, Path]] = []
     manifest_parts: list[dict[str, object]] = []
     specs = list(PART_SPECS)
     specs.extend(PartSpec(name,z,(.5,.5)) for name,z in [('neck',35),('collar',36)] if name in parts)
+    scene_graph=[]
     if grounded_result is not None:
+        from scene import visible_scene,SCENE_ORDER,PARENTS
+        face_support=parts['left_eye_base'] | parts['right_eye_base'] | parts['mouth_open']
+        owners,visible=visible_scene(subject,masks,face_support)
+        for index,role in enumerate(SCENE_ORDER):
+            if role not in visible:continue
+            name='scene_'+role
+            parts[name]=visible[role];scores[name]=0.
+            specs.append(PartSpec(name,index,(.5,.5)))
+            scene_graph.append({'layer':name,'role':role,'parent':PARENTS[role],
+                                'source_region':list(_bbox(owners[role])),
+                                'owned_pixels':int(owners[role].sum()),
+                                'hidden_regions':'unfilled','status':'unverified'})
         specs.extend(PartSpec(side+'_eye_'+kind,z,(.5,.5)) for side in ('left','right')
-                     for kind,z in [('remainder',60),('iris',61)])
+                     for kind,z in [('remainder',60),('iris',61),('backplate',59)])
     for spec in specs:
         mask = parts[spec.name]
         box = list(_bbox(mask))
@@ -514,6 +533,7 @@ def _decompose_image(
         "psd": psd_path.name,
         "parts": manifest_parts,
         "features": features,
+        "scene_graph": scene_graph,
     }
     from materials import assess_materials
     manifest["material_readiness"] = assess_materials(manifest_parts)

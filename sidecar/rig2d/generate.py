@@ -33,6 +33,8 @@ REQUIRED_PARTS = {
     "mouth_open",
     "left_eye_base", "right_eye_base", "left_eyelid_upper", "right_eyelid_upper",
     "left_eye_iris", "right_eye_iris", "left_eye_remainder", "right_eye_remainder",
+    "left_eye_backplate", "right_eye_backplate",
+    "scene_torso", "scene_left_arm", "scene_right_arm", "scene_neck", "scene_face", "scene_hair",
 }
 
 
@@ -47,7 +49,7 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
     parts = {}
     for part in manifest.get("parts", []):
         name = part.get("name")
-        if name not in REQUIRED_PARTS | {"neck", "collar"} or name in parts:
+        if name not in REQUIRED_PARTS | {"neck", "collar", "scene_residual"} or name in parts:
             raise ValueError(f"部位名が不正または重複しています: {name}")
         parts[name] = part
     missing = sorted(REQUIRED_PARTS - parts.keys())
@@ -111,6 +113,25 @@ def validate_layers(manifest: dict, directory: Path) -> dict:
             if expected is not None and aperture != expected:
                 raise ValueError('まぶた素材間の実測境界が一致しません')
             expected = aperture
+    graph=manifest.get('scene_graph')
+    if not isinstance(graph,list) or not graph:
+        raise ValueError('独立部位の構造がありません。分解工程を再実行してください')
+    roles={item.get('role') for item in graph if isinstance(item,dict)}
+    expected={name.removeprefix('scene_') for name in parts if name.startswith('scene_')}
+    if roles!=expected or len(roles)!=len(graph):raise ValueError('独立部位の構造が重複または欠落しています')
+    parents={}
+    for item in graph:
+        role=item['role'];parent=item.get('parent')
+        if item.get('layer')!='scene_'+role or (parent is not None and parent not in roles):
+            raise ValueError('独立部位の素材または親が不正です')
+        if type(item.get('owned_pixels')) is not int or not 0<item['owned_pixels']<=size[0]*size[1]:
+            raise ValueError('独立部位の所有画素数が不正です')
+        parents[role]=parent
+    for role in parents:
+        seen=set();current=role
+        while current is not None:
+            if current in seen:raise ValueError('独立部位の親子関係が循環しています')
+            seen.add(current);current=parents[current]
     return parts
 
 
@@ -137,12 +158,15 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
             bounds=opened.getchannel('A').getbbox()
             if bounds is None:
                 raise ValueError(f"2.5D部位画像が全透明です: {name}")
-            opened.crop(bounds).save(output_parts / f"{name}.png")
+            from texture import bleed_transparent_rgb
+            bleed_transparent_rgb(opened.crop(bounds)).save(output_parts / f"{name}.png")
             part['texture_box']=list(bounds)
     rig = {
         "schema_version": 3,
         "lip_rig_version": 1,
-        "eye_rig_version": 2,
+        "eye_rig_version": 3,
+        "scene_graph_version": 1,
+        "scene_graph": manifest.get('scene_graph',[]),
         "profile": "lvs-anime25d-v1",
         "material_readiness": manifest.get("material_readiness", {
             "status": "incomplete", "note": "素材分割の充足が未検証です"}),

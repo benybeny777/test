@@ -27,7 +27,7 @@ export function drawBlink(ctx, images, rig, side, openness) {
     ctx.lineTo(points.at(-1)[0]+.5,points.at(-1)[2]);
     for(const [x,,y] of [...points].reverse())ctx.lineTo(x,y);
     ctx.lineTo(points[0][0]-.5,points[0][2]);ctx.closePath();ctx.clip();
-    for(const suffix of ['eye_remainder','eye_iris'])draw(side+'_'+suffix,rig.layers[side+'_'+suffix]);
+    for(const suffix of ['eye_backplate','eye_iris'])draw(side+'_'+suffix,rig.layers[side+'_'+suffix]);
     ctx.restore();
   }
   const image=images.get(side+'_eyelid_upper'),[left,top]=upper.texture_box;

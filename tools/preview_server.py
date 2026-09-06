@@ -10,6 +10,7 @@ ROOT=Path(__file__).resolve().parents[1]
 STATIC={'/ui/check.html','/ui/check.js','/ui/shared/avatar-renderer.js','/ui/shared/local-assets.js',
         '/ui/shared/mouth-geometry.js',
         '/ui/shared/eye-geometry.js',
+        '/ui/shared/texture-alpha.js',
         '/ui/shared/vendor/three/three.module.min.js','/ui/shared/vendor/three/three.core.min.js'}
 ASSET=re.compile(r'/temp/t7-characters/c_[0-9a-f]{12}/(?:character\.json|source/input\.png|rig2d/rig\.json|rig2d/parts/[a-z_]+\.png)')
 
