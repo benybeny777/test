@@ -4,6 +4,7 @@ import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
 // 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
 const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_828ead7c98ab','実写テスト'],['c_2379190bb3b3','むぎ・耳輪郭修正候補'],['c_df28cf7d4d11','むぎ・耳＋閉眼修正候補','耳・閉眼の見た目は利用者承認済み。口・他原画の品質は別に検証しています。']];
+fixtures.push(['c_df85ec1d7960','女性A・閉眼修正候補']);
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 for(const [id,name] of fixtures)select.add(new Option(name,id));
 const requestedCharacter=new URL(location.href).searchParams.get('character');
@@ -36,6 +37,7 @@ async function load(){
   document.querySelectorAll('button,input,#mouth-shape').forEach(element=>element.disabled=true);
   try {
     if(!fixtures.some(([id])=>id===select.value))throw new Error('指定されたキャラは確認一覧にありません。キャラを選び直してください');
+    document.title=`2.5D品質確認：${fixtures.find(([id])=>id===select.value)[1]}`;
     const base=`../temp/t7-characters/${encodeURIComponent(select.value)}/`;
     const character=await loadLocalJson(base+'character.json?read='+Date.now());
     if(character.stages?.rig2d?.status!=='complete')throw new Error('このキャラのリグ再生成は未完了です');

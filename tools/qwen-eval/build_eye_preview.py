@@ -9,7 +9,7 @@ import sys
 import numpy as np
 from PIL import Image
 from scipy import ndimage
-from build_preview import ROOT,baseline_hashes,directory_output,bleed_transparent_rgb
+from build_preview import ROOT,baseline_hashes,directory_output,bleed_transparent_rgb,separate_hair_pixels
 from run import verify_source
 from download import digest
 
@@ -89,7 +89,7 @@ def build(character,base,comparison,allow_unmasked=False):
     l,t,r,b=report['source']['source_region']
     if edited.shape[:2]!=(b-t,r-l):raise ValueError('閉眼画像は原寸である必要があります')
     with Image.open(character/'source/isolated.png') as opened:source=np.array(opened.convert('RGBA').crop((l,t,r,b)))
-    identity={'version':3,'base_assets':baseline,'source':report['source'],'edited_sha256':fingerprint}
+    identity={'version':5,'base_assets':baseline,'source':report['source'],'edited_sha256':fingerprint}
     identifier='c_'+hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()[:12]
     destination=ROOT/'temp/t7-characters'/identifier
     if destination.exists():raise ValueError('同じ閉眼候補が既にあります。上書きしません')
@@ -123,7 +123,21 @@ def build(character,base,comparison,allow_unmasked=False):
             upper_name=side+'_eyelid_upper';upper=rig['layers'][upper_name]
             upper['texture_box']=box.copy();upper['bbox']=box.copy();upper['eye_aperture']=layer['eye_aperture']
             results[upper_name]=Image.fromarray(ink)
-            measured[side]={'ink_pixels':int((ink[:,:,3]>0).sum()),'skin_correction':correction.tolist(),'feather_px':margin}
+            protected_count=0
+            for material in (name,side+'_eye_backplate'):
+                ml,mt,mr,mb=rig['layers'][material]['texture_box']
+                with Image.open(base/f'rig2d/parts/{material}.png') as opened:backing=np.array(opened.convert('RGBA'))
+                protected=masks['hair'][mt:mb,ml:mr]
+                if protected.shape!=backing.shape[:2]:raise ValueError('目の下地と髪の所有マスクが一致しません')
+                count=int(((backing[:,:,3]>0)&protected).sum());protected_count+=count
+                # 髪の意味マスクに漏れがあっても、目の編集範囲外へ肌を貼らない。
+                backing=separate_hair_pixels(backing,protected,False)
+                if report['source'].get('edit_region')=='eyes':
+                    local_mask=mask[mt-t:mb-t,ml-l:mr-l]
+                    if local_mask.shape!=backing.shape[:2]:raise ValueError('目の下地が局所編集範囲外です')
+                    backing[:,:,3]=np.rint(backing[:,:,3].astype(float)*local_mask/255).astype(np.uint8)
+                if count or report['source'].get('edit_region')=='eyes':results[material]=Image.fromarray(backing)
+            measured[side]={'ink_pixels':int((ink[:,:,3]>0).sum()),'skin_correction':correction.tolist(),'feather_px':margin,'protected_hair_pixels':protected_count}
     with directory_output(destination) as pending:
         shutil.copytree(base/'rig2d',pending/'rig2d');(pending/'source').mkdir()
         shutil.copy2(base/'source/input.png',pending/'source/input.png')
