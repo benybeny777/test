@@ -2,7 +2,7 @@
 import * as THREE from "./vendor/three/three.module.min.js";
 import {localAssetUrl, loadLocalJson} from "./local-assets.js";
 import {drawTexturedMouth,lipMesh,MOUTH_PRESETS as MOUTHS} from "./mouth-geometry.js";
-import {eyeAperture,drawBlink} from './eye-geometry.js';
+import {eyeAperture,drawBlink,automaticBlinkOpen,AUTOMATIC_BLINK_DURATION_MS} from './eye-geometry.js?v=visible-blink1';
 
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
 const smooth = (a,b,x) => { const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
@@ -88,10 +88,10 @@ export function createAvatarRenderer(canvas) {
   function render(now) {
     if(disposed) return;
     if(rig) {
-      const duration=Math.max(1,state.blinkDurationMs ?? 180);
-      const phase=(now-nextBlink)/duration;
-      const blink=state.expressionKey==='blink' ? 1 : (phase>=0 && phase<=1 ? Math.sin(phase*Math.PI) : 0);
-      if(phase>1) nextBlink=now+randomBlinkDelay(state);
+      const duration=Math.max(1,state.blinkDurationMs ?? 180),elapsed=now-nextBlink;
+      const blink=state.expressionKey==='blink'?1:elapsed>=0&&elapsed<=duration?
+        1-automaticBlinkOpen(elapsed*AUTOMATIC_BLINK_DURATION_MS/duration):0;
+      if(elapsed>duration) nextBlink=now+randomBlinkDelay(state);
       let [open,form]=MOUTHS[state.mouthKey] ?? MOUTHS.close;
       open=clamp(state.mouthOpenY ?? open,0,1);form=clamp(state.mouthForm ?? form,-1,1);
       appearance(state.eyeLOpen===undefined?blink:1-clamp(state.eyeLOpen,0,1),

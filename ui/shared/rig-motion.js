@@ -20,6 +20,17 @@ export function headDisplacement(x,y,face,neck,width,height,yaw,pitch,roll){
   return [weight*((x-cx)*(cos-1)-(y-cy)*sin+clamp(yaw,-30,30)*width*.00055),
           weight*((x-cx)*sin+(y-cy)*(cos-1)+clamp(pitch,-30,30)*height*.00035)];
 }
+// 肩から胴体下部へ連続的に減衰する呼吸変位。頭も同量だけ持ち上げて首の裂けを防ぐ。
+export function bodyBreathDisplacement(x,y,torso,neck,width,height,amount){
+  if(!Array.isArray(torso)||torso.length!==4||!torso.every(Number.isFinite)||
+     !Array.isArray(neck)||neck.length!==4||!neck.every(Number.isFinite)||!Number.isFinite(amount))
+    throw new Error('呼吸動作に必要な胴体範囲が不正です');
+  const top=Math.min(neck[1],torso[1]),bottom=torso[3],fadeStart=top+(bottom-top)*.28;
+  const weight=1-smooth(fadeStart,bottom,y),cx=(torso[0]+torso[2])/2;
+  if(weight===0)return [0,0];
+  const strength=clamp(amount,-2,2);
+  return [(x-cx)*strength*.0012*weight,-height*strength*.0012*weight];
+}
 // 比較用の局所髪移動。未補完の外周・首肩には変位を加えない。
 export function validateHiddenMotion(profile,count){
   if(profile===undefined)return;

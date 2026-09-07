@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three/three.module.min.js';
 import {localAssetUrl,loadLocalJson} from './local-assets.js';
 import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=local-lips6';
-import {eyeAperture,drawBlink} from './eye-geometry.js?v=closed-curve2';
+import {eyeAperture,drawBlink,automaticBlinkOpen,AUTOMATIC_BLINK_DURATION_MS} from './eye-geometry.js?v=visible-blink1';
 import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from './native-scene-batch.js';
-import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=ear-repair1';
+import {headDisplacement,armDisplacement,bodyBreathDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=body-breath1';
 import {createHairCoverage} from './hair-coverage.js';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -13,7 +13,7 @@ export function randomBlinkDelay(state,random=Math.random){const low=state.blink
 export function validateRenderBounds(rig){
   const {width,height}=rig.canvas??{};
   if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)throw new Error('描画キャンバスの寸法が不正です');
-  for(const name of ['face','scene_neck','left_arm','right_arm']){
+  for(const name of ['face','scene_neck','scene_torso','left_arm','right_arm']){
     const box=rig.layers?.[name]?.bbox;
     if(!Array.isArray(box)||box.length!==4||!box.every(Number.isFinite)||
        box[0]<0||box[1]<0||box[2]>width||box[3]>height||box[0]>=box[2]||box[1]>=box[3])
@@ -143,19 +143,22 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
     if(disposed)return;
     try{
     if(rig){
-      const phase=(now-nextBlink)/Math.max(1,state.blinkDurationMs??180);
-      const blink=state.expressionKey==='blink'?1:phase>=0&&phase<=1?Math.sin(phase*Math.PI):0;
-      if(phase>1)nextBlink=now+randomBlinkDelay(state);
+      const blinkDuration=Math.max(1,state.blinkDurationMs??180),blinkElapsed=now-nextBlink;
+      const blinkOpen=state.expressionKey==='blink'?0:blinkElapsed>=0&&blinkElapsed<=blinkDuration?
+        automaticBlinkOpen(blinkElapsed*AUTOMATIC_BLINK_DURATION_MS/blinkDuration):1;
+      if(blinkElapsed>blinkDuration)nextBlink=now+randomBlinkDelay(state);
       let [open,form]=MOUTH_PRESETS[state.mouthKey]??MOUTH_PRESETS.close;
       open=clamp(state.mouthOpenY??open,0,1);form=clamp(state.mouthForm??form,-1,1);
-      appearance(state.eyeLOpen===undefined?1-blink:clamp(state.eyeLOpen,0,1),state.eyeROpen===undefined?1-blink:clamp(state.eyeROpen,0,1),open,form);
-      const {width:w,height:h}=rig.canvas,face=rig.layers.face.bbox,neck=rig.layers.scene_neck.bbox,cx=(face[0]+face[2])/2;
-      const wave=Math.sin(now/(state.idleSwayPeriodMs??4200)*Math.PI*2),sway=(state.idleSwayDegrees??.7)*wave;
+      appearance(state.eyeLOpen===undefined?blinkOpen:clamp(state.eyeLOpen,0,1),state.eyeROpen===undefined?blinkOpen:clamp(state.eyeROpen,0,1),open,form);
+      const {width:w,height:h}=rig.canvas,face=rig.layers.face.bbox,neck=rig.layers.scene_neck.bbox,torso=rig.layers.scene_torso.bbox,cx=(face[0]+face[2])/2;
+      const idlePhase=now/(state.idleSwayPeriodMs??4200)*Math.PI*2,wave=Math.sin(idlePhase),idleAmount=state.idleSwayDegrees??.7,sway=idleAmount*wave;
       // 部位は独立テクスチャ・メッシュ。未補完の接続部を裂かない共通変位場を当面共有する。
       for(let i=0;i<positions.count;i++){
         const x=worldUV[i*2]*w,y=(1-worldUV[i*2+1])*h,head=1-smooth(face[3],Math.max(face[3]+1,neck[3]),y);
         let [dx,dy]=headDisplacement(x,y,face,neck,w,h,state.yaw??0,state.pitch??0,state.roll??state.armPose?.head?.[2]??0);
         dx+=(h-y)/h*sway*w*.002;
+        const [breathX,breathY]=bodyBreathDisplacement(x,y,torso,neck,w,h,idleAmount*Math.sin(idlePhase-Math.PI/2));
+        dx+=breathX;dy+=breathY;
         const side=x<cx?'left':'right',arm=rig.layers[side+'_arm'].bbox;
         const [armX,armY]=armDisplacement(x,y,arm,cx,w,state.armPose?.[side+'UpperArm']?.[2]??0);
         dx+=armX;dy+=armY;

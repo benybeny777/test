@@ -8,7 +8,7 @@ import * as THREE from '../ui/shared/vendor/three/three.module.min.js';
 import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from '../ui/shared/native-scene-batch.js';
 
 const source=name=>readFileSync(new URL('../ui/'+name,import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
-const checkSource=()=>source('check.js').replace('const fixtures=[];',"const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ']];");
+const checkSource=()=>source('check.js').replace(/const fixtures=\[[^;]+;/,"const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ']];");
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 function rig(){
   const names=['scene_face','scene_neck','scene_hair','scene_torso','scene_left_arm','scene_right_arm'];
@@ -35,15 +35,16 @@ function harness(){
     validateHiddenMotion(){},hiddenRepairAmount:()=>0,drawBlink(){},drawTexturedMouth(){},
     planSceneBatches,sceneBatchBox,
     createNativeSceneBatch:(parts,layers,images)=>createNativeSceneBatch(parts,layers,images,()=>({getContext:()=>context})),
-    bleedTransparentRgb:data=>data,headDisplacement:()=>[0,0],armDisplacement:()=>[0,0],MOUTH_PRESETS:{close:[0,0]}};
+    bleedTransparentRgb:data=>data,headDisplacement:()=>[0,0],armDisplacement:()=>[0,0],bodyBreathDisplacement:()=>[0,0],
+    automaticBlinkOpen:()=>1,AUTOMATIC_BLINK_DURATION_MS:650,MOUTH_PRESETS:{close:[0,0]}};
   const api=vm.runInNewContext(source('shared/avatar-renderer.js')+'\n({createAvatarRenderer,validateRenderBounds});',env);
   const renderer=api.createAvatarRenderer({clientWidth:1,clientHeight:1},{onError:error=>errors.push(error.message)});
   return {api,renderer,env,errors,tick:()=>frame(0),fail:value=>{fail=value;},counts:()=>({rendered,cleared})};
 }
-test('通常確認画面は固定した旧比較候補を一覧へ混ぜない',()=>{
+test('通常確認画面は女性Aの合格版だけを固定し旧候補を混ぜない',()=>{
   const value=readFileSync(new URL('../ui/check.js',import.meta.url),'utf8');
-  assert.match(value,/const fixtures=\[\];/);
-  assert.doesNotMatch(value,/const fixtures=\[\['c_/);
+  assert.match(value,/const fixtures=\[\['c_df85ec1d7960','女性A（合格版）'/);
+  for(const old of ['c_2700e1166676','c_2379190bb3b3','c_df28cf7d4d11','c_386f432bc3dd','c_53640040c47a'])assert.doesNotMatch(value,new RegExp(old));
 });
 test('描画必須の部位範囲を読み込み前に検証する',()=>{
   const h=harness();const value=rig();h.api.validateRenderBounds(value);

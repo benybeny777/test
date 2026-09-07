@@ -2,9 +2,10 @@ import {consumeSnapshot} from './shared/snapshot-client.js';
 import {createAvatarRenderer} from './shared/avatar-renderer.js?v=native-batch12';
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
+import {automaticBlinkOpen,AUTOMATIC_BLINK_DURATION_MS} from './shared/eye-geometry.js?v=visible-blink1';
 
-// 通常の確認画面には公開中の最新世代だけを出す。旧比較候補の資産は削除しない。
-const fixtures=[];
+// キャラごとに見られる最新成功版を1体だけ出す。女性Aは通常補完未完了のため最新の描画可能版を明示する。
+const fixtures=[['c_df85ec1d7960','女性A（合格版）','見た目: 合格。左耳の差異は判別困難な範囲として承認済みです。']];
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 const requestedCharacter=new URL(location.href).searchParams.get('character');
 const mouthShape=document.querySelector('#mouth-shape');
@@ -18,7 +19,11 @@ let state={},generation=0,currentRig,faceView=false,displayedCharacter=null;
 let demoFrame=0,demoStarted=0;
 let motionFrame=0;
 let blinkFrame=0,nextBlinkAt=0,lastBlinkOpen=1;
-function stopMotion(){cancelAnimationFrame(motionFrame);motionFrame=0;document.querySelector('#motion-demo').textContent='待機動作テスト';}
+function stopMotion(){
+  const running=Boolean(motionFrame);cancelAnimationFrame(motionFrame);motionFrame=0;
+  if(running){state.idleSwayDegrees=0;state.yaw=state.pitch=state.roll=0;for(const key of ['yaw','pitch','roll'])inputs.get(key).value=0;}
+  document.querySelector('#motion-demo').textContent='待機動作テスト';
+}
 function stopDemo(){cancelAnimationFrame(demoFrame);demoFrame=0;document.querySelector('#mouth-demo').textContent='口パク動作テスト（無音）';document.querySelector('#mouth-preset').textContent='';}
 function stopBlink(){
   const running=Boolean(blinkFrame);cancelAnimationFrame(blinkFrame);blinkFrame=0;lastBlinkOpen=1;
@@ -112,12 +117,12 @@ mouthShape.addEventListener('change',()=>{
 });
 document.querySelector('#hidden-material').addEventListener('change',event=>{state.showHiddenMaterial=event.target.checked;apply();});
 document.querySelector('#motion-demo').addEventListener('click',()=>{
-  if(motionFrame){stopMotion();return;}
+  if(motionFrame){stopMotion();apply();return;}
   const start=performance.now();document.querySelector('#motion-demo').textContent='待機動作テストを停止';
   function tick(now){
     // 比較用の既知の小角度を共通レンダラーへ渡す。キャラ別の動作は持たない。
     const phase=(now-start)/4200*Math.PI*2;
-    state.yaw=Math.sin(phase)*8;state.pitch=Math.sin(phase*.5)*3;state.roll=Math.sin(phase*.75)*3;
+    state.yaw=Math.sin(phase)*8;state.pitch=Math.sin(phase*.5)*3;state.roll=Math.sin(phase*.75)*3;state.idleSwayDegrees=.7;
     for(const key of ['yaw','pitch','roll'])inputs.get(key).value=state[key];
     apply();motionFrame=requestAnimationFrame(tick);
   }
@@ -136,8 +141,8 @@ document.querySelector('#blink').addEventListener('click',()=>{
   function tick(now){
     const elapsed=now-nextBlinkAt;
     let open=1;
-    if(elapsed>=0&&elapsed<=360)open=1-Math.sin(elapsed/360*Math.PI);
-    else if(elapsed>360)nextBlinkAt=now+2800+Math.random()*3700;
+    if(elapsed>=0&&elapsed<=AUTOMATIC_BLINK_DURATION_MS)open=automaticBlinkOpen(elapsed);
+    else if(elapsed>AUTOMATIC_BLINK_DURATION_MS)nextBlinkAt=now+2800+Math.random()*3700;
     if(Math.abs(open-lastBlinkOpen)>.001){
       lastBlinkOpen=open;state.eyeLOpen=state.eyeROpen=open;
       inputs.get('eyeLOpen').value=inputs.get('eyeROpen').value=open;apply();

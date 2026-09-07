@@ -82,7 +82,22 @@ try{
   await page.getByRole('button',{name:'口パク動作テスト（無音）',exact:true}).click();
   animationChecks.mouthOpenY=await waitForValue(page.getByRole('slider',{name:'開き',exact:true}),value=>value>.2,5000);
   await page.getByRole('button',{name:'自動まばたきを開始',exact:true}).click();
-  animationChecks.autoBlinkOpen=await waitForValue(page.getByRole('slider',{name:'左目',exact:true}),value=>value<.5,1500);
+  animationChecks.autoBlinkOpen=await waitForValue(page.getByRole('slider',{name:'左目',exact:true}),value=>value<=.01,1500);
+  await page.getByRole('button',{name:'口パクテストを停止',exact:true}).click();
+  await page.getByRole('button',{name:'自動まばたきを停止',exact:true}).click();
+  // 顔拡大を解除し、口と目を止めた状態で待機時の首・肩・胴体だけを検証する。
+  await page.getByRole('button',{name:'顔の拡大検査',exact:true}).click();
+  await page.getByRole('button',{name:'待機動作テスト',exact:true}).click();
+  animationChecks.idleYaw=await waitForValue(page.getByRole('slider',{name:'顔左右',exact:true}),value=>Math.abs(value)>2,1500);
+  for(let index=0;index<4;index++){
+    await page.waitForTimeout(550);
+    await capture('idle-'+index);
+  }
+  const idleFrames=new Set(captures.filter(item=>item.name.startsWith('idle-')).map(item=>item.canvasSha256));
+  if(idleFrames.size<2)throw new Error('待機時の首・肩・胴体に実canvasのフレーム差がありません');
+  // 動画と総合動作フレームは、待機動作に口パク・まばたきを重ねた実利用相当とする。
+  await page.getByRole('button',{name:'口パク動作テスト（無音）',exact:true}).click();
+  await page.getByRole('button',{name:'自動まばたきを開始',exact:true}).click();
   let recording;
   if(video){
     // 新しい描画面を作らず、表示中の共通レンダラーの画素だけを録画する。
