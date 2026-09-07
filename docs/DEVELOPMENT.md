@@ -24,7 +24,7 @@
 
 作業用の`tools/capture-character-gallery.mjs <characterId> <temp内の出力先>`は起動済み8791の共通確認画面をChromeで撮影する。Node/Playwrightは開発作業用だけで製品依存ではない。既存Playwrightを使う場合は`LVS_PLAYWRIGHT_MODULE`へその`index.mjs`を指定する。中立・左右閉眼・母音・小角度・連続動作と撮影ハッシュを保存し、撮影用Chromeを終了する。ハッシュ差を品質合格と扱わず実画像を目視する。
 
-末尾に`--video`を付けると静止画も従来どおり残し、口パク・自動まばたき中の共通レンダラーのcanvasを8秒の無音`motion.webm`へ録画する。要求値は20 fpsだが、実際のフレームレートは描画負荷に依存するため`requestedFps`と区別する。headless Chromeを使用し、別canvasや生成画像で動きを作らない。録画機能非対応・空データ・描画エラーは明示失敗とし、ページとブラウザを終了する。録画形式・寸法・時間・SHAを`capture-report.json`へ保存する。WebMの透過再生は閲覧ソフト依存なので、透明境界の合格は別の市松静止画で検証する。
+末尾に`--video`を付けると静止画も従来どおり残し、口パク・自動まばたき中の共通レンダラーのcanvasを8秒の無音`motion.webm`へ録画する。要求値は20 fpsだが、実際のフレームレートは描画負荷に依存するため`requestedFps`と区別する。headless Chromeを使用し、別canvasや生成画像で動きを作らない。開始後に目の開きが0.5未満、口の開きが0.2超へ変化したことと、アニメーションを許可した実canvasの複数フレーム差を検査する。録画機能非対応・空データ・描画エラー・パラメータまたは画素の無変化は明示失敗とし、ページとブラウザを終了する。録画形式・寸法・時間・SHAと動作パラメータを`capture-report.json`へ保存する。WebMの透過再生は閲覧ソフト依存なので、透明境界の合格は別の市松静止画で検証する。
 
 ```powershell
 node tools/capture-character-gallery.mjs c_df28cf7d4d11 temp/character-video-test --video
