@@ -3,11 +3,8 @@ import {createAvatarRenderer} from './shared/avatar-renderer.js?v=native-batch12
 import {loadLocalJson} from './shared/local-assets.js';
 import {MOUTH_PRESETS} from './shared/mouth-geometry.js';
 
-// 比較対象の一覧だけを持つ。キャラごとの生成・変形パラメータは持たない。
-const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ'],['c_2379190bb3b3','むぎ・耳輪郭修正候補'],['c_df28cf7d4d11','むぎ・耳＋閉眼修正候補','耳・閉眼の見た目は利用者承認済み。口・他原画の品質は別に検証しています。']];
-fixtures.push(['c_df85ec1d7960','女性A・閉眼修正候補']);
-fixtures.push(['c_386f432bc3dd','PicoAgent実写・原画から再生成','PicoAgentのphotoreal-prototype原画を共通工程で再生成。歯・閉眼・透過を検証中で、最終品質は未承認です。']);
-fixtures.push(['c_53640040c47a','PicoAgent実写・閉眼修正候補','PicoAgent実写の原寸局所閉眼と肌下地を取り込んだ比較候補です。口内の歯は共通描画。最終品質は未承認です。']);
+// 通常の確認画面には公開中の最新世代だけを出す。旧比較候補の資産は削除しない。
+const fixtures=[];
 const select=document.querySelector('#character'),status=document.querySelector('#status');
 const requestedCharacter=new URL(location.href).searchParams.get('character');
 const mouthShape=document.querySelector('#mouth-shape');
@@ -20,18 +17,27 @@ let currentSnapshot=null,loadAbort=null;
 let state={},generation=0,currentRig,faceView=false,displayedCharacter=null;
 let demoFrame=0,demoStarted=0;
 let motionFrame=0;
+let blinkFrame=0,nextBlinkAt=0,lastBlinkOpen=1;
 function stopMotion(){cancelAnimationFrame(motionFrame);motionFrame=0;document.querySelector('#motion-demo').textContent='待機動作テスト';}
 function stopDemo(){cancelAnimationFrame(demoFrame);demoFrame=0;document.querySelector('#mouth-demo').textContent='口パク動作テスト（無音）';document.querySelector('#mouth-preset').textContent='';}
+function stopBlink(){
+  const running=Boolean(blinkFrame);cancelAnimationFrame(blinkFrame);blinkFrame=0;lastBlinkOpen=1;
+  if(running){
+    state.eyeLOpen=state.eyeROpen=1;
+    const left=inputs.get('eyeLOpen'),right=inputs.get('eyeROpen');if(left)left.value=1;if(right)right.value=1;
+  }
+  document.querySelector('#blink').textContent='自動まばたきを開始';
+}
 const inputs=new Map();
 for(const [key,title,min,max,value] of [['mouthOpenY','開き',0,1,0],['mouthForm','横幅・丸み',-1,1,0],['eyeLOpen','左目',0,1,1],['eyeROpen','右目',0,1,1],['yaw','顔左右',-15,15,0],['pitch','顔上下',-15,15,0],['roll','首の傾き',-15,15,0],['armInset','腕を寄せる',0,10,0]]) {
   const label=document.createElement('label');label.append(title);
   const input=document.createElement('input');input.type='range';input.min=min;input.max=max;input.step=(max-min)/100;input.value=value;
-  input.addEventListener('input',()=>{stopDemo();stopMotion();mouthShape.value='';state[key]=Number(input.value);
+  input.addEventListener('input',()=>{stopDemo();stopMotion();stopBlink();mouthShape.value='';state[key]=Number(input.value);
     if(key==='armInset')state.armPose={leftUpperArm:[0,0,-state.armInset],rightUpperArm:[0,0,state.armInset]};
     state.preserveOriginalMouth=false;apply();});
   label.append(input);document.querySelector('#controls').append(label);inputs.set(key,input);
 }
-function reset(){stopMotion();state={...state,mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,roll:0,armInset:0,armPose:{},idleSwayDegrees:0,preserveOriginalMouth:false};for(const [key,input] of inputs)input.value=state[key];}
+function reset(){stopMotion();stopBlink();state={...state,mouthOpenY:0,mouthForm:0,eyeLOpen:1,eyeROpen:1,yaw:0,pitch:0,roll:0,armInset:0,armPose:{},idleSwayDegrees:0,preserveOriginalMouth:false};for(const [key,input] of inputs)input.value=state[key];}
 async function apply(token=generation){
   try{return await renderer.applyState(state)!==false&&token===generation;}
   catch(error){if(token===generation)status.textContent=error.message;return false;}
@@ -39,6 +45,7 @@ async function apply(token=generation){
 async function load(){
   stopMotion();
   stopDemo();
+  stopBlink();
   mouthShape.value='';
   loadAbort?.abort();loadAbort=new AbortController();
   const signal=loadAbort.signal;let candidateSnapshot=null;
@@ -117,7 +124,28 @@ document.querySelector('#motion-demo').addEventListener('click',()=>{
   motionFrame=requestAnimationFrame(tick);
 });
 document.querySelector('#neutral').addEventListener('click',()=>{stopDemo();mouthShape.value='';reset();state.preserveOriginalMouth=true;apply();});
-document.querySelector('#blink').addEventListener('click',()=>{delete state.eyeLOpen;delete state.eyeROpen;apply();});
+document.querySelector('#blink').addEventListener('click',()=>{
+  if(blinkFrame){
+    stopBlink();
+    state.eyeLOpen=state.eyeROpen=1;
+    inputs.get('eyeLOpen').value=inputs.get('eyeROpen').value=1;
+    apply();return;
+  }
+  nextBlinkAt=performance.now();lastBlinkOpen=1;
+  document.querySelector('#blink').textContent='自動まばたきを停止';
+  function tick(now){
+    const elapsed=now-nextBlinkAt;
+    let open=1;
+    if(elapsed>=0&&elapsed<=360)open=1-Math.sin(elapsed/360*Math.PI);
+    else if(elapsed>360)nextBlinkAt=now+2800+Math.random()*3700;
+    if(Math.abs(open-lastBlinkOpen)>.001){
+      lastBlinkOpen=open;state.eyeLOpen=state.eyeROpen=open;
+      inputs.get('eyeLOpen').value=inputs.get('eyeROpen').value=open;apply();
+    }
+    blinkFrame=requestAnimationFrame(tick);
+  }
+  blinkFrame=requestAnimationFrame(tick);
+});
 document.querySelector('#mouth-demo').addEventListener('click',()=>{
   if(demoFrame){stopDemo();return;}
   mouthShape.value='';
@@ -153,8 +181,11 @@ async function initialize(){
     if(!/^c_[0-9a-f]{12}$/.test(character.id)||typeof character.name!=='string')throw new Error('通常生成のキャラ一覧が不正です');
     if(!fixtures.some(([id])=>id===character.id))fixtures.push([character.id,'通常生成：'+character.name,'通常の4工程を完了した成果物です。原画と比較して見た目を確認してください。']);
   }
+  if(!fixtures.length)throw new Error('公開済みの最新キャラがありません');
   for(const [id,name] of fixtures)select.add(new Option(name,id));
-  if(requestedCharacter)select.value=requestedCharacter;
+  if(requestedCharacter&&fixtures.some(([id])=>id===requestedCharacter))select.value=requestedCharacter;
+  else select.value=fixtures[0][0];
+  const url=new URL(location.href);url.searchParams.set('character',select.value);history.replaceState(null,'',url);
   await load();
  } catch(error) {status.textContent='キャラ一覧を読み込めません: '+error.message;}
 }

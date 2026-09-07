@@ -20,6 +20,7 @@ try{
   page=await browser.newPage({viewport:{width:1440,height:1050},deviceScaleFactor:1});
   const errors=[];
   const captures=[];
+  const animationChecks={};
   page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`http://127.0.0.1:8791/ui/check.html?character=${id}`);
   await page.getByRole('button',{name:'中立状態へ戻す',exact:true}).waitFor();
@@ -30,13 +31,19 @@ try{
   const initialStatus=await page.locator('#status').textContent();
   if(!initialStatus.startsWith('素材充足:'))throw new Error('確認画面の読込に失敗しました: '+initialStatus);
   const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+  const waitForValue=async(locator,predicate,timeoutMs)=>{
+    const deadline=Date.now()+timeoutMs;
+    while(Date.now()<deadline){const value=Number(await locator.inputValue());if(predicate(value))return value;await page.waitForTimeout(25);}
+    throw new Error('アニメーションのパラメータ変化を確認できません');
+  };
   const capture=async name=>{
     await settle();
     if(errors.length)throw new Error(errors.join('\n'));
     const status=await page.locator('#status').textContent();
     if(!status.startsWith('素材充足:'))throw new Error('描画状態が異常です: '+status);
+    const canvasPixels=await page.locator('#avatar').screenshot({animations:'allow'});
     const pixels=await page.screenshot({path:resolve(destination,name+'.png'),fullPage:true});
-    captures.push({name,sha256:createHash('sha256').update(pixels).digest('hex'),status});
+    captures.push({name,sha256:createHash('sha256').update(pixels).digest('hex'),canvasSha256:createHash('sha256').update(canvasPixels).digest('hex'),status});
     console.log(JSON.stringify({character:id,image:name}));
   };
   await page.getByRole('button',{name:'中立状態へ戻す',exact:true}).click();
@@ -73,7 +80,9 @@ try{
   }
   await page.getByRole('button',{name:'顔の拡大検査',exact:true}).click();
   await page.getByRole('button',{name:'口パク動作テスト（無音）',exact:true}).click();
-  await page.getByRole('button',{name:'自動まばたき',exact:true}).click();
+  animationChecks.mouthOpenY=await waitForValue(page.getByRole('slider',{name:'開き',exact:true}),value=>value>.2,5000);
+  await page.getByRole('button',{name:'自動まばたきを開始',exact:true}).click();
+  animationChecks.autoBlinkOpen=await waitForValue(page.getByRole('slider',{name:'左目',exact:true}),value=>value<.5,1500);
   let recording;
   if(video){
     // 新しい描画面を作らず、表示中の共通レンダラーの画素だけを録画する。
@@ -123,5 +132,7 @@ try{
     await page.waitForTimeout(450);
     await capture('motion-'+index);
   }
-  await writeFile(resolve(destination,'capture-report.json'),JSON.stringify({character:id,viewport:{width:1440,height:1050},captures,errors,...(recording?{recording}:{})},null,2));
+  const animated=new Set(captures.filter(item=>item.name.startsWith('motion-')).map(item=>item.canvasSha256));
+  if(animated.size<2)throw new Error('口パク・まばたきの実canvasにフレーム差がありません');
+  await writeFile(resolve(destination,'capture-report.json'),JSON.stringify({character:id,viewport:{width:1440,height:1050},captures,animationChecks,errors,...(recording?{recording}:{})},null,2));
 } finally {try{if(page)await page.close();}finally{await browser.close();}}

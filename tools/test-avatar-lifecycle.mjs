@@ -8,6 +8,7 @@ import * as THREE from '../ui/shared/vendor/three/three.module.min.js';
 import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from '../ui/shared/native-scene-batch.js';
 
 const source=name=>readFileSync(new URL('../ui/'+name,import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'');
+const checkSource=()=>source('check.js').replace('const fixtures=[];',"const fixtures=[['c_2700e1166676','女性A'],['c_190454c86edb','むぎ']];");
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 function rig(){
   const names=['scene_face','scene_neck','scene_hair','scene_torso','scene_left_arm','scene_right_arm'];
@@ -39,6 +40,11 @@ function harness(){
   const renderer=api.createAvatarRenderer({clientWidth:1,clientHeight:1},{onError:error=>errors.push(error.message)});
   return {api,renderer,env,errors,tick:()=>frame(0),fail:value=>{fail=value;},counts:()=>({rendered,cleared})};
 }
+test('通常確認画面は固定した旧比較候補を一覧へ混ぜない',()=>{
+  const value=readFileSync(new URL('../ui/check.js',import.meta.url),'utf8');
+  assert.match(value,/const fixtures=\[\];/);
+  assert.doesNotMatch(value,/const fixtures=\[\['c_/);
+});
 test('描画必須の部位範囲を読み込み前に検証する',()=>{
   const h=harness();const value=rig();h.api.validateRenderBounds(value);
   delete value.layers.left_arm;assert.throws(()=>h.api.validateRenderBounds(value),/left_arm/);
@@ -82,7 +88,7 @@ test('確認画面は旧ロード完了で次のキャラの待機・失敗画�
     createAvatarRenderer:()=>({clear(){},dispose(){},applyState(){entered.resolve();return old.promise;}}),
     loadLocalJson:async url=>url.includes('c_190454c86edb')?next.promise:
       url.includes('character.json')?{stages:{rig2d:{status:'complete',updatedAtIso:'now'}}}:rig()};
-  const api=vm.runInNewContext(source('check.js').replace('await initialize();','')+'\n({load});',env);
+  const api=vm.runInNewContext(checkSource().replace('await initialize();','')+'\n({load});',env);
   node('#character').value='c_2700e1166676';applied=api.load();await entered.promise;
   node('#character').value='c_190454c86edb';const newer=api.load();
   old.resolve(true);await applied;
@@ -97,7 +103,7 @@ test('確認画面は次候補の失敗時に表示キャラと選択名を旧�
     location:{href:'http://localhost/ui/check.html'},history:{replaceState(_a,_b,url){lastUrl=url;}},addEventListener(){},cancelAnimationFrame(){},MOUTH_PRESETS:{close:[0,0]},
     createAvatarRenderer:()=>({clear(){cleared++;},dispose(){},async applyState(_state,{beforeCommit}){if(await beforeCommit()===false)return false;commits++;return true;}}),
     loadLocalJson:async url=>{if(failed)throw new Error('候補取得失敗');return url.includes('character.json')?{stages:{rig2d:{status:'complete',updatedAtIso:'now'}}}:rig();}};
-  const api=vm.runInNewContext(source('check.js').replace('await initialize();','')+'\n({load});',env);
+  const api=vm.runInNewContext(checkSource().replace('await initialize();','')+'\n({load});',env);
   node('#character').value='c_2700e1166676';await api.load();
   assert.equal(commits,1);assert.equal(node('#avatar').style.visibility,'visible');
   failed=true;node('#character').value='c_190454c86edb';await api.load();
@@ -130,7 +136,7 @@ test('確認画面の実snapshotデコーダーは欠落応答とAbortで旧Blob
       return response(mode==='complete');
     },
     consumeSnapshot:(response,limits,options)=>consumeSnapshot(response,limits,{...options,createUrl:()=>{const url='blob:fixture-'+(++serial);created.push(url);return url;},revokeUrl:url=>revoked.push(url)})};
-  const api=vm.runInNewContext(source('check.js').replace('await initialize();','')+'\n({load});',env);
+  const api=vm.runInNewContext(checkSource().replace('await initialize();','')+'\n({load});',env);
   node('#character').value='c_2700e1166676';await api.load();const original=created.slice();
   assert.equal(committed.length,1);assert.equal(revoked.length,0);
   mode='incomplete';node('#character').value='c_190454c86edb';await api.load();
