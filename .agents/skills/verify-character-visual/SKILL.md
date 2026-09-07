@@ -68,10 +68,18 @@ description: 生成キャラクターの見た目を実画面で検証する。2
 
 ## ブラウザ確認画面を確認する
 
+Codex DesktopでPlaywrightがプロジェクト直下にない場合は、先に`load_workspace_dependencies`で現行のNode.js packagesを取得する。2026年9月7日のAstra環境では`C:\Users\benyb\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules`であり、次のように作業用モジュールを明示する。場所が変わり得るため、存在しなければ固定パスを推測せず再取得する。
+
+```powershell
+$env:LVS_PLAYWRIGHT_MODULE='C:\Users\benyb\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules\playwright\index.mjs'
+```
+
+これは撮影ツールだけの依存であり、製品のビルド・実行依存へ追加しない。
+
 - ブラウザで開いて**背景が透過**しているか（`body` に不透明な背景が付いていないか）
 - 状態更新（目開閉・口形）が反映されるか
 - 口パクは開口の静止画だけで済ませず、テストを開始して閉口を含む一巡の複数時点で実描画を確認する。待機動作と口パクは別ボタンである。「口パク動作テスト（無音）」と「自動まばたきを開始」が停止表示へ変わり、口と目のスライダー値および実canvasが変化することを確認する。利用者へ動作中として渡す場合は、そのテストが実際に再生中か確認する。
-- 動作をスマホへ渡す場合は`tools/capture-character-gallery.mjs <id> <temp内出力先> --video`で実canvasを録画する。DEVELOPMENT.mdに従い、目・口のパラメータ変化とアニメーションを許可したcanvasの複数フレーム差を検査し、要求fpsと実測を混同しない。Playwrightの既定のアニメーション停止状態で同一フレームを取得し、動作不良と誤判定しない。GIFへの縮小は確認用だけとし、色数・透過が変わるため原寸素材や透明境界の合格根拠にしない。
+- 動作をスマホへ渡す場合は`tools/capture-character-gallery.mjs <id> <temp内出力先> --video`で実canvasを録画する。DEVELOPMENT.mdに従い、目・口・待機のパラメータ変化とアニメーションを許可したcanvasの複数フレーム差を検査する。待機動作は顔拡大を解除し、口パクとまばたきを止めた単独フレームでも首・肩・胴体の差を確認する。要求fpsと実測を混同しない。Playwrightの既定のアニメーション停止状態で同一フレームを取得し、動作不良と誤判定しない。GIFへの縮小は確認用だけとし、色数・透過が変わるため原寸素材や透明境界の合格根拠にしない。
 - ウィンドウサイズを変えて描画が追従するか
 - 本体プレビューと確認ページで**同じ描画コードを共有**しているか。二重実装になっていないか
 - 読込中に別キャラへ切り替えたとき、古い読込の完了や失敗が新しい選択の表示を上書きしないか。`tools/test-avatar-lifecycle.mjs`で世代競合を先に検査する。

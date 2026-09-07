@@ -1,4 +1,16 @@
 // 原画の瞳を潰さず、上下の開口領域と原画由来の上まぶたを動かす。
+export const AUTOMATIC_BLINK_DURATION_MS=650;
+
+export function automaticBlinkOpen(elapsed) {
+  if(!Number.isFinite(elapsed))throw new Error('まばたき時刻が不正です');
+  if(elapsed<=0)return 1;
+  // 完全閉眼を一定時間保持し、低フレームレートでも閉じた絵を必ず表示する。
+  if(elapsed<180){const t=elapsed/180;return 1-t*t*(3-2*t);}
+  if(elapsed<400)return 0;
+  if(elapsed<AUTOMATIC_BLINK_DURATION_MS){const t=(elapsed-400)/250;return t*t*(3-2*t);}
+  return 1;
+}
+
 export function eyeAperture(layer, openness) {
   const aperture=layer?.eye_aperture;
   if(!Array.isArray(aperture)||aperture.length<2||!Number.isFinite(openness))throw new Error('まぶたの実測境界がありません。分解から再生成してください');

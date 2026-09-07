@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {headDisplacement,armDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from '../ui/shared/rig-motion.js';
+import {headDisplacement,armDisplacement,bodyBreathDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from '../ui/shared/rig-motion.js';
 
 test('耳境界の補修は中立と比較オフでゼロ、指定角度で上限になる',()=>{
   const profile={repair_layer:'scene_ear_repair',angle_limit:15};
@@ -44,4 +44,11 @@ test('首の接続点の両側で変形が連続する',()=>{
     const b=headDisplacement(45,boundary+1e-5,[30,10,70,70],[40,65,60,90],100,200,10,5,10);
     assert.ok(Math.hypot(a[0]-b[0],a[1]-b[1])<1e-4);
   }
+});
+test('呼吸は肩と頭を一緒に動かし、胴体下端で0になる',()=>{
+  const torso=[20,80,80,180],neck=[40,60,60,100];
+  assert.notDeepEqual(bodyBreathDisplacement(50,70,torso,neck,100,200,1),[0,0]);
+  assert.notEqual(bodyBreathDisplacement(20,100,torso,neck,100,200,1)[0],0);
+  assert.deepEqual(bodyBreathDisplacement(50,180,torso,neck,100,200,1),[0,0]);
+  assert.throws(()=>bodyBreathDisplacement(0,0,undefined,neck,100,200,1));
 });
