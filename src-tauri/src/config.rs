@@ -7,11 +7,32 @@ use crate::store;
 
 pub const SETTING_KEYS: &[&str] = &[
     "ai.blink_denoise",
+    "ai.completion_model_dir",
+    "ai.completion_steps",
+    "ai.completion_seed",
+    "ai.completion_resolution",
+    "ai.completion_mask_margin",
+    "ai.completion_mask_core_ratio",
+    "ai.completion_timeout_seconds",
+    "ai.completion_fast_disk",
+    "ai.completion_hidden_prompt",
+    "ai.completion_side_prompt",
+    "ai.completion_hidden_band_ratio",
+    "ai.completion_hidden_motion_ratio",
+    "ai.completion_hair_edge_band_ratio",
+    "ai.completion_hair_edge_gain",
+    "ai.completion_ear_context",
     "ai.image_denoise",
     "ai.llm_model",
     "ai.mesh_model",
     "ai.models_dir",
     "ai.sam2_model",
+    "ai.grounding_model",
+    "ai.grounding_threshold",
+    "ai.eye_context_margin",
+    "ai.sam2_points_per_batch",
+    "ai.sam2_pred_iou_threshold",
+    "ai.sam2_stability_threshold",
     "ai.stt_model",
     "avatar.blink_duration_ms",
     "avatar.blink_max_ms",
@@ -23,6 +44,12 @@ pub const SETTING_KEYS: &[&str] = &[
     "comfy.startup_timeout_seconds",
     "comfy.unload_before_mesh",
     "comfy.workflow_dir",
+    "display.snapshot_record_bytes",
+    "display.snapshot_chunk_bytes",
+    "display.snapshot_part_bytes",
+    "display.snapshot_total_bytes",
+    "display.snapshot_parts",
+    "display.snapshot_dimension",
     "display.language",
     "display.preview_fps",
     "display.preview_scale",
@@ -49,9 +76,6 @@ pub const SETTING_KEYS: &[&str] = &[
     "lipsync.smoothing_frames",
     "lipsync.volume_gate_db",
     "lipsync.window_samples",
-    "obs.enabled",
-    "obs.port_range_end",
-    "obs.port_range_start",
     "pipeline.atlas_resolution",
     "pipeline.capture_resolution",
     "pipeline.keep_intermediates",
@@ -74,7 +98,6 @@ pub struct AppConfig {
     pub import: ImportConfig,
     pub lipsync: LipSyncConfig,
     pub vad: VadConfig,
-    pub obs: ObsConfig,
     pub pipeline: PipelineConfig,
 }
 
@@ -106,6 +129,21 @@ pub struct FacePatchConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct AiConfig {
+    pub completion_model_dir: String,
+    pub completion_steps: u32,
+    pub completion_seed: u32,
+    pub completion_resolution: u32,
+    pub completion_mask_margin: f32,
+    pub completion_mask_core_ratio: f32,
+    pub completion_timeout_seconds: u32,
+    pub completion_fast_disk: bool,
+    pub completion_hidden_prompt: String,
+    pub completion_side_prompt: String,
+    pub completion_hidden_band_ratio: f32,
+    pub completion_hidden_motion_ratio: f32,
+    pub completion_hair_edge_band_ratio: f32,
+    pub completion_hair_edge_gain: f32,
+    pub completion_ear_context: f32,
     pub models_dir: String,
     pub llm_model: String,
     pub stt_model: String,
@@ -113,6 +151,12 @@ pub struct AiConfig {
     pub blink_denoise: f32,
     pub mesh_model: String,
     pub sam2_model: String,
+    pub grounding_model: String,
+    pub grounding_threshold: f32,
+    pub eye_context_margin: f32,
+    pub sam2_points_per_batch: u32,
+    pub sam2_pred_iou_threshold: f32,
+    pub sam2_stability_threshold: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -147,6 +191,12 @@ pub struct AvatarConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct DisplayConfig {
+    pub snapshot_record_bytes: u32,
+    pub snapshot_chunk_bytes: u32,
+    pub snapshot_part_bytes: u32,
+    pub snapshot_total_bytes: u32,
+    pub snapshot_parts: u32,
+    pub snapshot_dimension: u32,
     pub preview_fps: u32,
     pub preview_scale: f32,
     pub language: String,
@@ -155,7 +205,7 @@ pub struct DisplayConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ConfigFile {
-    ai: Option<AiConfig>,
+    ai: Option<AiConfigFile>,
     avatar: Option<AvatarConfigFile>,
     comfy: Option<ComfyConfig>,
     display: Option<DisplayConfigFile>,
@@ -163,8 +213,42 @@ struct ConfigFile {
     import: Option<ImportConfig>,
     lipsync: Option<LipSyncConfigFile>,
     vad: Option<VadConfigFile>,
-    obs: Option<ObsConfigFile>,
+    // OBS機能廃止前の設定ファイルを壊さず読み捨てる。
+    obs: Option<serde_json::Value>,
     pipeline: Option<PipelineConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct AiConfigFile {
+    completion_model_dir: Option<String>,
+    completion_steps: Option<u32>,
+    completion_seed: Option<u32>,
+    completion_resolution: Option<u32>,
+    completion_mask_margin: Option<f32>,
+    completion_mask_core_ratio: Option<f32>,
+    completion_timeout_seconds: Option<u32>,
+    completion_fast_disk: Option<bool>,
+    completion_hidden_prompt: Option<String>,
+    completion_side_prompt: Option<String>,
+    completion_hidden_band_ratio: Option<f32>,
+    completion_hidden_motion_ratio: Option<f32>,
+    completion_hair_edge_band_ratio: Option<f32>,
+    completion_hair_edge_gain: Option<f32>,
+    completion_ear_context: Option<f32>,
+    models_dir: Option<String>,
+    llm_model: Option<String>,
+    stt_model: Option<String>,
+    image_denoise: Option<f32>,
+    blink_denoise: Option<f32>,
+    mesh_model: Option<String>,
+    sam2_model: Option<String>,
+    grounding_model: Option<String>,
+    grounding_threshold: Option<f32>,
+    eye_context_margin: Option<f32>,
+    sam2_points_per_batch: Option<u32>,
+    sam2_pred_iou_threshold: Option<f32>,
+    sam2_stability_threshold: Option<f32>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -181,6 +265,12 @@ struct AvatarConfigFile {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct DisplayConfigFile {
+    snapshot_record_bytes: Option<u32>,
+    snapshot_chunk_bytes: Option<u32>,
+    snapshot_part_bytes: Option<u32>,
+    snapshot_total_bytes: Option<u32>,
+    snapshot_parts: Option<u32>,
+    snapshot_dimension: Option<u32>,
     preview_fps: Option<u32>,
     preview_scale: Option<f32>,
     language: Option<String>,
@@ -232,25 +322,15 @@ struct VadConfigFile {
     max_seconds: Option<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields)]
-pub struct ObsConfig {
-    pub enabled: bool,
-    pub port_range_start: u16,
-    pub port_range_end: u16,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct ObsConfigFile {
-    enabled: Option<bool>,
-    port_range_start: Option<u16>,
-    port_range_end: Option<u16>,
-}
-
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
+            snapshot_record_bytes: 96000,
+            snapshot_chunk_bytes: 48000,
+            snapshot_part_bytes: 32000000,
+            snapshot_total_bytes: 256000000,
+            snapshot_parts: 256,
+            snapshot_dimension: 8192,
             preview_fps: 30,
             preview_scale: 0.5,
             language: "ja".to_owned(),
@@ -291,6 +371,21 @@ impl Default for FacePatchConfig {
 impl Default for AiConfig {
     fn default() -> Self {
         Self {
+            completion_model_dir: "qwen-eval".into(),
+            completion_steps: 50,
+            completion_seed: 777,
+            completion_resolution: 1024,
+            completion_mask_margin: 0.2,
+            completion_mask_core_ratio: 0.5,
+            completion_timeout_seconds: 14_400,
+            completion_fast_disk: true,
+            completion_hidden_prompt: "Complete only the small masked strips of skin hidden behind the hair, continuing the nearby skin color and shading naturally. Keep the original face, visible features, pose and rendering style unchanged. Do not add eyes, eyebrows, mouths, another face, or hair. Preserve everything outside the mask.".into(),
+            completion_side_prompt: "Remove only the two side locks of hair that cover the cheeks and ears. Reveal and complete both ears and the cheek contours naturally underneath those side locks. Keep the face exactly the same size and position. Preserve the original eyes, mouth, nose, skin tone, facial expression, bangs, top hair, back hair, hair ornaments, neck, clothing and composition exactly. Maintain the original rendering style and shading. Do not make the character bald. Do not add objects.".into(),
+            completion_hidden_band_ratio: 0.08,
+            completion_hidden_motion_ratio: 0.35,
+            completion_hair_edge_band_ratio: 0.015,
+            completion_hair_edge_gain: 40.0,
+            completion_ear_context: 0.5,
             models_dir: "models".into(),
             llm_model: "qwen2.5-1.5b-instruct-q4_k_m.gguf".into(),
             stt_model: "ggml-small.bin".into(),
@@ -298,6 +393,12 @@ impl Default for AiConfig {
             blink_denoise: 0.85,
             mesh_model: "triposr".into(),
             sam2_model: "sam2.1-hiera-tiny".into(),
+            grounding_model: "grounding-dino-base".into(),
+            grounding_threshold: 0.20,
+            eye_context_margin: 0.5,
+            sam2_points_per_batch: 8,
+            sam2_pred_iou_threshold: 0.7,
+            sam2_stability_threshold: 0.85,
         }
     }
 }
@@ -361,16 +462,6 @@ impl Default for VadConfig {
             end_silence_seconds: 0.9,
             min_seconds: 0.5,
             max_seconds: 6.0,
-        }
-    }
-}
-
-impl Default for ObsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            port_range_start: 58090,
-            port_range_end: 58099,
         }
     }
 }
@@ -478,6 +569,36 @@ impl AppConfig {
                 }
             };
         }
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_RECORD_BYTES",
+            self.display.snapshot_record_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_CHUNK_BYTES",
+            self.display.snapshot_chunk_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_PART_BYTES",
+            self.display.snapshot_part_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_TOTAL_BYTES",
+            self.display.snapshot_total_bytes,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_PARTS",
+            self.display.snapshot_parts,
+            u32
+        );
+        parse_environment!(
+            "LVS_DISPLAY_SNAPSHOT_DIMENSION",
+            self.display.snapshot_dimension,
+            u32
+        );
         parse_environment!("LVS_AVATAR_CROSSFADE_MS", self.avatar.crossfade_ms, u32);
         parse_environment!("LVS_AVATAR_BLINK_MIN_MS", self.avatar.blink_min_ms, u32);
         parse_environment!("LVS_AVATAR_BLINK_MAX_MS", self.avatar.blink_max_ms, u32);
@@ -529,10 +650,93 @@ impl AppConfig {
         );
         string_environment!("LVS_PIPELINE_OUTPUT_DIR", self.pipeline.output_dir);
         string_environment!("LVS_AI_MODELS_DIR", self.ai.models_dir);
+        string_environment!("LVS_AI_COMPLETION_MODEL_DIR", self.ai.completion_model_dir);
+        string_environment!(
+            "LVS_AI_COMPLETION_HIDDEN_PROMPT",
+            self.ai.completion_hidden_prompt
+        );
+        string_environment!(
+            "LVS_AI_COMPLETION_SIDE_PROMPT",
+            self.ai.completion_side_prompt
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HIDDEN_BAND_RATIO",
+            self.ai.completion_hidden_band_ratio,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HIDDEN_MOTION_RATIO",
+            self.ai.completion_hidden_motion_ratio,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HAIR_EDGE_BAND_RATIO",
+            self.ai.completion_hair_edge_band_ratio,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_HAIR_EDGE_GAIN",
+            self.ai.completion_hair_edge_gain,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_EAR_CONTEXT",
+            self.ai.completion_ear_context,
+            f32
+        );
+        parse_environment!("LVS_AI_COMPLETION_STEPS", self.ai.completion_steps, u32);
+        parse_environment!("LVS_AI_COMPLETION_SEED", self.ai.completion_seed, u32);
+        parse_environment!(
+            "LVS_AI_COMPLETION_RESOLUTION",
+            self.ai.completion_resolution,
+            u32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_MASK_MARGIN",
+            self.ai.completion_mask_margin,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_MASK_CORE_RATIO",
+            self.ai.completion_mask_core_ratio,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_TIMEOUT_SECONDS",
+            self.ai.completion_timeout_seconds,
+            u32
+        );
+        parse_environment!(
+            "LVS_AI_COMPLETION_FAST_DISK",
+            self.ai.completion_fast_disk,
+            bool
+        );
         string_environment!("LVS_AI_LLM_MODEL", self.ai.llm_model);
         string_environment!("LVS_AI_STT_MODEL", self.ai.stt_model);
         string_environment!("LVS_AI_MESH_MODEL", self.ai.mesh_model);
         string_environment!("LVS_AI_SAM2_MODEL", self.ai.sam2_model);
+        string_environment!("LVS_AI_GROUNDING_MODEL", self.ai.grounding_model);
+        parse_environment!(
+            "LVS_AI_GROUNDING_THRESHOLD",
+            self.ai.grounding_threshold,
+            f32
+        );
+        parse_environment!("LVS_AI_EYE_CONTEXT_MARGIN", self.ai.eye_context_margin, f32);
+        parse_environment!(
+            "LVS_AI_SAM2_POINTS_PER_BATCH",
+            self.ai.sam2_points_per_batch,
+            u32
+        );
+        parse_environment!(
+            "LVS_AI_SAM2_PRED_IOU_THRESHOLD",
+            self.ai.sam2_pred_iou_threshold,
+            f32
+        );
+        parse_environment!(
+            "LVS_AI_SAM2_STABILITY_THRESHOLD",
+            self.ai.sam2_stability_threshold,
+            f32
+        );
         string_environment!("LVS_COMFY_WORKFLOW_DIR", self.comfy.workflow_dir);
         parse_environment!("LVS_AI_IMAGE_DENOISE", self.ai.image_denoise, f32);
         parse_environment!("LVS_AI_BLINK_DENOISE", self.ai.blink_denoise, f32);
@@ -594,15 +798,87 @@ impl AppConfig {
         );
         parse_environment!("LVS_VAD_MIN_SECONDS", self.vad.min_seconds, f32);
         parse_environment!("LVS_VAD_MAX_SECONDS", self.vad.max_seconds, f32);
-        parse_environment!("LVS_OBS_ENABLED", self.obs.enabled, bool);
-        parse_environment!("LVS_OBS_PORT_RANGE_START", self.obs.port_range_start, u16);
-        parse_environment!("LVS_OBS_PORT_RANGE_END", self.obs.port_range_end, u16);
         Ok(())
     }
 
     fn apply_file(&mut self, file: ConfigFile) {
         if let Some(value) = file.ai {
-            self.ai = value;
+            apply_optional(&mut self.ai.models_dir, value.models_dir);
+            apply_optional(
+                &mut self.ai.completion_model_dir,
+                value.completion_model_dir,
+            );
+            apply_optional(&mut self.ai.completion_steps, value.completion_steps);
+            apply_optional(
+                &mut self.ai.completion_hidden_prompt,
+                value.completion_hidden_prompt,
+            );
+            apply_optional(
+                &mut self.ai.completion_side_prompt,
+                value.completion_side_prompt,
+            );
+            apply_optional(
+                &mut self.ai.completion_hidden_band_ratio,
+                value.completion_hidden_band_ratio,
+            );
+            apply_optional(
+                &mut self.ai.completion_hidden_motion_ratio,
+                value.completion_hidden_motion_ratio,
+            );
+            apply_optional(
+                &mut self.ai.completion_hair_edge_band_ratio,
+                value.completion_hair_edge_band_ratio,
+            );
+            apply_optional(
+                &mut self.ai.completion_hair_edge_gain,
+                value.completion_hair_edge_gain,
+            );
+            apply_optional(
+                &mut self.ai.completion_ear_context,
+                value.completion_ear_context,
+            );
+            apply_optional(&mut self.ai.completion_seed, value.completion_seed);
+            apply_optional(
+                &mut self.ai.completion_resolution,
+                value.completion_resolution,
+            );
+            apply_optional(
+                &mut self.ai.completion_mask_margin,
+                value.completion_mask_margin,
+            );
+            apply_optional(
+                &mut self.ai.completion_mask_core_ratio,
+                value.completion_mask_core_ratio,
+            );
+            apply_optional(
+                &mut self.ai.completion_timeout_seconds,
+                value.completion_timeout_seconds,
+            );
+            apply_optional(
+                &mut self.ai.completion_fast_disk,
+                value.completion_fast_disk,
+            );
+            apply_optional(&mut self.ai.llm_model, value.llm_model);
+            apply_optional(&mut self.ai.stt_model, value.stt_model);
+            apply_optional(&mut self.ai.image_denoise, value.image_denoise);
+            apply_optional(&mut self.ai.blink_denoise, value.blink_denoise);
+            apply_optional(&mut self.ai.mesh_model, value.mesh_model);
+            apply_optional(&mut self.ai.sam2_model, value.sam2_model);
+            apply_optional(&mut self.ai.grounding_model, value.grounding_model);
+            apply_optional(&mut self.ai.grounding_threshold, value.grounding_threshold);
+            apply_optional(&mut self.ai.eye_context_margin, value.eye_context_margin);
+            apply_optional(
+                &mut self.ai.sam2_points_per_batch,
+                value.sam2_points_per_batch,
+            );
+            apply_optional(
+                &mut self.ai.sam2_pred_iou_threshold,
+                value.sam2_pred_iou_threshold,
+            );
+            apply_optional(
+                &mut self.ai.sam2_stability_threshold,
+                value.sam2_stability_threshold,
+            );
         }
         if let Some(avatar) = file.avatar {
             apply_optional(&mut self.avatar.crossfade_ms, avatar.crossfade_ms);
@@ -619,6 +895,24 @@ impl AppConfig {
             self.comfy = value;
         }
         if let Some(display) = file.display {
+            if let Some(value) = display.snapshot_record_bytes {
+                self.display.snapshot_record_bytes = value;
+            }
+            if let Some(value) = display.snapshot_chunk_bytes {
+                self.display.snapshot_chunk_bytes = value;
+            }
+            if let Some(value) = display.snapshot_part_bytes {
+                self.display.snapshot_part_bytes = value;
+            }
+            if let Some(value) = display.snapshot_total_bytes {
+                self.display.snapshot_total_bytes = value;
+            }
+            if let Some(value) = display.snapshot_parts {
+                self.display.snapshot_parts = value;
+            }
+            if let Some(value) = display.snapshot_dimension {
+                self.display.snapshot_dimension = value;
+            }
             if let Some(value) = display.preview_fps {
                 self.display.preview_fps = value;
             }
@@ -655,11 +949,7 @@ impl AppConfig {
             apply_optional(&mut self.vad.min_seconds, vad.min_seconds);
             apply_optional(&mut self.vad.max_seconds, vad.max_seconds);
         }
-        if let Some(obs) = file.obs {
-            apply_optional(&mut self.obs.enabled, obs.enabled);
-            apply_optional(&mut self.obs.port_range_start, obs.port_range_start);
-            apply_optional(&mut self.obs.port_range_end, obs.port_range_end);
-        }
+        let _ = file.obs;
         if let Some(value) = file.pipeline {
             self.pipeline = value;
         }
@@ -692,14 +982,40 @@ impl AppConfig {
             || !self.comfy.unload_before_mesh
             || !(0.0..=1.0).contains(&self.ai.image_denoise)
             || !(0.0..=1.0).contains(&self.ai.blink_denoise)
+            || !(1..=64).contains(&self.ai.sam2_points_per_batch)
+            || !(0.0..=1.0).contains(&self.ai.sam2_pred_iou_threshold)
+            || !(0.0..=1.0).contains(&self.ai.grounding_threshold)
+            || !(0.1..=2.0).contains(&self.ai.eye_context_margin)
+            || !(0.0..=1.0).contains(&self.ai.sam2_stability_threshold)
+            || !(1..=100).contains(&self.ai.completion_steps)
+            || !(256..=4096).contains(&self.ai.completion_resolution)
+            || self.ai.completion_resolution % 16 != 0
+            || !(0.0..=0.5).contains(&self.ai.completion_mask_margin)
+            || self.ai.completion_mask_margin == 0.0
+            || !(0.0..1.0).contains(&self.ai.completion_mask_core_ratio)
+            || self.ai.completion_timeout_seconds == 0
+            || !(0.0..=0.15).contains(&self.ai.completion_hidden_band_ratio)
+            || self.ai.completion_hidden_band_ratio == 0.0
+            || !(0.0..=0.4).contains(&self.ai.completion_hidden_motion_ratio)
+            || self.ai.completion_hidden_motion_ratio == 0.0
+            || !(0.0..=0.05).contains(&self.ai.completion_hair_edge_band_ratio)
+            || self.ai.completion_hair_edge_band_ratio == 0.0
+            || !(0.0..=255.0).contains(&self.ai.completion_hair_edge_gain)
+            || self.ai.completion_hair_edge_gain == 0.0
+            || !(0.0..=2.0).contains(&self.ai.completion_ear_context)
+            || self.ai.completion_ear_context == 0.0
         {
             return Err(ConfigError::Validation("AI/ComfyUI設定が範囲外です".into()));
         }
         if self.ai.models_dir.trim().is_empty()
+            || self.ai.completion_model_dir.trim().is_empty()
+            || self.ai.completion_hidden_prompt.trim().is_empty()
+            || self.ai.completion_side_prompt.trim().is_empty()
             || self.ai.llm_model.trim().is_empty()
             || self.ai.stt_model.trim().is_empty()
             || self.ai.mesh_model.trim().is_empty()
             || self.ai.sam2_model.trim().is_empty()
+            || self.ai.grounding_model.trim().is_empty()
             || self.comfy.workflow_dir.trim().is_empty()
         {
             return Err(ConfigError::Validation(
@@ -724,6 +1040,22 @@ impl AppConfig {
             || !(500..=60_000).contains(&self.avatar.idle_sway_period_ms)
         {
             return Err(ConfigError::Validation("avatar設定が範囲外です".into()));
+        }
+        let d = &self.display;
+        if [
+            d.snapshot_record_bytes,
+            d.snapshot_chunk_bytes,
+            d.snapshot_part_bytes,
+            d.snapshot_total_bytes,
+            d.snapshot_parts,
+            d.snapshot_dimension,
+        ]
+        .contains(&0)
+            || u64::from(d.snapshot_chunk_bytes).div_ceil(3) * 4 + 512
+                > u64::from(d.snapshot_record_bytes)
+            || d.snapshot_part_bytes > d.snapshot_total_bytes
+        {
+            return Err(ConfigError::Validation("公開素材の配信上限が不正です。正数で、素材上限≤総量、base64チャンク＋ヘッダ≤JSONレコード上限にしてください".into()));
         }
         if !(1..=240).contains(&self.display.preview_fps) {
             return Err(ConfigError::Validation(
@@ -762,9 +1094,6 @@ impl AppConfig {
         {
             return Err(ConfigError::Validation("vad設定が範囲外です".into()));
         }
-        if self.obs.port_range_start > self.obs.port_range_end {
-            return Err(ConfigError::Validation("obsポート範囲が逆です".into()));
-        }
         Ok(())
     }
 }
@@ -793,6 +1122,33 @@ fn backup_corrupt_file(path: &Path) -> Result<(), std::io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_limits_validate_and_persistent_values_override_environment() {
+        let mut config = AppConfig::default();
+        config.display.snapshot_total_bytes = 1;
+        assert!(config.validate().is_err());
+        config = AppConfig::default();
+        config.display.snapshot_chunk_bytes = config.display.snapshot_record_bytes;
+        assert!(config.validate().is_err());
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../temp/generation-reference");
+        std::fs::create_dir_all(&root).unwrap();
+        let temp = tempfile::tempdir_in(root).unwrap();
+        let path = temp.path().join("config.json");
+        config = AppConfig::default();
+        config.display.snapshot_parts = 123;
+        config.save(&path).unwrap();
+        let loaded = AppConfig::load_with_environment(&path, |key| {
+            if key == "LVS_DISPLAY_SNAPSHOT_PARTS" {
+                Some("99".into())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+        assert_eq!(loaded.display.snapshot_parts, 123);
+    }
 
     #[test]
     fn documented_setting_keys_match_code_in_both_directions() {
@@ -830,7 +1186,7 @@ mod tests {
         };
         saved.save(&path).unwrap();
 
-        // The file is loaded after environment defaults, so it remains authoritative.
+        // 永続ファイルは環境変数の後に読み込み、指定したキーを優先する。
         let loaded = AppConfig::load_with_environment(&path, |key| match key {
             "LVS_DISPLAY_PREVIEW_FPS" => Some("24".into()),
             "LVS_DISPLAY_LANGUAGE" => Some("en".into()),
@@ -851,6 +1207,155 @@ mod tests {
         })
         .unwrap();
         assert_eq!(loaded.display.preview_fps, 48);
+    }
+
+    #[test]
+    fn eye_context_setting_precedence_and_validation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let environment = |key: &str| (key == "LVS_AI_EYE_CONTEXT_MARGIN").then(|| "0.75".into());
+        let mut loaded = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(loaded.ai.eye_context_margin, 0.75);
+        loaded.ai.eye_context_margin = 0.25;
+        loaded.save(&path).unwrap();
+        assert_eq!(
+            AppConfig::load_with_environment(&path, environment)
+                .unwrap()
+                .ai
+                .eye_context_margin,
+            0.25
+        );
+        for invalid in [0.0, 2.1, f32::NAN] {
+            loaded.ai.eye_context_margin = invalid;
+            assert!(loaded.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn completion_settings_roundtrip_precedence_and_ui_coverage() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let environment = |key: &str| match key {
+            "LVS_AI_COMPLETION_MODEL_DIR" => Some("custom-qwen".into()),
+            "LVS_AI_COMPLETION_STEPS" => Some("25".into()),
+            "LVS_AI_COMPLETION_SEED" => Some("42".into()),
+            "LVS_AI_COMPLETION_RESOLUTION" => Some("768".into()),
+            "LVS_AI_COMPLETION_MASK_MARGIN" => Some("0.3".into()),
+            "LVS_AI_COMPLETION_MASK_CORE_RATIO" => Some("0.5".into()),
+            "LVS_AI_COMPLETION_TIMEOUT_SECONDS" => Some("7200".into()),
+            "LVS_AI_COMPLETION_FAST_DISK" => Some("false".into()),
+            "LVS_AI_COMPLETION_HIDDEN_PROMPT" => Some("hidden test".into()),
+            "LVS_AI_COMPLETION_SIDE_PROMPT" => Some("side test".into()),
+            "LVS_AI_COMPLETION_HIDDEN_BAND_RATIO" => Some("0.1".into()),
+            "LVS_AI_COMPLETION_HIDDEN_MOTION_RATIO" => Some("0.2".into()),
+            "LVS_AI_COMPLETION_HAIR_EDGE_BAND_RATIO" => Some("0.02".into()),
+            "LVS_AI_COMPLETION_HAIR_EDGE_GAIN" => Some("30".into()),
+            "LVS_AI_COMPLETION_EAR_CONTEXT" => Some("0.6".into()),
+            _ => None,
+        };
+        let loaded = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(loaded.ai.completion_model_dir, "custom-qwen");
+        assert_eq!(loaded.ai.completion_steps, 25);
+        assert_eq!(loaded.ai.completion_seed, 42);
+        assert_eq!(loaded.ai.completion_resolution, 768);
+        assert_eq!(loaded.ai.completion_mask_margin, 0.3);
+        assert_eq!(loaded.ai.completion_mask_core_ratio, 0.5);
+        assert_eq!(loaded.ai.completion_timeout_seconds, 7200);
+        assert!(!loaded.ai.completion_fast_disk);
+        assert_eq!(loaded.ai.completion_hidden_prompt, "hidden test");
+        assert_eq!(loaded.ai.completion_side_prompt, "side test");
+        assert_eq!(loaded.ai.completion_hidden_band_ratio, 0.1);
+        assert_eq!(loaded.ai.completion_hidden_motion_ratio, 0.2);
+        assert_eq!(loaded.ai.completion_hair_edge_band_ratio, 0.02);
+        assert_eq!(loaded.ai.completion_hair_edge_gain, 30.0);
+        assert_eq!(loaded.ai.completion_ear_context, 0.6);
+        let defaults = AppConfig::default();
+        defaults.save(&path).unwrap();
+        assert_eq!(
+            AppConfig::load_with_environment(&path, environment)
+                .unwrap()
+                .ai,
+            defaults.ai
+        );
+        std::fs::write(&path, r#"{"ai":{"completion_steps":60}}"#).unwrap();
+        let partial = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(partial.ai.completion_steps, 60);
+        assert_eq!(partial.ai.completion_seed, 42);
+        // 旧既定の0や保存済み指示も、新既定や環境変数で無断更新しない。
+        std::fs::write(&path, r#"{"ai":{"completion_mask_core_ratio":0,"completion_hidden_prompt":"saved hidden","completion_side_prompt":"saved side"}}"#).unwrap();
+        let preserved = AppConfig::load_with_environment(&path, environment).unwrap();
+        assert_eq!(preserved.ai.completion_mask_core_ratio, 0.0);
+        assert_eq!(preserved.ai.completion_hidden_prompt, "saved hidden");
+        assert_eq!(preserved.ai.completion_side_prompt, "saved side");
+        let serialized = serde_json::to_value(defaults).unwrap();
+        let html = include_str!("../../ui/index.html");
+        for key in SETTING_KEYS
+            .iter()
+            .filter(|key| key.starts_with("ai.completion_"))
+        {
+            let field = key.strip_prefix("ai.").unwrap();
+            assert!(serialized["ai"].get(field).is_some(), "{key}");
+            let control = field.replacen("completion_", "completion-", 1);
+            assert!(html.contains(&format!("id=\"{control}\"")), "{key}");
+        }
+    }
+
+    #[test]
+    fn completion_settings_reject_unsafe_values() {
+        for (key, invalid) in [
+            ("completion_model_dir", serde_json::json!(" ")),
+            ("completion_steps", serde_json::json!(0)),
+            ("completion_steps", serde_json::json!(101)),
+            ("completion_resolution", serde_json::json!(255)),
+            ("completion_resolution", serde_json::json!(4097)),
+            ("completion_resolution", serde_json::json!(1000)),
+            ("completion_mask_margin", serde_json::json!(0)),
+            ("completion_mask_margin", serde_json::json!(0.51)),
+            ("completion_mask_core_ratio", serde_json::json!(-0.01)),
+            ("completion_mask_core_ratio", serde_json::json!(1)),
+            ("completion_timeout_seconds", serde_json::json!(0)),
+            ("completion_hidden_prompt", serde_json::json!(" ")),
+            ("completion_side_prompt", serde_json::json!("")),
+            ("completion_hidden_band_ratio", serde_json::json!(0)),
+            ("completion_hidden_band_ratio", serde_json::json!(0.16)),
+            ("completion_hidden_motion_ratio", serde_json::json!(0.41)),
+            ("completion_hair_edge_band_ratio", serde_json::json!(0.06)),
+            ("completion_hair_edge_gain", serde_json::json!(256)),
+            ("completion_ear_context", serde_json::json!(2.1)),
+        ] {
+            let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+            value["ai"][key] = invalid;
+            let config: AppConfig = serde_json::from_value(value).unwrap();
+            assert!(config.validate().is_err(), "{key}");
+        }
+        let mut config = AppConfig::default();
+        config.ai.completion_mask_margin = f32::NAN;
+        assert!(config.validate().is_err());
+        let mut config = AppConfig::default();
+        assert_eq!(config.ai.completion_mask_core_ratio, 0.5);
+        for valid in [0.0, 0.5, 0.999] {
+            config.ai.completion_mask_core_ratio = valid;
+            assert!(config.validate().is_ok());
+        }
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            config.ai.completion_mask_core_ratio = invalid;
+            assert!(config.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn partial_ai_file_preserves_unspecified_environment_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        std::fs::write(&path, r#"{"ai":{"sam2_points_per_batch":4}}"#).unwrap();
+        let loaded = AppConfig::load_with_environment(&path, |key| match key {
+            "LVS_AI_SAM2_POINTS_PER_BATCH" => Some("16".into()),
+            "LVS_AI_SAM2_STABILITY_THRESHOLD" => Some("0.91".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(loaded.ai.sam2_points_per_batch, 4);
+        assert_eq!(loaded.ai.sam2_stability_threshold, 0.91);
     }
 
     #[test]
@@ -892,19 +1397,17 @@ mod tests {
     }
 
     #[test]
-    fn persists_avatar_lipsync_vad_and_obs_settings() {
+    fn persists_avatar_lipsync_and_vad_settings() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.json");
         let mut config = AppConfig::default();
         config.avatar.crossfade_ms = 240;
         config.lipsync.smoothing_frames = 6;
         config.vad.max_seconds = 8.0;
-        config.obs.enabled = true;
         config.save(&path).unwrap();
         let loaded = AppConfig::load_with_environment(&path, |_| None).unwrap();
         assert_eq!(loaded.avatar.crossfade_ms, 240);
         assert_eq!(loaded.lipsync.smoothing_frames, 6);
         assert_eq!(loaded.vad.max_seconds, 8.0);
-        assert!(loaded.obs.enabled);
     }
 }

@@ -46,6 +46,8 @@ fn main() -> Result<()> {
         "setup" if args.get(1).map(String::as_str) == Some("sidecar") => setup_sidecar(),
         "setup" if args.get(1).map(String::as_str) == Some("models") => setup_models(),
         "setup" if args.get(1).map(String::as_str) == Some("sam2") => setup_sam2(),
+        "setup" if args.get(1).map(String::as_str) == Some("grounding") => setup_grounding(),
+        "setup" if args.get(1).map(String::as_str) == Some("completion") => setup_completion(),
         "setup" if args.get(1).map(String::as_str) == Some("engines") => setup_engines(),
         "expression" => run_expression(&args[1..]),
         "expression-import" => run_expression_import(&args[1..]),
@@ -66,11 +68,12 @@ fn main() -> Result<()> {
                 ],
             )?;
             run("cargo", &["test", "--workspace"])?;
-            verify_python_sidecars()
+            verify_python_sidecars()?;
+            verify_javascript_tests()
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup sam2|setup engines>"
+                "usage: cargo xtask <dev|build|verify|expression|expression-import|mesh|rig|facepatch|setup comfy|setup sidecar|setup models|setup sam2|setup grounding|setup completion|setup engines>"
             );
             Ok(())
         }
@@ -241,7 +244,75 @@ fn setup_models() -> Result<()> {
         &dino.join("config.json"),
         DINO_CONFIG_SHA256,
     )?;
-    setup_sam2()
+    setup_sam2()?;
+    setup_grounding()
+}
+
+fn setup_completion() -> Result<()> {
+    if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        bail!("閉眼補完モデルは現在 Windows x64 専用です");
+    }
+    let root = root()?;
+    check_cuda_gpu(&root)?;
+    let python = root.join("sidecar/.venv/Scripts/python.exe");
+    if !python.exists() {
+        bail!("共有 Python 環境がありません。cargo xtask setup sidecar を実行してください");
+    }
+    run_at(
+        &root,
+        &python,
+        [OsStr::new("tools/setup-completion-models.py")],
+    )
+}
+
+fn setup_grounding() -> Result<()> {
+    let root = root()?;
+    check_cuda_gpu(&root)?;
+    let destination = root.join("models/grounding-dino-base");
+    std::fs::create_dir_all(&destination)?;
+    let base = "https://huggingface.co/IDEA-Research/grounding-dino-base/resolve/12bdfa3120f3e7ec7b434d90674b3396eccf88eb";
+    for (name, hash) in [
+        (
+            "README.md",
+            "a0d03193076262a585dcb1edfe4b3b72fac678055008b688feb188cceb7f977d",
+        ),
+        (
+            "config.json",
+            "eda416dae6f49419ff831b1c190ec430a060b19aae688dbaf2425a075b650608",
+        ),
+        (
+            "model.safetensors",
+            "5548f844c928c4b6f411fa8cbcc2bfa8dbbba437cb1d513975519f93c2a9ed21",
+        ),
+        (
+            "preprocessor_config.json",
+            "8454179ba95e2ad22947835aad7b45862a601fc0055ab88bf1ee70892d3aea60",
+        ),
+        (
+            "special_tokens_map.json",
+            "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+        ),
+        (
+            "tokenizer.json",
+            "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        ),
+        (
+            "tokenizer_config.json",
+            "d40ab645b68211910b9170d22433d43186a6ec8ee6fd10ba170524b25bf4fb56",
+        ),
+        (
+            "vocab.txt",
+            "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+        ),
+    ] {
+        download_verified(
+            &root,
+            &format!("{base}/{name}?download=true"),
+            &destination.join(name),
+            hash,
+        )?;
+    }
+    Ok(())
 }
 
 fn setup_sam2() -> Result<()> {
@@ -512,6 +583,40 @@ fn verify_python_sidecars() -> Result<()> {
     if !python.exists() {
         bail!("sidecar environment is missing; run `cargo xtask setup sidecar`");
     }
+    // unittest の 0 件成功で統合漏れを隠さない。袖・手は既存 decompose 検索で一度だけ実行する。
+    for required in [
+        "sidecar/test_reference_store.py",
+        "sidecar/test_snapshot_stream.py",
+        "tools/test_generation_reference.py",
+        "sidecar/decompose/test_optional_limbs.py",
+    ] {
+        if !root.join(required).is_file() {
+            bail!("必須の CPU 検査がありません。統合漏れを確認してください: {required}");
+        }
+    }
+    // 通常補完と保存保護を、旧工程だけの検査から取りこぼさない。
+    for (directory, pattern) in [
+        ("sidecar/completion", "test_*.py"),
+        ("sidecar", "test_output_transaction.py"),
+        ("sidecar", "test_reference_store.py"),
+        ("sidecar", "test_snapshot_stream.py"),
+        ("tools", "test_preview_server.py"),
+        ("tools", "test_generation_reference.py"),
+    ] {
+        run_at(
+            &root,
+            &python,
+            [
+                OsStr::new("-m"),
+                OsStr::new("unittest"),
+                OsStr::new("discover"),
+                OsStr::new("-s"),
+                OsStr::new(directory),
+                OsStr::new("-p"),
+                OsStr::new(pattern),
+            ],
+        )?;
+    }
     run_at(
         &root,
         &python,
@@ -602,6 +707,35 @@ fn verify_python_sidecars() -> Result<()> {
             OsStr::new("-p"),
             OsStr::new("test_*.py"),
         ],
+    )
+}
+
+fn verify_javascript_tests() -> Result<()> {
+    let root = root()?;
+    // Node は開発用 CPU 検査だけに使い、製品の build/dev/setup には要求しない。
+    let required = root.join("tools/test-snapshot-client.mjs");
+    if !required.is_file() {
+        bail!(
+            "必須の配信クライアント検査がありません: {}",
+            required.display()
+        );
+    }
+    let mut tests = Vec::new();
+    for entry in std::fs::read_dir(root.join("tools"))? {
+        let path = entry?.path();
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if path.is_file() && name.starts_with("test-") && name.ends_with(".mjs") {
+            tests.push(path.into_os_string());
+        }
+    }
+    tests.sort();
+    let mut args = vec![std::ffi::OsString::from("--test")];
+    args.extend(tests);
+    run_at(&root, "node", args).context(
+        "開発用 JavaScript CPU 検査に失敗しました。Node と表示された検査結果を確認してください",
     )
 }
 

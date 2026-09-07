@@ -41,20 +41,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let id = arguments
             .get(1)
             .ok_or("--resumeにはcharacterIdが必要です")?;
-        let stage = arguments.get(2).map(String::as_str).unwrap_or("mesh");
+        let stage = arguments.get(2).map(String::as_str).unwrap_or("isolate");
         (context.load_character(id)?, stage)
     } else {
         let source = arguments.first().ok_or("入力画像が必要です")?;
         let id = arguments.get(1).map(String::as_str).unwrap_or("female");
         let identity = arguments.get(2).cloned().unwrap_or_default();
+        let display_name = arguments
+            .get(3)
+            .cloned()
+            .unwrap_or_else(|| format!("女性キャラクター{id}"));
         (
             context.create_character(NewCharacter {
-                display_name: format!("女性キャラクター{id}"),
+                display_name,
                 source_path: source.clone(),
                 persona_prompt: "明るく親しみやすい女性VTuber".into(),
                 identity_tags: identity,
             })?,
-            "mesh",
+            "isolate",
         )
     };
     // 実アプリと同じ優先順位で環境変数を反映する。検証用設定は temp 内に閉じる。

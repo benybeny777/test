@@ -1,8 +1,182 @@
 # DEVELOPMENT.md — 開発・ビルド・配布
 
+`cargo xtask verify`はRust・Pythonに加え、作業用Nodeで共通描画とsnapshotのCPU検査も実行する。製品のビルド・起動・セットアップにはNodeを要求しない。
+
+## 通常の局所補完
+
+### 共通レンダラーの資源解放観測
+
+既存のcheck.htmlを起動した状態で、`node tools/check-character-switch-memory.mjs <ID1,ID2,ID3> <新しいtemp出力先>`を実行する。異なる3体を2巡し、6回の表示完了、旧Blob URLの解放、DOM構成の推移、V8のJSヒープ値を保存する。`LVS_PLAYWRIGHT_MODULE`には既存作業用Playwrightのindex.mjsを指定でき、製品依存にはしない。自己所有のheadless Chromeだけを起動し、終了・失敗・タイムアウトでも閉じる。
+
+旧比較形式のsnapshot 404は、同じURLで実際の404を観測し、そのキャラの旧形式表示も成功した場合だけ想定互換として別集計する。同URLの404本文cancelによるERR_ABORTED以外の取得失敗、素材404、snapshot500、表示未完、旧Blob残留は失敗を維持する。生のHTTP/失敗記録も削除しない。分類器は`node --test tools/test-switch-observation-errors.mjs`で正常/負例を検査する。
+
+この観測は最新の3キャラ生成完了や画質合格の証明ではない。ヒープはGCの影響を受け、DOM画像数はWebGL/非DOM画像を含まず、revokeは物理メモリ回収の完了を意味しない。OS RAM・プロセス全体・VRAMは対象外であり、2巡だけでリークがないと断定しない。
+
+### 生成・公開・復旧
+
+耳候補の選別失敗はキャラ配下の`temp/ear-analysis-failure-<ID>/failure.json`へ診断を残し、同じエラーへ保存先を付けて通知する。顔候補・左右・幅条件の除外理由と解析出自を保存し、成功manifestやmaskを書き換えない。候補は設定閾値を通過したものに限り、閾値未満の検出可能性まで判定したとは扱わない。診断保存失敗も元の耳エラーを原因として保持する。
+
+通常完成リグは`rig-generations/g_<ID>/`へ同期し、`rig-current.json`だけを原子的に置換する。読者はWindows OSロック付きleaseで1世代を保持する。current・previous（直前1世代）・生存読者の世代を残し、不要世代と終了leaseを回収する。Windows起動時もRustだけで参照と回収を処理し、Pythonを無条件起動しない。旧参照がないlegacy形式に限り、Python互換の集合/キャラbyte0排他を取得して欠落したrig2dを退避版から復旧する。別プロセス稼働中は警告し、pendingの昇格や工程状態の変更をしない。全工程の起動時復旧ではない。旧比較`rig2d/`は移動・削除しない。
+
+ブラウザ確認は固定世代のNDJSON snapshotを逐次受信し、素材SHA・PNG/RGBA・原寸・URL・終了レコードを検証してBlob URLを共通レンダラーへ渡す。配信中断ではleaseと未採用Blobを解放し、旧表示・選択名を保持する。既定上限はレコード0.096 MB、チャンク0.048 MB、1素材32 MB、合計256 MB、256素材、辺長8192px。`display.snapshot_*`の保存値を読み、上限超過を縮小で通さない。サーバーの全体応答bufferを避けるが、ブラウザのBlob・デコード・WebGLメモリは別に必要で、全体の省メモリ実測は未完了。WebGL構築失敗・コンテキスト消失からの復旧までは保証しない。
+
+最終補完版4は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。隠れ顔はマスク版3の肌支持帯と限定境界、横髪/耳は版2のscene髪所有・閉領域・限定境界・測定原画耳と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。両側の原画耳が測れない場合は可視輪郭の描き直しを抑止し、partialと画面の警告を残す。生成耳が両側測れなければ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
+
+作業用の`tools/capture-character-gallery.mjs <characterId> <temp内の出力先>`は起動済み8791の共通確認画面をChromeで撮影する。Node/Playwrightは開発作業用だけで製品依存ではない。既存Playwrightを使う場合は`LVS_PLAYWRIGHT_MODULE`へその`index.mjs`を指定する。中立・左右閉眼・母音・小角度・連続動作と撮影ハッシュを保存し、撮影用Chromeを終了する。ハッシュ差を品質合格と扱わず実画像を目視する。
+
+末尾に`--video`を付けると静止画も従来どおり残し、口パク・自動まばたき中の共通レンダラーのcanvasを8秒の無音`motion.webm`へ録画する。要求値は20 fpsだが、実際のフレームレートは描画負荷に依存するため`requestedFps`と区別する。headless Chromeを使用し、別canvasや生成画像で動きを作らない。録画機能非対応・空データ・描画エラーは明示失敗とし、ページとブラウザを終了する。録画形式・寸法・時間・SHAを`capture-report.json`へ保存する。WebMの透過再生は閲覧ソフト依存なので、透明境界の合格は別の市松静止画で検証する。
+
+```powershell
+node tools/capture-character-gallery.mjs c_df28cf7d4d11 temp/character-video-test --video
+ffmpeg -n -i temp/character-video-test/motion.webm -vf "fps=12,scale='min(480,iw)':-1:flags=lanczos" -loop 0 temp/character-video-test/motion.gif
+```
+
+GIFはスマホ向けの動作確認用に縮小するだけで、原画・最終素材に戻さない。色数や透過表現は元のWebMと異なり、静止画の原寸品質検査を代替しない。
+
+現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の閉眼・隠れ顔・耳を適用した最終リグを`rig-generations/`へ分離し、`rig-current.json`で公開する。口は現状承認済みで、この工程から描き直さない。PicoAgent本体への組み込み、OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。
+
+```powershell
+cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>
+cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> rig2d
+cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> complete
+```
+
+`sidecar/completion/generate.py`はRustから呼ぶ製品サイドカーであり、`tools/qwen-eval/`の比較入口とは分離する。`sidecar/completion/models.json`の固定重みを検査し、管理下ComfyUIだけを127.0.0.1で起動する。カスタムノード・APIノードを無効にし、既存利用者ComfyUIの追加モデル設定を読まない。Pythonは共有3.12環境を使い、GPU処理を並行起動しない。
+
+モデル配置は`ai.models_dir`基準の`ai.completion_model_dir`（既定`models/qwen-eval/`）。開発取得入口は`cargo xtask setup completion`で、`tools/setup-completion-models.py`が採用済みImage-Edit・共通テキストエンコーダ・VAEの3ファイルだけを固定SHA検査後に配置する。既存の同一重みは再取得しない。比較用の`tools/qwen-eval/download.py`はLayeredを含む5ファイルの別入口であり、通常セットアップには使わない。モック取得検査とcargo checkは通過したが、新規環境への実ダウンロード・配布セットアップの検証は別途必要である。
+
+設定画面の「Qwen局所補完の設定」から保存し、次回の補完で読む。全キー・範囲・既定値は[SETTINGS.md](SETTINGS.md)を正本とする。原寸頭部ROIの目マスクだけを編集し、拡大素材を採用しない。このPCの比較実測では閉眼1体約15〜18分、RSS最大約16.3 GB・GPU全体最大約7.6 GB。通常入口の実走・全キャラ品質の証明とは分ける。
+
+`completion-source/{edited.png,manifest.json}`と隠れ顔/耳の2rawは、生成署名と抽出署名を分離する。閉眼生成版3・隠れ顔マスク版3・横髪/耳マスク版2を使う。実入力PNG/マスク・原寸ROI・原画2SHA・モデル・ComfyUIコード/依存版・確定workflow・全条件が厳密一致すれば、解析2SHAだけの変更では再推論しない。元raw manifest全バイトと実生成時source4SHAを保持し、今回のsource4SHAと別に完成証跡へ記録する。RawLeaseが画像とmanifestの取得時SHAを固定し、後工程後・読込時・公開直前に再照合する。原画/解析/基底/コードの実行中変更は拒否する。既知eye1/2・隠れ顔mask1/2・横髪耳mask1は完全性検査後に新版不一致として再生成、未知版/破損は明示失敗。実入力準備や推論の意味を変えた場合だけ生成版を上げる。
+
+公開世代の`completion.json`には最終版4の現在source4SHA・基底・元rawの出自/画像SHA・抽出コード・完成素材SHAを記録する。公開前SHA検査を外さない。成功後は処理専用一時ディレクトリを除去し、失敗時は診断と成功済みrawを保持する。partialは`rig.local_completion.hidden.warning`へ保存し、最終cache再利用時も画面へ警告する。初回移行で旧mutable rig2dを新方式の完成cacheとして採用せず、検証済みrawから抽出して世代公開する。
+
+閉眼抽出では主曲線を変えず、測定列厚さ内にある薄い/分離した睫毛片を下地から除く。原寸・許可域外・アルファ・白目を保持し、空線/非有限/参照肌不足は明示エラーにする。むぎの原寸抽出候補はChrome半閉眼/全閉眼を確認したが、通常再生成後と別原画の目視は別の受入条件である。
+
+WindowsのPythonサイドカーは停止状態で起動し、所有するJob Objectへ所属させてから再開する。Jobのkill-on-closeにより正常終了・中断・Drop・不正JSON時にComfyUIを含む子孫も回収する。起動からJob所属までの極短区間にアプリをOS強制終了すると、停止中Pythonだけが残る可能性はある（GPU初期化前）。既存利用者プロセスを名前で一括終了しない。
+
+本体の通常プレビューも公開参照と読者leaseから固定世代を取得し、SHA・素材寸法・容量を検査する。生成中/失敗後でも公開済み世代を読めるが、未公開の失敗出力を許可しない。旧比較形式は従来の状態照合を残す。正規生成はPipelineContext経由とし、手作業で世代ディレクトリやrig-currentを改変しない。
+
+袖・手の可視分割は解析署名版3。`--resume <characterId> decompose`で同じDINO/SAMの追加問い合わせと選別を実行し、analysis/manifestのoptional_limbs状態を確認する。左右同側の腕から可視所有だけを移管し、曖昧候補は記録して採用しない。scene素材は親腕の変位を継承し、独立関節/隠れ素材の完成とは扱わない。解析2SHAが変わっても3rawの実入力が同一なら再利用できる。
+
+本体の素材読込はリグの`layers`を正本にし、追加した隠れ顔・耳素材も取り込む。必須素材の欠落、安全でない識別子、正規形式以外のURL、リンク/reparse経路は拒否する。URLを外部取得先として使わず、キャラ配下のPNGだけを読む。実symlink検査は作成特権が必要なため、このWindows環境では未検証（特権不足による明示ignore）。
+
+以下の補完候補の節は比較履歴の再現手順であり、生成済み候補を通常完成出力へ手動コピーする入口ではない。通常入口の検証では同条件で複数原画を通し、原画保持、半閉眼、口パク、首・襟、透過を実表示で確認する。
+
 Rust と Tauri CLI だけで開発起動・テスト・Windows配布ビルドを行う。Node.js は不要。
 
+描画の開発用回帰検査は `node --test tools/test-mouth-geometry.mjs tools/test-eye-geometry.mjs tools/test-rig-motion.mjs tools/test-texture-alpha.mjs tools/test-avatar-lifecycle.mjs tools/test-native-scene-batch.mjs`。Node.jsは作業用のみ。同じ変位場の連続部位を`native-scene-batch.js`で原寸合成し、hidden_face/独立髪は境界として順序を保つ。顔のCPU再合成範囲と、GPUへ転送する合成テクスチャ全体を混同しない。口内の上歯はクリップ内・原画の唇より奥に描き、閉口と丸めた母音の回帰を検査する。
+
+## 補完候補を従来の動作確認へ追加する
+
+確認サーバーの`/api/normal-characters`は通常4工程を完了し`completion.json`があるキャラのID・表示名だけを列挙する。確認画面は再読込時に選択肢へ追加し、内部設定やプロンプトは一覧へ出さない。素材ロード後に完了世代を再照合してから表示する。これはPipelineContextが先に状態を更新する前提の世代検査で、独立したsidecar直接実行との原子的な読取保証ではない。
+
+閉眼比較版7は、暗線の8近傍成分から列の局所厚さ・連続横幅・成分保持率を検査し、傾きや目尻の長い枝を全体高さだけで拒否しない。`curve_detection`へ採用列数・厚さ・測定範囲を残す。eye_baseは生成済みの肌を使い、検出線と縁だけを周囲の肌から調和補間して線を分離する。参照肌不足・暗線除去失敗は拒否し、`skin_reconstruction`へ範囲と明度差を記録する。白目用eye_backplateは肌へ変えない。`sidecar/.venv/Scripts/python.exe tools/qwen-eval/test_closed_preview.py`で採用・拒否・保護領域・素材分離を検査する。既存候補を上書きせず署名版を変更する。
+
+比較仕様版19のむぎ候補IDは`c_2379190bb3b3`。利用者承認により可動モデルの耳輪郭を描き直す。原画ファイルは保持するが、中立合成も許可した耳周辺26,120画素が変わる。目口と許可領域外の変更はエラーにする。耳の形で進めることは利用者承認済み。髪との接合部の品質は未合格。
+
+輪郭修正の前に、既存のDINO baseとSAM2.1 Hiera Tinyで生成画像・原画の耳を別々に抽出する。モデルはローカル固定配置から順次読み込み、ダウンロードしない。
+
+```powershell
+sidecar/.venv/Scripts/python.exe tools/qwen-eval/segment_ears.py temp/qwen-eval-edit-mugi-side-ear-bf16 --character temp/t7-characters/c_190454c86edb
+sidecar/.venv/Scripts/python.exe tools/qwen-eval/segment_ears.py temp/qwen-eval-edit-mugi-side-ear-bf16 --character temp/t7-characters/c_190454c86edb --source-reference
+sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_preview.py --character temp/t7-characters/c_190454c86edb --comparison temp/qwen-eval-edit-mugi-head-bf16 --side-comparison temp/qwen-eval-edit-mugi-side-ear-bf16 --redraw-ear-contour
+```
+
+完了した`ears/`と`source-ears/`には原寸マスクと入力SHAを保存し、既存出力は上書きしない。`--threshold`既定0.2、`--context`既定0.5は検出閾値と耳検出枠に対する解析余白である。生成耳は左右とも必要。原画側は隠れて検出できない側を欠測として記録するが、両側欠測はエラーにする。今回の実測は生成側17.39秒、原画側5.875秒。新しい耳を顔素材に合成し、古い耳は未分類を含む全素材から除く。顔の基準座標は保持し、素材の切り出し範囲だけを拡張する。耳全体を明度差で選ぶ案は背景まで矩形で混入したため却下した。
+
+`--side-comparison temp/qwen-eval-edit-mugi-side-ear-bf16`を指定すると、同じ原画/解析/原寸範囲で完了した横髪除去結果を使用する。実測した目の高さで前髪用下地から耳・頬用下地へ滑らかに切り替える。`--edge-band-ratio`（既定0.015、0超〜0.05）は髪境界の調整幅/顔幅、`--edge-gain`（既定40、0超〜255）は横髪除去での平均RGB明度増加の下限。髪に接続する境界だけを再分類し、目口と口より下の輪郭を保護する。むぎでは637画素を顔側から髪へ戻した。全素材は原寸のままであり、画像名による分岐はない。この境界調整の汎用性は未承認。
+
+`--redraw-ear-contour`なしの比較経路もPoCとして残す。この経路の`hidden_motion.repair_layer`が指す`scene_ear_repair`は、目の中央高さから口の上までの髪に隣接する可視境界帯に限定する。目口を除外し、原画からの距離でアルファを減衰する。共通レンダラーは中立で補修を表示せず、顔左右/上下の絶対角度をangle_limitで割った強さで合成する。比較チェックで下地と動作時補修を隠す。一方、輪郭修正版は耳を顔素材へ直接合成するためチェックでは耳が戻らない。元キャラへの切り替えで比較する。
+
+比較専用入口は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_preview.py --character temp/t7-characters/<元ID> --comparison temp/qwen-eval-edit-<比較名>`。完了済み原寸頭部Image-Editと原リグが必要。新しい推論はせず、生成済み画像を局所下地へ加工する。原画/解析の4つのSHA、原リグと全PNG、補完画像を公開前に再照合し、変更があれば候補を公開しない。同一候補の上書きは拒否する。
+
+`--band-ratio`は顔の実測幅に対する補完帯（既定0.08、0超〜0.15）、`--motion-ratio`は帯幅に対する局所変位量（既定0.35、0超〜0.4）。これらは比較ツールの引数で、製品の永続設定へ採用していない。仕様・ハッシュ・引数から候補IDを作り、`temp/t7-characters/`へ原本のコピーとリグを原子的に公開する。出力IDを確認ページの比較一覧へ登録する。素材はGitに含めない。
+
+原画の不透明な髪に隠れた顔の近傍だけを生成下地とし、可視肌との差を正規化畳み込みで滑らかに補正する。全素材で髪の所有画素の重複を候補内だけ整理する。非描き直し経路は中立RGBA一致を、輪郭修正版は許可領域外・目口の一致を検査する。生成下地は`scene_hidden_face`、検証条件は`experimental_hidden`、共通格子65×97の局所重みと変位限度は`hidden_motion`へ保存する。変更時は比較仕様の版を上げる。
+
+共通レンダラーで候補の髪だけ独立頂点を持たせる。他の部位は従来の連続変位場を維持し、未補完の首肩・外周まで独立回転させない。`/ui/check.html`で元キャラと切り替え、顔左右/上下、補完表示のオン/オフ、口、左右別まばたきを確認する。中立の数値一致は動作時の髪際や画質の合格ではない。髪際の線・閉眼/口の造形は未合格。
+
+比較仕様版19は顔と未分類の両方から髪境界637画素を回収する。髪に完全に囲まれた領域7,934画素（髪飾り・ハイライト等）も、目口を含む閉領域と透明画素を除外して髪へ移す。色は原画のままで、髪だけ動いて飾りの境界が取り残される現象を抑える。狭い色差条件と閉領域条件の汎用性は別原画では未検証。
+
+耳輪郭修正版では、まばたき用の左右eye_base/eye_backplateにも髪・耳修正領域の所有マスクを適用する。シーン素材だけ直すと、閉眼途中に古い耳や矩形状の髪が再表示されるため、静止確認だけでは検証完了にしない。
+
+版19では肌色参照マスクを収縮して暗い輪郭を除き、色補正後の整数化を丸めにして定常色の切り捨て誤差を避ける。
+
+### 原寸閉眼素材を動作候補へ追加する
+
+固定1024px範囲では小さな原画の全身まで入り、Image-Editが頭部へ構図を変更した例がある。`run.py edit --head-framing measured`で顔・首の実測範囲に基づく等倍の頭部切り出しを比較できる。最小256px、16の倍数、`--resolution`を上限とし、上限や原画の寸法に収まらなければ明示エラーにする。画像を縮小・引き伸ばしせず、範囲と方式を署名情報へ保存する。これは比較オプションで、既存候補を再生成・上書きしない。生成画像が構図を維持したかを目視し、元の座標で閉眼線が測れなければ公開しない。
+
+耳修正は閉眼補完の前提ではない。通常キャラの場合は`--base`と`--character`へ同じキャラを渡す。派生した補完候補の場合は`experimental_hidden.source`の署名一致も必須とする。原画一致だけで別の解析結果のリグを受け入れない。
+
+新規の閉眼比較は版5で入力範囲の方式と編集マスクも署名対象にする。左右のeye_base/eye_backplateは髪の所有画素を除外し、局所編集マスクでアルファを制限する。髪マスクの漏れがあっても目の編集範囲外へ肌を重ねない。色・原寸は保持する。既存の承認済みむぎ（版2）は再生成せず維持する。
+
+`run.py edit --head-framing measured --edit-region eyes`では`qwen-edit-eyes-overlay.json`を基本ワークフローへ重ね、原画VAEEncode→局所ノイズマスク→生成→元画像へのマスク合成を行う。`--mask-margin-ratio`は目幅に対する余白で既定0.2、0超〜0.5。髪・透明画素を除外し、原寸マスクのSHAを記録して終了時も再検査する。新規カスタムノードは不要。出力は完了後も目視検証が必要で、フレーミングや閉眼線が不適合なら取り込まない。肌のアルファ254を透明として全除外しないが、元のアルファを255へ書き換えることもしない。
+
+完了した同一原画の原寸編集と耳修正候補を入力する。比較仕様版2の出力`c_df28cf7d4d11`は耳・閉眼の見た目について利用者承認済み。既存出力は上書きしない。
+
+```powershell
+sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_eye_preview.py --character temp/t7-characters/c_190454c86edb --base temp/t7-characters/c_2379190bb3b3 --comparison temp/qwen-eval-edit-mugi-closed-eyes-bf16 --allow-unmasked-comparison
+```
+
+生成画像から閉眼曲線と暗いまぶたの透過素材だけを抽出する。肌ごと重ねる版1は半閉眼で二重線を生じたため不採用。承認済み版2では左右上まぶたPNGとリグ定義だけを変更し、原画・肌下地・他PNGは親と同一に保つ。新規版5では前述の目の肌下地のアルファ制限も行い、他素材は保持する。入力4SHA・親素材・生成画像を公開前にも照合し、原子的に別候補へ保存する。閉眼曲線が測れない場合はエラーにする。左右別に開き0/0.5/1と連続まばたきを確認する。拡大生成や口の変化を持ち込まない。
+
 ## 必要なもの
+
+### 原寸閉眼のローカル編集診断
+
+`build_eye_preview.py`は通常、目の局所編集とマスクSHA・マスク外画素保持を必須とする。非限定の旧比較は構図を目視確認してから`--allow-unmasked-comparison`を明示する。女性Aで失敗した非限定出力へこの許可を付けてはならない。
+
+`tools/evaluate-eye-inpaint.py`は採用済みAnimagine XL 4.0の固定SHAを検査して使う比較専用ツールであり、製品パイプラインへ候補を昇格しない。作業用Pythonから`--character <キャラフォルダ> --comfy <本アプリ管理ComfyUI> --output temp/<新規診断名>`を指定する。任意の`--denoise`、`--mask-grow`で条件比較する。既存利用者環境や`extra_model_paths.yaml`のある環境を使わない。
+
+元キャンバスへVAE倍数の余白だけを足し、リサイズせず目マスク内を編集する。出力は診断領域のcandidate.png/report.json/workflow.jsonとログのみで、原画・正規素材を変更しない。起動するComfyUIは127.0.0.1の専用ポート、API/カスタムノード無効、処理後に終了・waitする。同時にほかのGPU処理を走らせない。成功ログを品質合格と解釈せず、虹彩色の閉眼への混入などを原画と目視比較する。
+
+### 意味解析候補の比較
+
+承認済みQwenの比較準備は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/download.py`を使う。`models.json`の5ファイルだけを固定版で取得し、SHA-256を照合してから`models/qwen-eval/`へ公開する。途中ファイルは`temp/qwen-download/`に置き、Rangeの範囲・長さを検査して再開する。各取得ファイルの応答を4個までに制限し、全重みをメモリへ蓄積しない。
+
+比較実行は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/run.py layered --character temp/t7-characters/<ID> --output temp/<新規比較名> --comfy <本アプリ管理ComfyUI>`。もう一方は`layered`を`edit`へ変更する。既定は同じ原寸1024pxの頭/首ROI、50step、seed777。`--view full`は比較専用の長辺1024px以下への縮小で、拡大は行わない。`--prompt`で比較条件を明示的に変えられる。既定のEditは髪除去と隠れた顔/首/服の補完、Layeredは内容記述から4レイヤーへ分解する。**用途が異なるため、出力枚数を品質の順位と扱わない。**
+
+専用localhostポートでComfyUIを起動し、APIノード/カスタムノード/Hub通信を無効化する。生成は逐次、DynamicVRAMで非量子化重みを必要時に読み込む。`--fast-disk`はNVMeからの動的読込を優先する比較指定であり、精度や解像度は変えない。ワークフローの正本は`workflows/qwen-layered-api.json`と`qwen-edit-api.json`。入力範囲、原画・透過原画・解析JSON・マスクのSHA、実行ワークフロー、全出力（Layeredの0枚目の全体再生成も含む）、ログ、プロセスRAMとGPU全体使用量の時系列を保存し、終了/失敗時に起動したプロセスツリーを回収する。GPU全体使用量には他アプリを含み、プロセス専用VRAMと混同しない。品質判定後も診断素材を正規リグへ無断で昇格しない。
+
+完了出力は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/analyze.py temp/<比較名> --character temp/t7-characters/<ID>`で解析する。生成時の原画/透過原画/解析/マスクのSHAが一致しない場合は拒否する。Layeredの全体再生成と残りレイヤーの合成誤差、入力との差、目口等の可視画素差、メモリピークを`metrics.json`に保存する。画素差は形状や造形の良否を証明しないため、見た目の判定は別に行う。
+
+ブラウザで見せる比較の出力名は`temp/qwen-eval-<英小文字・数字・ハイフン>`にする。確認サーバーの`/ui/qwen-check.html`は、その範囲のreport.jsonに記載されたPNGとreference/recomposedだけを配信する。Layeredの0枚目を「全体再生成」と表示し、原画や独立素材へ誤分類しない。任意のtempファイル、重み、ログ、レポートそのものは公開しない。新しい結果は「結果を更新」で読み直す。
+
+`tools/semantic-eval/inspect-components.py`は正規解析で保存した衣服の検出矩形を同じSAMへ渡し、最大連結領域と全領域を比較する。原寸マスクと上位の成分画像・面積を`temp/clothing-components/`へ保存する。左右に離れた衣服をノイズとして捨てていないかを確認する診断であり、その画像を製品へコピーしない。
+
+正規出力の透明度保持は `sidecar/.venv/Scripts/python.exe tools/verify-scene-alpha.py temp/t7-characters/<ID> ...` で検査する。全キャンバスの `scene_*` 部位をsource-over合成し、背景除去原画との差があれば失敗する。これは原寸アルファ検査であり、RGB同一性・画面のフィルタリング・動作時の品質は別途確認する。
+
+`segment.py --roles eyes --box-context 0.5`は、検出矩形の各辺へ幅/高さの50%を足した原寸ROIを同じSAMへ入力する局所解析の比較である。出力を`box-context-0.5/`へ分離し、sampling_regionを記録する。候補矩形や元画像を変更せず、モデル内部の解析解像度と最終素材の原寸を混同しない。全頭部解析と原寸マスクを比較し、背景/髪の混入も調べてから通常経路への採否を判断する。
+
+細部比較では`tools/semantic-eval/evaluate.py dino --model-path models/grounding-dino-base --run-name <診断名> --labels eyebrow "eye pupil" --view head --measured-head`を使える。`--measured-head`は正規解析の顔座標を参照し、頭部比率の固定切り出しを使わない。候補の語句・座標・スコア・クロップ・所要時間を診断JSONに残す。`segment.py --run-name <同じ診断名> --roles eyebrow "eye pupil"`で既存SAM2へ渡す比較ができる。左右の細部を確定できない場合は明示失敗にし、未検出の原画を成功扱いしない。これらは比較専用で、検出候補を製品リグへ自動採用しない。
+
+通常経路のブラウザ検証はリポジトリルートで `sidecar/.venv/Scripts/python.exe tools/preview_server.py` を起動し、`http://127.0.0.1:8791/ui/check.html` を開く。原画と本体共通レンダラーを比較する。`--lan`は信頼できるLANでのスマホ確認に限る。サーバーは画面・共通描画JS・検証用キャラの画像/JSONだけを許可し、モデル・プロジェクト文書・ディレクトリ一覧を返さない。応答はno-storeとし、旧モジュールのキャッシュがある場合は版付きURLで開き直す。GPU生成後にまとめて確認し、使い終わった自分のサーバーだけを停止する。
+
+SAM2の画像マスク推論は共有環境のSam2VideoModelを重み整合性検査付きで使う。Transformers 4.57.6の単フレームbox+points併用にはnum_objects未初期化の問題があるため、髪の矩形を公式VideoProcessorと同じ角ラベル2/3へ変換し、目口の除外点0と同じ入力へまとめる。重みや共有ライブラリを改変せず、複数マスク推論を維持する。
+
+利用者が比較を承認したFlorence-2-large-ftとGrounding DINO baseを `tools/semantic-eval/` で再現する。比較後にGrounding DINOの組み込みが承認され、通常経路は `cargo xtask setup grounding`（`setup models`にも含む）で `models/grounding-dino-base` へ固定版・SHA256検証付きで取得する。比較用の保存先とは分離し、診断画像を製品成果物へ転用しない。共有Python 3.12/Transformers 4.57.6を使い、Florence比較に必要なtimm 1.0.29（Apache-2.0）だけを追加する。既存torch等を更新しない。
+
+```powershell
+uv pip install --python sidecar/.venv/Scripts/python.exe --no-deps -r tools/semantic-eval/requirements.txt
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/download_models.py
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/evaluate.py florence
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/evaluate.py dino
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/segment.py --backend Florence-2-large-ft
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/segment.py --backend grounding-dino-base
+sidecar/.venv/Scripts/python.exe tools/semantic-eval/summarize.py
+```
+
+GPU工程は逐次実行する。原画は `temp/t7-characters/<id>/source/isolated.png`。evaluate/segmentの `--characters <id> ...` で別原画にも同じ処理を適用する。既定3件は比較fixtureであり、キャラ別ロジックではない。`evaluate.py --run-name repeat` を付けて反復し、推論結果の一致を集計する。モデルは `models/semantic-evaluation/`、取得manifestと画像・数値結果は `temp/` 内へ保存する。描画確認用の縮小画像を高精細素材へ採用しない。
+
+| 比較モデル | 固定リビジョン | 重みSHA-256 |
+|---|---|---|
+| Florence-2-large-ft | `4a12a2b54b7016a48a22037fbd62da90cd566f2a` | `8b4e610c952eef90a836c56cda0f398a672a3a6ca7b4d96b0e09a86dee42e2c3` |
+| Grounding DINO base | `12bdfa3120f3e7ec7b434d90674b3396eccf88eb` | `5548f844c928c4b6f411fa8cbcc2bfa8dbbba437cb1d513975519f93c2a9ed21` |
+
+Florenceの公式実装は旧KVキャッシュ形式のため、比較では `use_cache=False` を明示する。重みを変えず速度の代償を受け入れる。SAM2の比較は設定に一致する `Sam2VideoModel` の単一フレーム経路を使い、重みキーの不一致を拒否する。内部APIへの依存は固定Transformers版限定であり、製品採用時には正規アダプターとテストが必要。結果は部位候補で、独立した上下唇・瞳・白目・隠れ領域の完成や動作合格を意味しない。
+
+### 通常の開発環境
 
 | 項目 | 版・備考 |
 |---|---|
@@ -58,8 +232,8 @@ PowerShell を使う場合は **PowerShell 7 の `pwsh`** を既定にする。�
 ```
 src-tauri/   Rust本体（設定・パイプライン・フェイスパッチ・リップシンク・配信・サイドカー制御）
 ui/          操作UI（webview）。ui/shared/ に three.js 描画コードを置く
-ui-stream/   OBSブラウザソース用ページ（UIなし・透過）。ui/shared/ を共有する
-sidecar/     Python 3.12（背景・表情、画像→3D、リギング）
+ui-stream/   旧OBS試作の説明（現行対象外。現行確認画面はui/check.html）
+sidecar/     Python 3.12（分解・2.5Dリグ・局所補完。旧3D試作も保持）
 docs/        ドキュメント
 xtask/       開発タスク
 temp/        一時作成物のみ。.gitignore 済み
@@ -73,6 +247,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask setup comfy` | 同梱 ComfyUI 本体・ワークフローと、監査済みの場合だけカスタムノード固定版を用意 |
 | `cargo xtask setup sidecar` | Python 3.12 ランタイムと依存を用意（**CUDA wheel は対応GPU検出時のみ**） |
 | `cargo xtask setup models` | モデルを取得 |
+| `cargo xtask setup completion` | 採用済みQwen局所補完の3モデルだけを取得し固定SHAを検証。Layeredは取得しない |
 | `cargo xtask setup sam2` | SAM 2.1 Hiera Tinyだけを固定リビジョンから取得し、全4ファイルのSHA-256を検証 |
 | `cargo xtask dev` | 開発起動 |
 | `cargo xtask build` | 配布ビルド |
@@ -82,7 +257,7 @@ temp/        一時作成物のみ。.gitignore 済み
 | `cargo xtask mesh --input <png> --output <dir>` | anime-segで背景除去し、TripoSRで2048² UVアトラス付きGLBを単発生成 |
 | `cargo xtask rig --input <glb> --output <dir> --name <表示名>` | A/Tポーズを検査し、19ボーンとheat diffusionウェイトを持つVRMを単発生成 |
 | `cargo run -p local-vtuber-studio --bin lipsync-probe` | 既定マイクを3秒だけ16kHzへ変換し、FFT判定窓を検査して停止 |
-| `cargo run -p local-vtuber-studio --bin stream-probe` | 透過OBSページを58090〜58099の空きポートで30秒配信し、女性3体の状態を切替 |
+| `cargo run -p local-vtuber-studio --bin stream-probe` | 旧OBS試作の記録。現行検証では使わず、ui/check.htmlを使用 |
 | `cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>` | 開発用にアプリと同じRustパイプラインをヘッドレス完走 |
 | `cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> <stage>` | 既存キャラの選択工程だけを再実行 |
 | `cargo run -p local-vtuber-studio --bin pipeline-probe -- --background <characterId> <backgroundId> "<prompt>"` | アプリと同じComfyUI管理経路でローカル背景を実生成 |
@@ -130,9 +305,13 @@ T3/T5 の実表示確認には vendored Three.js 0.185.1（MIT）を使う。`to
 3. `cargo xtask verify` — 目的別PRの最終ローカル検証をまとめるとき
 4. **GUI 起動・生成の実走・スクリーンショットは高コストなので最後の手段。** 目視確認が本当に必要なときだけ、複数の確認をまとめて1回で行う
 
+`cargo xtask verify`は通常局所補完・出力トランザクション・確認サーバーのCPUテストも含む。モデル推論やブラウザの目視検査は実行しないため、通過だけで生成品質の合格とはしない。
+
 生成の実走（画像→3D、表情生成）は数分かかり GPU を占有する。パラメータを変えるたびに回さず、**変更が出揃ってから最小回数**だけ実行する。
 
 ## プロセスの後始末
+
+保存保護の検証は `sidecar/.venv/Scripts/python.exe -m unittest discover -s sidecar -p test_output_transaction.py`、口の2軸輪郭は作業用Nodeで `node --test tools/test-mouth-geometry.mjs` を使う。いずれもモデル推論不要で、生成例外・公開失敗・中断復旧・二重実行拒否、および全パラメータ範囲の輪郭を検査する。Nodeは製品の起動・ビルド依存にはしない。
 
 - 起動して確認したら、使い終わったプロセスは止める。ロックや再ビルドの無駄を避ける
 - **子プロセス（Python サイドカー、推論エンジン）は `kill` して `wait` でハンドルまで回収する。** ゾンビになりやすい

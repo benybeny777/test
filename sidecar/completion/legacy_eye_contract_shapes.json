@@ -1,0 +1,88 @@
+[
+  {
+    "evidence": "female-a-raw",
+    "history_commit": "491d371",
+    "version": 1,
+    "identity_keys": [
+      "comfy_code",
+      "inputs",
+      "models",
+      "overlay",
+      "parameters",
+      "resolved_workflow",
+      "runtime",
+      "source",
+      "source_region",
+      "version",
+      "workflow"
+    ],
+    "parameter_keys": [
+      "fast_disk",
+      "mask_margin_ratio",
+      "prompt",
+      "resolution",
+      "seed",
+      "steps"
+    ],
+    "input_keys": [
+      "eye-mask.png",
+      "input.png"
+    ],
+    "source_keys": [
+      "analysis/analysis.json",
+      "analysis/masks.npz",
+      "source/input.png",
+      "source/isolated.png"
+    ],
+    "runtime_keys": [
+      "Pillow",
+      "numpy",
+      "scipy",
+      "torch",
+      "transformers"
+    ]
+  },
+  {
+    "evidence": "mugi-published-generation",
+    "history_commit": "3788fdd",
+    "version": 2,
+    "identity_keys": [
+      "comfy_code",
+      "inputs",
+      "models",
+      "overlay",
+      "parameters",
+      "resolved_workflow",
+      "runtime",
+      "source",
+      "source_region",
+      "version",
+      "workflow"
+    ],
+    "parameter_keys": [
+      "fast_disk",
+      "mask_margin_ratio",
+      "prompt",
+      "resolution",
+      "seed",
+      "steps"
+    ],
+    "input_keys": [
+      "eye-mask.png",
+      "input.png"
+    ],
+    "source_keys": [
+      "analysis/analysis.json",
+      "analysis/masks.npz",
+      "source/input.png",
+      "source/isolated.png"
+    ],
+    "runtime_keys": [
+      "Pillow",
+      "numpy",
+      "scipy",
+      "torch",
+      "transformers"
+    ]
+  }
+]

@@ -25,7 +25,7 @@ use crate::{
     store,
 };
 
-pub const STAGES: &[&str] = &["isolate", "decompose", "rig2d"];
+pub const STAGES: &[&str] = &["isolate", "decompose", "rig2d", "complete"];
 const BUILT_IN_EXPRESSIONS: &[(&str, &str, &str)] = &[
     ("smile", "笑顔", "smile, happy"),
     ("blink", "閉眼", "both eyelids shut"),
@@ -217,7 +217,17 @@ impl PipelineContext {
         for entry in fs::read_dir(&self.characters_root)? {
             let path = entry?.path().join("character.json");
             if path.is_file() {
-                values.push(self.load_character_file(&path)?);
+                let mut value = self.load_character_file(&path)?;
+                if crate::generation_reference::present(
+                    path.parent()
+                        .ok_or_else(|| PipelineError::Invalid("キャラの親がありません".into()))?,
+                )? {
+                    // 一覧応答だけの印。工程の実行状態や保存済み manifest は変更しない。
+                    value
+                        .model
+                        .insert("published_rig_reference".into(), "rig-current.json".into());
+                }
+                values.push(value);
             }
         }
         values.sort_by(|a, b| b.updated_at_iso.cmp(&a.updated_at_iso));
@@ -440,8 +450,14 @@ impl PipelineContext {
             return Err(PipelineError::Invalid(format!("未知の工程です: {stage}")));
         }
         let mut manifest = self.load_character(id)?;
+        validate_stage_input(&manifest, stage)?;
         let directory = self.character_dir(id)?;
         invalidate_from_stage(&mut manifest, &directory, stage)?;
+        if stage == "rig2d" || stage == "complete" {
+            manifest
+                .model
+                .insert("rig2d_base".into(), "rig2d-base/rig.json".into());
+        }
         set_stage(&mut manifest, stage, "running", "実行中");
         self.save_character(&manifest)?;
         let result = match stage {
@@ -449,6 +465,7 @@ impl PipelineContext {
             "mesh" => self.run_mesh(app, config, &manifest),
             "decompose" => self.run_decompose(app, config, &manifest),
             "rig2d" => self.run_rig2d(app, &manifest),
+            "complete" => self.run_completion(app, config, &manifest),
             "rig" => self.run_rig(app, &manifest),
             "capture" => self.run_capture(config, &manifest),
             "expression" => self.run_expression(app, config, &manifest),
@@ -565,10 +582,27 @@ impl PipelineContext {
         let directory = self.character_dir(&manifest.character_id)?;
         let args = vec![
             OsString::from(self.repository_root.join("sidecar/decompose/generate.py")),
+            "--grounding-model".into(),
+            OsString::from(
+                self.repository_root
+                    .join(&config.ai.models_dir)
+                    .join(&config.ai.grounding_model),
+            ),
+            "--grounding-threshold".into(),
+            config.ai.grounding_threshold.to_string().into(),
+            "--eye-context-margin".into(),
+            config.ai.eye_context_margin.to_string().into(),
             "--input".into(),
             OsString::from(directory.join("source/isolated.png")),
             "--output".into(),
             OsString::from(directory.join("layers")),
+            "--keep-candidates".into(),
+            "--points-per-batch".into(),
+            config.ai.sam2_points_per_batch.to_string().into(),
+            "--pred-iou-threshold".into(),
+            config.ai.sam2_pred_iou_threshold.to_string().into(),
+            "--stability-threshold".into(),
+            config.ai.sam2_stability_threshold.to_string().into(),
             "--model".into(),
             OsString::from(
                 self.repository_root
@@ -581,7 +615,10 @@ impl PipelineContext {
                 let _ = app.emit("pipeline-progress", value);
             }
         })?;
-        Ok("SAM 2.1候補マスクから10個の意味レイヤーを生成しました".into())
+        Ok(
+            "Grounding DINOとSAM 2.1から部位・表情差分・原画レイヤーを生成しました（品質は未承認）"
+                .into(),
+        )
     }
 
     fn run_rig2d(
@@ -595,7 +632,7 @@ impl PipelineContext {
             "--manifest".into(),
             OsString::from(directory.join("layers/manifest.json")),
             "--output".into(),
-            OsString::from(directory.join("rig2d/rig.json")),
+            OsString::from(directory.join("rig2d-base/rig.json")),
         ];
         self.run_sidecar(args, |value| {
             if let Some(app) = app {
@@ -603,6 +640,141 @@ impl PipelineContext {
             }
         })?;
         Ok("lvs-anime25d-v1リグの骨格を生成しました".into())
+    }
+
+    fn run_completion(
+        &self,
+        app: Option<&tauri::AppHandle>,
+        config: &AppConfig,
+        manifest: &CharacterManifest,
+    ) -> Result<String, PipelineError> {
+        let directory = self.character_dir(&manifest.character_id)?;
+        if !directory.join("rig2d-base/rig.json").is_file() {
+            return Err(PipelineError::Invalid(
+                "補完前リグがありません。rig2d工程から再実行してください".into(),
+            ));
+        }
+        let workflows = self.repository_root.join(&config.comfy.workflow_dir);
+        let mut args = vec![
+            self.repository_root
+                .join("sidecar/completion/generate.py")
+                .into_os_string(),
+            "--character".into(),
+            directory.clone().into_os_string(),
+            "--base-rig".into(),
+            directory.join("rig2d-base/rig.json").into_os_string(),
+            "--output".into(),
+            directory.join("rig2d").into_os_string(),
+            "--comfy".into(),
+            self.repository_root.join("ComfyUI").into_os_string(),
+            "--models".into(),
+            self.repository_root
+                .join(&config.ai.models_dir)
+                .join(&config.ai.completion_model_dir)
+                .into_os_string(),
+            "--workflow".into(),
+            workflows.join("qwen-edit-api.json").into_os_string(),
+            "--overlay".into(),
+            workflows
+                .join("qwen-edit-eyes-overlay.json")
+                .into_os_string(),
+            "--steps".into(),
+            config.ai.completion_steps.to_string().into(),
+            "--seed".into(),
+            config.ai.completion_seed.to_string().into(),
+            "--resolution".into(),
+            config.ai.completion_resolution.to_string().into(),
+            "--mask-margin-ratio".into(),
+            config.ai.completion_mask_margin.to_string().into(),
+            "--mask-core-ratio".into(),
+            config.ai.completion_mask_core_ratio.to_string().into(),
+            "--port".into(),
+            config.comfy.port.to_string().into(),
+            "--startup-timeout".into(),
+            config.comfy.startup_timeout_seconds.to_string().into(),
+            "--generation-timeout".into(),
+            config.ai.completion_timeout_seconds.to_string().into(),
+        ];
+        if config.ai.completion_fast_disk {
+            args.push("--fast-disk".into());
+        }
+        args.extend([
+            "--hidden-prompt".into(),
+            config.ai.completion_hidden_prompt.clone().into(),
+        ]);
+        args.extend([
+            "--side-prompt".into(),
+            config.ai.completion_side_prompt.clone().into(),
+        ]);
+        args.extend([
+            "--hidden-band-ratio".into(),
+            config.ai.completion_hidden_band_ratio.to_string().into(),
+        ]);
+        args.extend([
+            "--hidden-motion-ratio".into(),
+            config.ai.completion_hidden_motion_ratio.to_string().into(),
+        ]);
+        args.extend([
+            "--hair-edge-band-ratio".into(),
+            config.ai.completion_hair_edge_band_ratio.to_string().into(),
+        ]);
+        args.extend([
+            "--hair-edge-gain".into(),
+            config.ai.completion_hair_edge_gain.to_string().into(),
+        ]);
+        args.extend([
+            "--ear-context".into(),
+            config.ai.completion_ear_context.to_string().into(),
+        ]);
+        args.extend([
+            "--grounding-model".into(),
+            self.repository_root
+                .join(&config.ai.models_dir)
+                .join(&config.ai.grounding_model)
+                .into_os_string(),
+            "--sam-model".into(),
+            self.repository_root
+                .join(&config.ai.models_dir)
+                .join(&config.ai.sam2_model)
+                .into_os_string(),
+            "--grounding-threshold".into(),
+            config.ai.grounding_threshold.to_string().into(),
+        ]);
+        self.run_sidecar(args, |value| {
+            if let Some(app) = app {
+                let _ = app.emit("pipeline-progress", value);
+            } else {
+                // 正規CLIでも長時間の補完が無言にならないよう進捗を中継する。
+                println!("{value}");
+            }
+        })?;
+        let reader = if crate::generation_reference::present(&directory)? {
+            Some(crate::generation_reference::Reader::acquire(
+                &directory,
+                u64::from(config.display.snapshot_part_bytes),
+            )?)
+        } else {
+            None
+        };
+        let rig_path = reader
+            .as_ref()
+            .map(|reader| reader.directory.join("rig.json"))
+            .unwrap_or_else(|| directory.join("rig2d/rig.json"));
+        let completed_result = std::fs::File::open(rig_path)
+            .map_err(PipelineError::from)
+            .and_then(|file| {
+                serde_json::from_reader::<_, serde_json::Value>(file).map_err(PipelineError::from)
+            });
+        if let Some(reader) = reader {
+            reader.finish()?;
+        }
+        let completed = completed_result?;
+        let mut message = "Qwenの原寸閉眼・隠れ顔・耳補完を反映しました（素材充足と見た目の最終確認は別途必要です）".to_string();
+        if let Some(warning) = completed["local_completion"]["hidden"]["warning"].as_str() {
+            message.push_str(" 警告: ");
+            message.push_str(warning);
+        }
+        Ok(message)
     }
 
     fn run_capture(
@@ -791,6 +963,27 @@ fn remove_dir_if_present(path: &Path) -> Result<(), PipelineError> {
     }
 }
 
+fn validate_stage_input(manifest: &CharacterManifest, stage: &str) -> Result<(), PipelineError> {
+    let prerequisite = match stage {
+        "decompose" => Some("isolate"),
+        "rig2d" => Some("decompose"),
+        "complete" => Some("rig2d"),
+        _ => None,
+    };
+    if let Some(required) = prerequisite {
+        if manifest
+            .stages
+            .get(required)
+            .is_none_or(|state| state.status != "complete")
+        {
+            return Err(PipelineError::Invalid(format!(
+                "前工程{required}が完了していません。保存された旧成果物では{stage}を実行できません"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn invalidate_from_stage(
     manifest: &mut CharacterManifest,
     directory: &Path,
@@ -807,18 +1000,8 @@ fn invalidate_from_stage(
     let model = directory.join("model");
     let facepatch = directory.join("facepatch");
     match stage {
-        "isolate" => {
-            remove_file_if_present(&directory.join("source/isolated.png"))?;
-            remove_dir_if_present(&directory.join("layers"))?;
-            remove_dir_if_present(&directory.join("rig2d"))?;
-        }
-        "decompose" => {
-            remove_dir_if_present(&directory.join("layers"))?;
-            remove_dir_if_present(&directory.join("rig2d"))?;
-        }
-        "rig2d" => {
-            remove_dir_if_present(&directory.join("rig2d"))?;
-        }
+        // 旧出力は生成側で成功後に置き換える。開始時には状態だけを失効させる。
+        "isolate" | "decompose" | "rig2d" | "complete" => {}
         "mesh" => {
             for name in [
                 "foreground.png",
@@ -996,7 +1179,7 @@ mod tests {
     }
 
     #[test]
-    fn upstream_rerun_invalidates_statuses_and_dependent_artifacts() {
+    fn upstream_rerun_invalidates_statuses_but_preserves_previous_artifacts() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().join("c_test");
         fs::create_dir_all(directory.join("source")).unwrap();
@@ -1031,13 +1214,24 @@ mod tests {
                 .collect(),
         };
 
+        validate_stage_input(&manifest, "rig2d").unwrap();
+        validate_stage_input(&manifest, "complete").unwrap();
         invalidate_from_stage(&mut manifest, &directory, "decompose").unwrap();
+        assert!(validate_stage_input(&manifest, "rig2d").is_err());
+        assert!(validate_stage_input(&manifest, "complete").is_err());
 
         assert!(manifest.stages.contains_key("isolate"));
         assert!(!manifest.stages.contains_key("decompose"));
         assert!(!manifest.stages.contains_key("rig2d"));
+        assert!(!manifest.stages.contains_key("complete"));
         assert!(directory.join("source/isolated.png").is_file());
-        assert!(!directory.join("layers").exists());
-        assert!(!directory.join("rig2d").exists());
+        assert_eq!(
+            fs::read(directory.join("layers/manifest.json")).unwrap(),
+            b"old layers"
+        );
+        assert_eq!(
+            fs::read(directory.join("rig2d/rig.json")).unwrap(),
+            b"old rig"
+        );
     }
 }

@@ -1,13 +1,15 @@
 pub mod config;
 pub mod engines;
 pub mod facepatch;
+pub mod generation_reference;
 pub mod lipsync;
 pub mod pipeline;
+pub mod recovery;
 pub mod sidecar;
 pub mod store;
-pub mod stream;
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::RwLock,
@@ -20,7 +22,6 @@ use crate::{
     config::AppConfig,
     engines::{ConversationResult, EngineContext},
     pipeline::{CharacterManifest, Framing, NewCharacter, PipelineContext, STAGES},
-    stream::{AvatarState, ObsServer},
 };
 
 struct StudioState {
@@ -28,17 +29,56 @@ struct StudioState {
     config_path: PathBuf,
     pipeline: PipelineContext,
     engines: EngineContext,
-    obs: tokio::sync::Mutex<Option<ObsServer>>,
     execution: tokio::sync::Mutex<()>,
+    startup_warnings: Vec<String>,
+}
+
+#[tauri::command]
+fn startup_warnings(state: State<'_, StudioState>) -> Vec<String> {
+    state.startup_warnings.clone()
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PreviewAssets {
-    model: Vec<u8>,
-    texture: Vec<u8>,
-    blink_texture: Option<Vec<u8>>,
+    generation: Option<String>,
+    rig: Vec<u8>,
+    parts: BTreeMap<String, Vec<u8>>,
 }
+
+const RIG2D_PARTS: &[&str] = &[
+    "scene_torso",
+    "scene_left_arm",
+    "scene_right_arm",
+    "scene_neck",
+    "scene_face",
+    "scene_hair",
+    "scene_residual",
+    "left_eye_backplate",
+    "right_eye_backplate",
+    "left_eye_iris",
+    "right_eye_iris",
+    "left_eye_remainder",
+    "right_eye_remainder",
+    "left_eye_base",
+    "right_eye_base",
+    "left_eyelid_upper",
+    "right_eyelid_upper",
+    "neutral",
+    "back_hair",
+    "body",
+    "left_arm",
+    "right_arm",
+    "face",
+    "front_hair",
+    "side_hair",
+    "left_eye_open",
+    "right_eye_open",
+    "left_eye_closed",
+    "right_eye_closed",
+    "mouth_closed",
+    "mouth_open",
+];
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,11 +106,12 @@ fn get_config(state: State<'_, StudioState>) -> Result<AppConfig, String> {
 
 #[tauri::command]
 fn save_config(config: AppConfig, state: State<'_, StudioState>) -> Result<(), String> {
-    config.save(&state.config_path).map_err(error_text)?;
-    *state
+    let mut current = state
         .config
         .write()
-        .map_err(|_| "設定ロックが壊れました".to_owned())? = config;
+        .map_err(|_| "設定ロックが壊れました".to_owned())?;
+    config.save(&state.config_path).map_err(error_text)?;
+    *current = config;
     Ok(())
 }
 
@@ -141,6 +182,10 @@ fn add_expression(
     prompt: String,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため表情を変更できません。完了後に再実行してください".to_owned())?;
     state
         .pipeline
         .add_expression(&character_id, label, prompt)
@@ -153,6 +198,10 @@ fn remove_expression(
     key: String,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため表情を変更できません。完了後に再実行してください".to_owned())?;
     state
         .pipeline
         .remove_expression(&character_id, &key)
@@ -167,6 +216,10 @@ async fn import_expression(
     key: String,
     state: State<'_, StudioState>,
 ) -> Result<(), String> {
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため表情を取り込めません。完了後に再実行してください".to_owned())?;
     let pipeline = state.pipeline.clone();
     let config = state
         .config
@@ -187,6 +240,10 @@ fn update_framing(
     framing: Framing,
     state: State<'_, StudioState>,
 ) -> Result<CharacterManifest, String> {
+    let _execution = state
+        .execution
+        .try_lock()
+        .map_err(|_| "生成中のため構図を保存できません。完了後に再実行してください".to_owned())?;
     state
         .pipeline
         .update_framing(&character_id, "green_screen", framing)
@@ -224,26 +281,221 @@ fn load_preview_assets(
     mouth_key: String,
     state: State<'_, StudioState>,
 ) -> Result<PreviewAssets, String> {
+    let _ = (&expression_key, &mouth_key);
     let directory = state
         .pipeline
         .character_dir(&character_id)
         .map_err(error_text)?;
-    let expression = directory
-        .join("facepatch/projected")
-        .join(&expression_key)
-        .join(format!("{mouth_key}.png"));
-    let blink = directory
-        .join("facepatch/projected/blink")
-        .join(format!("{mouth_key}.png"));
-    Ok(PreviewAssets {
-        model: fs::read(directory.join("model/rigged.vrm")).map_err(error_text)?,
-        texture: fs::read(expression).map_err(error_text)?,
-        blink_texture: blink
-            .is_file()
-            .then(|| fs::read(blink))
-            .transpose()
-            .map_err(error_text)?,
-    })
+    if generation_reference::present(&directory).map_err(error_text)? {
+        let config = state
+            .config
+            .read()
+            .map_err(|_| "設定ロックが壊れました".to_owned())?;
+        return read_published_preview(&directory, &config.display);
+    }
+    let _execution = state.execution.try_lock().map_err(|_| {
+        "生成・公開中です。現在の表示は保持し、完了後に再読み込みしてください".to_owned()
+    })?;
+    read_consistent_preview(&directory, |path| read_preview_file(&directory, path))
+}
+
+fn read_published_preview(
+    directory: &Path,
+    limits: &config::DisplayConfig,
+) -> Result<PreviewAssets, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let reader =
+        generation_reference::Reader::acquire(directory, u64::from(limits.snapshot_part_bytes))
+            .map_err(error_text)?;
+    let result = (|| {
+        let bounded_read = |path: &Path| -> Result<Vec<u8>, String> {
+            recovery::plain(path).map_err(error_text)?;
+            let mut bytes = Vec::new();
+            fs::File::open(path)
+                .map_err(error_text)?
+                .take(u64::from(limits.snapshot_part_bytes) + 1)
+                .read_to_end(&mut bytes)
+                .map_err(error_text)?;
+            if bytes.len() as u64 > u64::from(limits.snapshot_part_bytes) {
+                return Err("公開素材が読込中に増大しました".into());
+            }
+            Ok(bytes)
+        };
+        let rig = bounded_read(&reader.directory.join("rig.json"))?;
+        if reader.outputs.get("rig.json") != Some(&format!("{:x}", Sha256::digest(&rig))) {
+            return Err("公開後にリグが改変されています".into());
+        }
+        let names = preview_part_names(&rig)?;
+        if names.len() as u64 > u64::from(limits.snapshot_parts) {
+            return Err("公開素材数の上限を超えました".into());
+        }
+        let parsed: serde_json::Value = serde_json::from_slice(&rig).map_err(error_text)?;
+        let mut total = rig.len() as u64;
+        let mut parts = BTreeMap::new();
+        for name in names {
+            let bytes = bounded_read(&reader.directory.join("parts").join(format!("{name}.png")))?;
+            if reader.outputs.get(&format!("parts/{name}.png"))
+                != Some(&format!("{:x}", Sha256::digest(&bytes)))
+            {
+                return Err(format!("公開後に素材が改変されています: {name}"));
+            }
+            total += bytes.len() as u64;
+            if total > u64::from(limits.snapshot_total_bytes) {
+                return Err("公開素材の総量上限を超えました".into());
+            }
+            let (width, height) = image::ImageReader::with_format(
+                std::io::Cursor::new(&bytes),
+                image::ImageFormat::Png,
+            )
+            .into_dimensions()
+            .map_err(error_text)?;
+            let box_value = &parsed["layers"][&name]["texture_box"];
+            let bounds = box_value
+                .as_array()
+                .filter(|v| v.len() == 4)
+                .ok_or_else(|| "公開素材の寸法情報がありません".to_owned())?;
+            let n: Vec<f64> = bounds
+                .iter()
+                .map(|v| {
+                    v.as_f64()
+                        .ok_or_else(|| "公開素材の寸法が不正です".to_owned())
+                })
+                .collect::<Result<_, _>>()?;
+            if width.max(height) > limits.snapshot_dimension
+                || width == 0
+                || height == 0
+                || n[2] - n[0] != f64::from(width)
+                || n[3] - n[1] != f64::from(height)
+            {
+                return Err("公開素材の実寸が不正です".into());
+            }
+            parts.insert(name, bytes);
+        }
+        Ok(PreviewAssets {
+            generation: Some(reader.generation.clone()),
+            rig,
+            parts,
+        })
+    })();
+    let released = reader.finish().map_err(error_text);
+    match (result, released) {
+        (Ok(assets), Ok(())) => Ok(assets),
+        (Err(error), Err(release)) => Err(format!("{error} / 読者解放: {release}")),
+        (Err(error), _) | (_, Err(error)) => Err(error),
+    }
+}
+
+fn read_preview_file(directory: &Path, path: &Path) -> std::io::Result<Vec<u8>> {
+    let relative = path
+        .strip_prefix(directory)
+        .map_err(std::io::Error::other)?;
+    let mut current = directory.to_path_buf();
+    for component in std::iter::once(None).chain(relative.components().map(Some)) {
+        if let Some(component) = component {
+            if !matches!(component, std::path::Component::Normal(_)) {
+                return Err(std::io::Error::other("プレビュー素材の格納先が不正です"));
+            }
+            current.push(component);
+        }
+        let metadata = fs::symlink_metadata(&current)?;
+        let mut linked = metadata.file_type().is_symlink();
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            linked |= metadata.file_attributes()
+                & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+                != 0;
+        }
+        if linked {
+            return Err(std::io::Error::other(
+                "プレビュー素材のリンク参照は禁止です",
+            ));
+        }
+    }
+    fs::read(path)
+}
+
+fn preview_part_names(bytes: &[u8]) -> Result<Vec<String>, String> {
+    let rig: serde_json::Value = serde_json::from_slice(bytes).map_err(error_text)?;
+    let layers = rig
+        .get("layers")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| "リグの素材一覧がありません".to_owned())?;
+    for required in RIG2D_PARTS {
+        if !layers.contains_key(*required) {
+            return Err(format!("必須リグ素材がありません: {required}"));
+        }
+    }
+    for (name, layer) in layers {
+        let reserved = matches!(name.as_str(), "con" | "prn" | "aux" | "nul")
+            || ["com", "lpt"].iter().any(|prefix| {
+                name.strip_prefix(prefix).is_some_and(|suffix| {
+                    suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9')
+                })
+            });
+        if name.is_empty()
+            || name.len() > 128
+            || reserved
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return Err(format!("リグ素材の識別子が不正です: {name}"));
+        }
+        // URLは取得先として利用せず、正規の固定表記だけを受け付ける。
+        let expected = format!("/assets/rig2d/parts/{name}.png");
+        if layer.get("url").and_then(serde_json::Value::as_str) != Some(expected.as_str()) {
+            return Err(format!("リグ素材URLが正規形式ではありません: {name}"));
+        }
+    }
+    Ok(layers.keys().cloned().collect())
+}
+
+fn preview_generation(bytes: &[u8]) -> Result<(String, String), String> {
+    let manifest: CharacterManifest = serde_json::from_slice(bytes).map_err(error_text)?;
+    let name = if manifest.model.contains_key("rig2d_base") {
+        "complete"
+    } else {
+        "rig2d"
+    };
+    let stage = manifest
+        .stages
+        .get(name)
+        .filter(|stage| stage.status == "complete" && !stage.updated_at_iso.is_empty())
+        .ok_or_else(|| {
+            "リグ生成・局所補完が未完了です。完了後に再読み込みしてください".to_owned()
+        })?;
+    Ok((name.to_owned(), stage.updated_at_iso.clone()))
+}
+
+fn read_consistent_preview(
+    directory: &Path,
+    mut read: impl FnMut(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<PreviewAssets, String> {
+    // 正規probeは公開前に状態を失効する。別プロセスでも世代を前後照合する。
+    // character.jsonを更新しない診断サイドカーの直接公開はこの保証に含まない。
+    let manifest_path = directory.join("character.json");
+    let before = preview_generation(&read(&manifest_path).map_err(error_text)?)?;
+    let rig = read(&directory.join("rig2d/rig.json")).map_err(error_text)?;
+    let names = preview_part_names(&rig)?;
+    let mut parts = BTreeMap::new();
+    for name in names {
+        parts.insert(
+            name.clone(),
+            read(&directory.join("rig2d/parts").join(format!("{name}.png"))).map_err(error_text)?,
+        );
+    }
+    let assets = PreviewAssets {
+        generation: None,
+        rig,
+        parts,
+    };
+    let after = preview_generation(&read(&manifest_path).map_err(error_text)?)?;
+    if before != after {
+        return Err("読み込み中に生成世代が変わりました。完了後に再読み込みしてください".into());
+    }
+    Ok(assets)
 }
 
 #[tauri::command]
@@ -327,71 +579,6 @@ async fn voice_chat(
     .map_err(error_text)
 }
 
-#[tauri::command]
-async fn start_obs(
-    character_id: String,
-    expression_key: String,
-    mouth_key: String,
-    framing: Framing,
-    state: State<'_, StudioState>,
-) -> Result<String, String> {
-    let mut guard = state.obs.lock().await;
-    if let Some(server) = guard.take() {
-        server.stop().await.map_err(error_text)?;
-    }
-    let config = state
-        .config
-        .read()
-        .map_err(|_| "設定ロックが壊れました".to_owned())?
-        .clone();
-    let assets = state
-        .pipeline
-        .character_dir(&character_id)
-        .map_err(error_text)?;
-    let mut avatar = AvatarState {
-        expression_key: expression_key.clone(),
-        mouth_key: mouth_key.clone(),
-        model_url: "/assets/model/rigged.vrm".into(),
-        texture_url: format!("/assets/facepatch/projected/{expression_key}/{mouth_key}.png"),
-        blink_texture_url: Some(format!("/assets/facepatch/projected/blink/{mouth_key}.png")),
-        yaw: framing.yaw,
-        pitch: framing.pitch,
-        scale: framing.scale,
-        offset_x: framing.offset_x,
-        offset_y: framing.offset_y,
-        arm_pose: std::collections::BTreeMap::from([
-            ("leftUpperArm".into(), framing.arm_pose.left_upper_arm),
-            ("leftLowerArm".into(), framing.arm_pose.left_lower_arm),
-            ("rightUpperArm".into(), framing.arm_pose.right_upper_arm),
-            ("rightLowerArm".into(), framing.arm_pose.right_lower_arm),
-            ("head".into(), framing.arm_pose.head),
-        ]),
-        ..AvatarState::default()
-    };
-    avatar.apply_animation_config(&config.avatar);
-    let server = stream::start_obs_server(
-        state.pipeline.repository_root.join("ui-stream"),
-        state.pipeline.repository_root.join("ui/shared"),
-        assets,
-        config.obs.port_range_start,
-        config.obs.port_range_end,
-        avatar,
-    )
-    .await
-    .map_err(error_text)?;
-    let url = format!("http://127.0.0.1:{}/", server.port());
-    *guard = Some(server);
-    Ok(url)
-}
-
-#[tauri::command]
-async fn stop_obs(state: State<'_, StudioState>) -> Result<(), String> {
-    if let Some(server) = state.obs.lock().await.take() {
-        server.stop().await.map_err(error_text)?;
-    }
-    Ok(())
-}
-
 fn error_text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -419,6 +606,7 @@ pub fn run() {
                 }
             };
             eprintln!("キャラクターデータ: {}", output.display());
+            let startup_warnings = recovery::recover_final_rigs(&output);
             app.manage(StudioState {
                 config: RwLock::new(config),
                 config_path,
@@ -427,13 +615,14 @@ pub fn run() {
                     repository_root: repository_root.clone(),
                 },
                 engines: EngineContext { repository_root },
-                obs: tokio::sync::Mutex::new(None),
                 execution: tokio::sync::Mutex::new(()),
+                startup_warnings,
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
+            startup_warnings,
             save_config,
             create_character,
             list_characters,
@@ -448,21 +637,211 @@ pub fn run() {
             converse,
             transcribe,
             voice_chat,
-            start_obs,
-            stop_obs,
         ])
         .build(tauri::generate_context!())
         .expect("LocalVTuberStudio の初期化に失敗しました");
-    application.run(|handle, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            let state = handle.state::<StudioState>();
-            if let Ok(mut guard) = state.obs.try_lock()
-                && let Some(server) = guard.take()
-            {
-                let _ = tauri::async_runtime::block_on(server.stop());
-            }
+    application.run(|_, _| {});
+}
+
+#[cfg(test)]
+mod preview_tests {
+    #[cfg(windows)]
+    #[test]
+    fn published_preview_validates_material_sha_and_bounds_without_complete_stage() {
+        use sha2::{Digest, Sha256};
+        let temp =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../temp/generation-reference");
+        std::fs::create_dir_all(&temp).unwrap();
+        let fixture = tempfile::tempdir_in(temp).unwrap();
+        let root = fixture.path();
+        let generation = format!("g_{:032x}", 1);
+        let dir = root.join("rig-generations").join(&generation);
+        std::fs::create_dir_all(dir.join("parts")).unwrap();
+        let mut layers = serde_json::Map::new();
+        let mut outputs = serde_json::Map::new();
+        for name in super::RIG2D_PARTS {
+            let path = dir.join("parts").join(format!("{name}.png"));
+            image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]))
+                .save(&path)
+                .unwrap();
+            outputs.insert(
+                format!("parts/{name}.png"),
+                serde_json::json!(format!(
+                    "{:x}",
+                    Sha256::digest(std::fs::read(path).unwrap())
+                )),
+            );
+            layers.insert(name.to_string(),serde_json::json!({"url":format!("/assets/rig2d/parts/{name}.png"),"texture_box":[0,0,2,2]}));
         }
-    });
+        let rig = serde_json::to_vec(&serde_json::json!({"layers":layers})).unwrap();
+        outputs.insert(
+            "rig.json".into(),
+            serde_json::json!(format!("{:x}", Sha256::digest(&rig))),
+        );
+        std::fs::write(dir.join("rig.json"), &rig).unwrap();
+        let completion = serde_json::to_vec(&serde_json::json!({"outputs":outputs})).unwrap();
+        std::fs::write(dir.join("completion.json"), &completion).unwrap();
+        std::fs::write(root.join("rig-current.json"),serde_json::to_vec(&serde_json::json!({"schema_version":1,"generation":generation,"previous":null,"rig_sha256":format!("{:x}",Sha256::digest(&rig)),"completion_sha256":format!("{:x}",Sha256::digest(completion))})).unwrap()).unwrap();
+        let mut limits = super::config::DisplayConfig::default();
+        assert!(super::read_published_preview(root, &limits).is_ok());
+        limits.snapshot_part_bytes = 1;
+        assert!(super::read_published_preview(root, &limits).is_err());
+        limits = super::config::DisplayConfig::default();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([3, 2, 1, 255]))
+            .save(dir.join("parts/scene_face.png"))
+            .unwrap();
+        assert!(
+            super::read_published_preview(root, &limits)
+                .err()
+                .unwrap()
+                .contains("改変")
+        );
+        assert_eq!(
+            std::fs::read_dir(root.join("rig-leases")).unwrap().count(),
+            0
+        );
+    }
+    use super::*;
+
+    fn rig_bytes(extra: &[&str]) -> Vec<u8> {
+        let layers: BTreeMap<_, _> = RIG2D_PARTS
+            .iter()
+            .chain(extra.iter())
+            .map(|name| {
+                (
+                    *name,
+                    serde_json::json!({"url":format!("/assets/rig2d/parts/{name}.png")}),
+                )
+            })
+            .collect();
+        serde_json::to_vec(&serde_json::json!({"layers":layers})).unwrap()
+    }
+
+    fn manifest(stage: &str, status: &str, timestamp: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1, "characterId": "fixture", "displayName": "確認",
+            "createdAtIso": "first", "updatedAtIso": timestamp,
+            "personaPrompt": "", "identityTags": "", "expressions": [], "framings": {},
+            "model": if stage == "complete" { serde_json::json!({"rig2d_base":"rig2d-base/rig.json"}) } else { serde_json::json!({}) },
+            "stages": {stage: {"status":status,"message":"","updatedAtIso":timestamp}}
+        })).unwrap()
+    }
+
+    #[test]
+    fn preview_accepts_consistent_legacy_and_completed_generations() {
+        for stage in ["rig2d", "complete"] {
+            let mut state_reads = 0;
+            let assets = read_consistent_preview(Path::new("fixture"), |path| {
+                if path.file_name().unwrap() == "character.json" {
+                    state_reads += 1;
+                    Ok(manifest(stage, "complete", "generation-1"))
+                } else if path.file_name().unwrap() == "rig.json" {
+                    Ok(rig_bytes(&["scene_hidden_face", "neck", "collar"]))
+                } else {
+                    Ok(b"original material".to_vec())
+                }
+            })
+            .unwrap();
+            assert_eq!(state_reads, 2);
+            assert_eq!(assets.parts.len(), RIG2D_PARTS.len() + 3);
+            assert_eq!(assets.parts["scene_hidden_face"], b"original material");
+            assert_eq!(
+                assets.rig,
+                rig_bytes(&["scene_hidden_face", "neck", "collar"])
+            );
+        }
+    }
+
+    #[test]
+    fn preview_rejects_publication_during_material_reads() {
+        for (stage, status, timestamp) in [
+            ("complete", "running", "generation-2"),
+            ("complete", "failed", "generation-2"),
+            ("complete", "complete", "generation-2"),
+            ("rig2d", "complete", "generation-1"),
+        ] {
+            let mut state_reads = 0;
+            let result = read_consistent_preview(Path::new("fixture"), |path| {
+                if path.file_name().unwrap() == "character.json" {
+                    state_reads += 1;
+                    Ok(if state_reads == 1 {
+                        manifest("complete", "complete", "generation-1")
+                    } else {
+                        manifest(stage, status, timestamp)
+                    })
+                } else if path.file_name().unwrap() == "rig.json" {
+                    Ok(rig_bytes(&[]))
+                } else {
+                    Ok(b"potentially mixed material".to_vec())
+                }
+            });
+            assert!(result.is_err(), "{stage}/{status}/{timestamp}");
+        }
+    }
+
+    #[test]
+    fn preview_rejects_incomplete_state_before_opening_materials() {
+        let result = read_consistent_preview(Path::new("fixture"), |path| {
+            assert_eq!(path.file_name().unwrap(), "character.json");
+            Ok(manifest("complete", "running", "generation-2"))
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn preview_rejects_missing_parts_unsafe_names_and_foreign_urls() {
+        for name in [
+            "../secret",
+            "folder/secret",
+            "C:\\secret",
+            "part:stream",
+            "nul",
+            "com1",
+            "name.png",
+            "",
+        ] {
+            assert!(preview_part_names(&rig_bytes(&[name])).is_err(), "{name}");
+        }
+        let mut rig: serde_json::Value = serde_json::from_slice(&rig_bytes(&[])).unwrap();
+        rig["layers"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mouth_closed");
+        assert!(preview_part_names(&serde_json::to_vec(&rig).unwrap()).is_err());
+        let mut rig: serde_json::Value = serde_json::from_slice(&rig_bytes(&[])).unwrap();
+        rig["layers"]["mouth_closed"]["url"] =
+            serde_json::json!("https://example.invalid/image.png");
+        assert!(preview_part_names(&serde_json::to_vec(&rig).unwrap()).is_err());
+    }
+
+    #[test]
+    fn preview_file_reader_restricts_directory_and_missing_files() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../temp");
+        fs::create_dir_all(&workspace).unwrap();
+        let fixture = tempfile::tempdir_in(workspace).unwrap();
+        let file = fixture.path().join("material.png");
+        fs::write(&file, b"fixture").unwrap();
+        assert_eq!(
+            read_preview_file(fixture.path(), &file).unwrap(),
+            b"fixture"
+        );
+        assert!(read_preview_file(fixture.path(), &fixture.path().join("../secret.png")).is_err());
+        assert!(read_preview_file(fixture.path(), &fixture.path().join("missing.png")).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Windowsのリンク作成特権が必要。開発者モードまたは特権環境で明示実行する"]
+    fn preview_file_reader_rejects_real_symlink() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../temp");
+        fs::create_dir_all(&workspace).unwrap();
+        let fixture = tempfile::tempdir_in(workspace).unwrap();
+        let file = fixture.path().join("material.png");
+        fs::write(&file, b"fixture").unwrap();
+        let linked = fixture.path().join("linked.png");
+        std::os::windows::fs::symlink_file(&file, &linked).unwrap();
+        assert!(read_preview_file(fixture.path(), &linked).is_err());
+    }
 }
 
 #[cfg(test)]
@@ -479,8 +858,8 @@ mod network_tests {
             "sidecar/isolate",
             "sidecar/decompose",
             "sidecar/rig2d",
+            "sidecar/completion",
             "ui",
-            "ui-stream",
         ];
         let forbidden = [
             "reqwest",
@@ -537,6 +916,20 @@ mod network_tests {
             ) {
                 let text = std::fs::read_to_string(&path).unwrap();
                 for token in forbidden {
+                    // 確認画面の固定同一オリジン snapshot だけを許可する。別URLへの転送と追加fetchは禁止する。
+                    if path == root.join("ui/check.js") && *token == "fetch(" {
+                        assert_eq!(text.matches("fetch(").count(), 1);
+                        assert!(text.contains("fetch('/api/characters/'+encodeURIComponent(requested)+'/snapshot',{cache:'no-store',signal,redirect:'error'})"));
+                        continue;
+                    }
+                    // 同一オリジン検査とリダイレクト拒否を持つ資産読込だけを許可する。
+                    if path == root.join("ui/shared/local-assets.js") && *token == "fetch(" {
+                        assert!(text.contains("url.origin !== location.origin"));
+                        assert!(text.contains(
+                            "fetch(localAssetUrl(source), {redirect: \"error\", signal, cache})"
+                        ));
+                        continue;
+                    }
                     assert!(
                         !text.contains(token),
                         "生成経路に外向き通信候補があります: {}: {token}",

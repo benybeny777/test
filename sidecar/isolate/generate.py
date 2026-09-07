@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -65,17 +66,37 @@ class AnimeIsnetSession:
 def isolate_image(input_path: Path, output_path: Path, model_path: Path) -> Path:
     """背景除去を実行し、元画像と同じ寸法のRGBA画像を保存する。"""
 
-    import rembg
-
     with Image.open(input_path) as opened:
         source = opened.convert("RGBA")
-    isolated = rembg.remove(source, session=AnimeIsnetSession(model_path)).convert("RGBA")
+    alpha = np.asarray(source)[:, :, 3]
+    if not alpha.any():
+        raise ValueError("人物の前景を検出できません")
+    if (alpha == 0).any():
+        # 入力の明示的な透過を保持する。再除去による髪・肌の欠損を防ぐ。
+        isolated = source
+        print(json.dumps({"event": "progress", "message": "入力の透過を保持します"}, ensure_ascii=False), flush=True)
+    else:
+        import rembg
+        isolated = rembg.remove(source, session=AnimeIsnetSession(model_path)).convert("RGBA")
     if isolated.size != source.size:
         raise RuntimeError("背景除去後のキャンバス寸法が変化しました")
     if not np.asarray(isolated, dtype=np.uint8)[:, :, 3].any():
         raise ValueError("人物の前景を検出できません")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    isolated.save(output_path)
+    temporary_dir = output_path.parent / "temp"
+    temporary_dir.mkdir(parents=True, exist_ok=True)
+    from tempfile import NamedTemporaryFile
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=temporary_dir, suffix=".png", delete=False) as handle:
+            temporary = Path(handle.name)
+            isolated.save(handle, format="PNG")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output_path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     print(
         json.dumps({"event": "complete", "output": str(output_path)}, ensure_ascii=False),
         flush=True,

@@ -29,7 +29,7 @@
       </aside>
       <div class="workspace">
         <section class="preview-panel">
-          <div class="stage" id="stage"><canvas id="avatar"></canvas><p id="empty-preview">完成キャラクターを選ぶと3Dプレビューを表示します</p></div>
+          <div class="stage" id="stage"><canvas id="avatar"></canvas><p id="empty-preview">完成キャラクターを選ぶと2.5Dプレビューを表示します</p></div>
           <div class="preview-controls">
             <label>表情<select id="preview-expression"></select></label>
             <label>口形<select id="preview-mouth"><option>close</option><option>a</option><option>i</option><option>u</option><option>e</option><option>o</option></select></label>
@@ -38,6 +38,33 @@
         </section>
         <section>
           <h2>生成パイプライン</h2>
+          <details><summary>公開素材の読込上限（生成解像度は変更しません）</summary><div id="snapshot-settings"></div><button id="save-snapshot" class="quiet">読込上限を保存</button><p>保存後、次のキャラ読込から反映します。上限超過は画質を下げずエラーにします。</p></details>
+          <label>意味解析モデル（モデルディレクトリ内）<input id="grounding-model" type="text" /></label>
+          <label>意味領域検出閾値<input id="grounding-threshold" type="number" min="0" max="1" step="0.01" /></label>
+          <label>目の局所解析の余白（検出幅・高さに対する倍率）<input id="eye-context-margin" type="number" min="0.1" max="2" step="0.05" /></label>
+          <label>SAM同時処理点数（原画解像度・探索点総数は維持）<input id="sam-batch" type="number" min="1" max="64" step="1" value="8" /></label>
+          <label>候補予測IoU閾値<input id="sam-iou" type="number" min="0" max="1" step="0.01" value="0.7" /></label>
+          <label>候補安定性閾値<input id="sam-stability" type="number" min="0" max="1" step="0.01" value="0.85" /></label>
+          <button id="save-sam-batch" class="quiet">設定を保存（次回分解から反映）</button>
+          <details><summary>Qwen局所補完の設定</summary>
+            <label>モデル保存先（相対指定はモデルディレクトリ基準）<input id="completion-model_dir" type="text" /></label>
+            <label>推論ステップ数<input id="completion-steps" type="number" min="1" max="100" step="1" /></label>
+            <label>再現用シード<input id="completion-seed" type="number" min="0" max="4294967295" step="1" /></label>
+            <label>原寸ROIの上限（拡大しません）<input id="completion-resolution" type="number" min="256" max="4096" step="16" /></label>
+            <label>編集マスク余白の倍率<input id="completion-mask_margin" type="number" min="0.01" max="0.5" step="0.01" /></label>
+            <label>目の編集余白内で強度255にする内側割合（0以上1未満）<input id="completion-mask_core_ratio" type="number" min="0" max="1" step="any" /></label>
+            <small>余白の外縁は変えません。0は現在の条件を保持し、保存後の次回生成から反映します。</small>
+            <label>推論タイムアウト（秒）<input id="completion-timeout_seconds" type="number" min="1" max="4294967295" step="1" /></label>
+            <label><input id="completion-fast_disk" type="checkbox" />高速ディスクへのモデル退避を利用</label>
+            <label>顔の隠れ補完帯（顔幅比）<input id="completion-hidden_band_ratio" type="number" min="0.01" max="0.15" step="0.01" /></label>
+            <label>補完帯内の髪移動倍率<input id="completion-hidden_motion_ratio" type="number" min="0.01" max="0.4" step="0.01" /></label>
+            <label>髪境界の再分類帯（顔幅比）<input id="completion-hair_edge_band_ratio" type="number" min="0.001" max="0.05" step="0.001" /></label>
+            <label>髪境界の色差<input id="completion-hair_edge_gain" type="number" min="1" max="255" step="1" /></label>
+            <label>耳解析の余白倍率<input id="completion-ear_context" type="number" min="0.1" max="2" step="0.1" /></label>
+            <label>隠れ顔の編集指示<textarea id="completion-hidden_prompt" rows="3"></textarea></label>
+            <label>横髪・耳の編集指示<textarea id="completion-side_prompt" rows="3"></textarea></label>
+            <button id="save-completion" class="quiet">局所補完設定を保存（次回補完から反映）</button>
+          </details>
           <div id="pipeline" class="pipeline"></div>
           <div class="actions"><button id="run-all">全工程を実行</button><button id="retry-stage" class="quiet">選択工程だけ実行</button></div>
           <pre id="log">キャラクターを選択してください</pre>
@@ -72,11 +99,9 @@
             <p id="chat-output" class="result">llama.cpp の応答をここへ表示します</p>
           </section>
           <section>
-            <h2>音声認識とOBS</h2>
+            <h2>音声認識</h2>
             <label>16kHz WAVのパス<input id="wav-path" placeholder="C:\audio\speech.wav" /></label>
             <div class="actions"><button id="transcribe" class="quiet">whisper.cppで文字起こし</button><button id="voice-chat">認識して会話</button></div>
-            <div class="actions"><button id="start-obs">OBS出力を開始</button><button id="stop-obs" class="quiet">停止</button></div>
-            <p id="obs-url" class="result">未起動</p>
           </section>
         </div>
       </div>
