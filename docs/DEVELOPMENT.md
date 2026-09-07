@@ -4,6 +4,16 @@
 
 ## 通常の局所補完
 
+### 共通レンダラーの資源解放観測
+
+既存のcheck.htmlを起動した状態で、`node tools/check-character-switch-memory.mjs <ID1,ID2,ID3> <新しいtemp出力先>`を実行する。異なる3体を2巡し、6回の表示完了、旧Blob URLの解放、DOM構成の推移、V8のJSヒープ値を保存する。`LVS_PLAYWRIGHT_MODULE`には既存作業用Playwrightのindex.mjsを指定でき、製品依存にはしない。自己所有のheadless Chromeだけを起動し、終了・失敗・タイムアウトでも閉じる。
+
+旧比較形式のsnapshot 404は、同じURLで実際の404を観測し、そのキャラの旧形式表示も成功した場合だけ想定互換として別集計する。同URLの404本文cancelによるERR_ABORTED以外の取得失敗、素材404、snapshot500、表示未完、旧Blob残留は失敗を維持する。生のHTTP/失敗記録も削除しない。分類器は`node --test tools/test-switch-observation-errors.mjs`で正常/負例を検査する。
+
+この観測は最新の3キャラ生成完了や画質合格の証明ではない。ヒープはGCの影響を受け、DOM画像数はWebGL/非DOM画像を含まず、revokeは物理メモリ回収の完了を意味しない。OS RAM・プロセス全体・VRAMは対象外であり、2巡だけでリークがないと断定しない。
+
+### 生成・公開・復旧
+
 耳候補の選別失敗はキャラ配下の`temp/ear-analysis-failure-<ID>/failure.json`へ診断を残し、同じエラーへ保存先を付けて通知する。顔候補・左右・幅条件の除外理由と解析出自を保存し、成功manifestやmaskを書き換えない。候補は設定閾値を通過したものに限り、閾値未満の検出可能性まで判定したとは扱わない。診断保存失敗も元の耳エラーを原因として保持する。
 
 通常完成リグは`rig-generations/g_<ID>/`へ同期し、`rig-current.json`だけを原子的に置換する。読者はWindows OSロック付きleaseで1世代を保持する。current・previous（直前1世代）・生存読者の世代を残し、不要世代と終了leaseを回収する。Windows起動時もRustだけで参照と回収を処理し、Pythonを無条件起動しない。旧参照がないlegacy形式に限り、Python互換の集合/キャラbyte0排他を取得して欠落したrig2dを退避版から復旧する。別プロセス稼働中は警告し、pendingの昇格や工程状態の変更をしない。全工程の起動時復旧ではない。旧比較`rig2d/`は移動・削除しない。
