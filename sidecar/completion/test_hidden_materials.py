@@ -1,11 +1,20 @@
 import unittest
 import numpy as np
 from hidden_materials import HiddenSettings, extract_hidden_roi, extract_ear_repair, ear_policy, validate_neutral
-from hidden_assemble import composite
+from hidden_assemble import composite, same_visible_rgba
 from hidden_jobs import generation_identity
 
 
 class DraftTests(unittest.TestCase):
+    def test_visible_rgba_ignores_only_transparent_rgb(self):
+        source=np.array([[[12,34,56,0],[7,8,9,255]]],dtype=np.uint8)
+        composed=np.array([[[0,0,0,0],[7,8,9,255]]],dtype=np.uint8)
+        self.assertTrue(same_visible_rgba(source,composed))
+        alpha=composed.copy();alpha[0,0,3]=1
+        self.assertFalse(same_visible_rgba(source,alpha))
+        visible=composed.copy();visible[0,1,0]=6
+        self.assertFalse(same_visible_rgba(source,visible))
+
     def test_alpha254_hidden_and_ear_preserve_original_alpha(self):
         source = np.full((80, 80, 4), 180, np.uint8); source[:, :, 3] = 254
         before = source.copy(); generated = source.copy(); generated[:, :, :3] = 120

@@ -32,6 +32,16 @@ def composite(rig, parts):
     return np.array(result)
 
 
+def same_visible_rgba(left, right):
+    """透明画素の不可視RGBは比較せず、アルファと可視RGBを厳密に比較する。"""
+    if left.shape != right.shape or left.dtype != np.uint8 or right.dtype != np.uint8:
+        return False
+    if not np.array_equal(left[:, :, 3], right[:, :, 3]):
+        return False
+    visible = left[:, :, 3] > 0
+    return np.array_equal(left[:, :, :3][visible], right[:, :, :3][visible])
+
+
 def put_part(rig, parts, name, full, pivot, z_index):
     image = Image.fromarray(full); box = image.getchannel('A').getbbox()
     if box is None:
@@ -69,7 +79,7 @@ def assemble_hidden(rig, parts, source, masks, bald, side, region, settings,
         if pixels.dtype != np.uint8 or pixels.shape != (box[3]-box[1], box[2]-box[0], 4):
             raise ValueError('素材の原寸が不正です: '+name)
     before = composite(rig, parts)
-    if not np.array_equal(before, source):
+    if not same_visible_rgba(before, source):
         raise ValueError('補完前の全中立合成が原画と一致しません')
     updated = copy.deepcopy(rig)
     output = {name: image.copy() for name, image in parts.items()}
