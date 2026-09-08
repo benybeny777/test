@@ -65,7 +65,7 @@ def repair_patch(rgba, box, support=None, target=None, protected=None):
     mask = ((xx-(w-1)/2)/(w*.46))**2+((yy-(h-1)/2)/(h*.46))**2<1
     if target is not None:
         # 目口の実マスクだけを補完し、矩形内の髪を肌で消さない。
-        mask=ndimage.binary_dilation(target[t:b,l:r],iterations=max(1,round((r-l)*.04)))
+        mask=ndimage.binary_dilation(target[t:b,l:r],iterations=max(2,round((r-l)*.12)))
     if protected is not None:
         mask &= ~protected[t:b,l:r]
     mask[[0,-1],:]=False
@@ -73,7 +73,8 @@ def repair_patch(rgba, box, support=None, target=None, protected=None):
     coords=np.argwhere(mask)
     if not len(coords):
         raise ValueError("表情補完の対象領域が空です")
-    samples=crop[:,:,:3].astype(float)
+    original_rgb=crop[:,:,:3].astype(float)
+    samples=original_rgb.copy()
     if support is not None:
         # 暗い髪・まつげを肌の境界条件へ流し込まない。周辺の実画素を使う。
         luminance=samples.mean(axis=2)
@@ -84,9 +85,16 @@ def repair_patch(rgba, box, support=None, target=None, protected=None):
             values=luminance[valid]
             median=np.median(values)
             cutoff=median-max(12,2.5*np.median(np.abs(values-median)))
-            donors=valid & (luminance>=cutoff)
+            rgb=samples.astype(np.int16)
+            reference=np.median(samples[valid],axis=0)
+            color_distance=np.max(np.abs(samples-reference),axis=2)
+            color_limit=max(12.,3*np.median(color_distance[valid]))
+            skin_color=(rgb[:,:,0]>rgb[:,:,2]+5)&(rgb[:,:,0]>=rgb[:,:,1]-8)&(luminance>100)
+            donors=valid & skin_color & (luminance>=cutoff) & (color_distance<=color_limit)
+            if donors.sum()<4:raise ValueError("肌の補完に使える色画素が不足しています")
             nearest=ndimage.distance_transform_edt(~donors,return_distances=False,return_indices=True)
-            samples=np.where((luminance<cutoff)[...,None],samples[tuple(nearest)],samples)
+            # 白目・歯・唇・睫毛は明るさだけでは除けない。補間境界には意味解析済みの肌だけを使う。
+            samples=np.where((~donors)[...,None],samples[tuple(nearest)],samples)
         else:
             raise ValueError("肌の補完に使える周辺画素がありません")
     ids=np.full(mask.shape,-1,int)
@@ -101,7 +109,10 @@ def repair_patch(rgba, box, support=None, target=None, protected=None):
                 rows.append(i);cols.append(ids[ny,nx]);vals.append(-1.)
             else: rhs[i]+=samples[ny,nx]
     matrix=sparse.csr_matrix((vals,(rows,cols)),shape=(len(coords),len(coords)))
-    crop[mask,:3]=np.clip(spsolve(matrix,rhs),0,255).astype(np.uint8)
+    solved=np.clip(spsolve(matrix,rhs),0,255)
+    feather=max(2,round((r-l)*.04))
+    weight=np.clip(ndimage.distance_transform_edt(mask)/feather,0,1)[mask,None]
+    crop[mask,:3]=np.rint(original_rgb[mask]*(1-weight)+solved*weight).astype(np.uint8)
     # 元画像と同じ境界画素を保持するので合成時の矩形境界が生じない。
     return crop,(l,t,r,b)
 

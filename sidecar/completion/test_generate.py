@@ -142,8 +142,8 @@ class CompletionOrchestrationTests(unittest.TestCase):
             {'path': 'split_files/fixture.bin', 'sha256': generate.digest(model)}]}), encoding='utf-8')
         (implementation/'generate.py').write_text('# 合成テストのコード署名', encoding='utf-8')
         workflow = character/'workflow.json'
-        workflow.write_text(json.dumps({key: {'inputs': {}} for key in ('7', '10', '13')}), encoding='utf-8')
-        overlay = character/'overlay.json'; overlay.write_text('{}', encoding='utf-8')
+        workflow.write_text(json.dumps({key: {'inputs': {}} for key in ('7','8','9','10','12','13')}), encoding='utf-8')
+        overlay = character/'overlay.json'; overlay.write_text(json.dumps({key:{'inputs':{}} for key in ('14','15','16')}), encoding='utf-8')
         self.args = SimpleNamespace(character=character, base_rig=character/'rig2d-base/rig.json',
                                     output=character/'rig2d', comfy=character/'comfy', models=character/'models',
                                     workflow=workflow, overlay=overlay, port=58120, steps=50, seed=777,

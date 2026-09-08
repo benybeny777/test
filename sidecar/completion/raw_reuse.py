@@ -30,12 +30,13 @@ def semantic_identity(identity,kind,*,requested=False):
     common={'steps','seed','fast_disk','prompt'}
     if kind=='eye':
         version=identity['version']
-        if type(version)!=int or version not in ((3,) if requested else (1,2,3)):
+        if type(version)!=int or version not in ((5,) if requested else (1,2,3,4,5)):
             raise ValueError('未対応の閉眼生成版です')
         expected_parameters=common|{'resolution','mask_margin_ratio'}
-        if version==3:expected_parameters.add('mask_core_ratio')
+        if version>=3:expected_parameters.add('mask_core_ratio')
         if set(parameters)!=expected_parameters:raise ValueError('閉眼生成版に必要な推論条件が不足しています')
-        if set(identity['inputs'])!={'input.png','eye-mask.png'}:raise ValueError('閉眼の実入力2SHAが必要です')
+        expected_inputs={'input.png','left-eye-mask.png','right-eye-mask.png'} if version>=5 else {'input.png','eye-mask.png'}
+        if set(identity['inputs'])!=expected_inputs:raise ValueError('閉眼の原画と版別マスクの実入力SHAが必要です')
         for value in identity['inputs'].values():signature(value)
         signature(identity['workflow']);signature(identity['overlay'])
         if not identity['resolved_workflow'] or not identity['comfy_code']:raise ValueError('実workflowとエンジン署名が必要です')

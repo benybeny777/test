@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three/three.module.min.js';
 import {localAssetUrl,loadLocalJson} from './local-assets.js';
-import {drawTexturedMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=local-lips6';
+import {drawMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=local-lips7';
 import {eyeAperture,drawBlink,automaticBlinkOpen,AUTOMATIC_BLINK_DURATION_MS} from './eye-geometry.js?v=visible-blink1';
 import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from './native-scene-batch.js';
 import {headDisplacement,armDisplacement,bodyBreathDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=body-breath1';
@@ -129,7 +129,7 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
     if(repairAmount>0){const bounds=rig.layers[repair].texture_box;ctx.globalAlpha=repairAmount;ctx.drawImage(images.get(repair),bounds[0],bounds[1]);ctx.globalAlpha=1;}
     drawBlink(ctx,images,rig,'left',left);drawBlink(ctx,images,rig,'right',right);
     if(open>0||form!==0){const base=rig.layers.mouth_open.texture_box;ctx.drawImage(images.get('mouth_open'),base[0],base[1]);
-      drawTexturedMouth(ctx,images.get('mouth_closed'),rig.layers.mouth_closed,open,form,rig.layers.mouth_open.line_color);}
+      drawMouth(ctx,rig.layers.mouth_closed.feature_box,open,form,rig.layers.mouth_open.line_color);}
     ctx.restore();
     const framePixels=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height),pixels=framePixels.data;
     // 元のアルファを再設定し、顔マスクを二重乗算して輪郭を薄くしない。

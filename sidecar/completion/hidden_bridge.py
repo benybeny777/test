@@ -70,9 +70,15 @@ def prepare_hidden(args, white, region, source, generation, guard, infer, emit, 
     assert_result_sources(results,guard)
     generated = ear_analysis(args.character/'completion-generated-ears',results['side-ears'][0],False,
                              parser,segment,ensure_stopped,guard)
-    # 片側だけの測定で反対側の旧輪郭まで消さない。raw左右マスクは独立保存済み。
-    contour_ears = original_ears if all(mask.any() for mask in original[0]) else np.zeros_like(original_ears)
-    ears = {'generated_ears':generated[0][0]|generated[0][1], 'source_ears':contour_ears,
+    # 原画と生成画の両方で測れた側だけを補修し、未測定側の旧輪郭は消さない。
+    paired = [original[0][index].any() and generated[0][index].any() for index in range(2)]
+    contour_ears = np.zeros_like(original_ears)
+    generated_ears = np.zeros_like(original_ears)
+    for index in range(2):
+        if paired[index]:
+            contour_ears |= original[0][index]
+            generated_ears |= generated[0][index]
+    ears = {'generated_ears':generated_ears, 'source_ears':contour_ears,
             'reports':{'generated':generated[1],'source':original[1]}}
     assert_result_sources(results,guard)
     images = {}
@@ -106,8 +112,13 @@ def apply_hidden(args, rig, base, eye_parts, isolated, masks, region, prepared, 
     updated, pixels, report = assemble_hidden(rig, parts, np.array(isolated), masks,
         prepared['images']['hidden-face'], prepared['images']['side-ears'], list(region), settings,
         prepared['ears']['source_ears'], prepared['ears']['generated_ears'], require_visible_contour=False)
-    if prepared['ears']['reports']['source']['details']['status'] == 'partial':
-        report.update(status='partial',warning='原画耳の一部または全部が未検出です。未測定の輪郭修正は完了扱いにしません')
+    source_partial = prepared['ears']['reports']['source']['details']['status'] == 'partial'
+    generated_partial = prepared['ears']['reports']['generated']['details']['status'] == 'partial'
+    if source_partial or generated_partial:
+        missing=[]
+        if source_partial:missing.append('原画')
+        if generated_partial:missing.append('生成画')
+        report.update(status='partial',warning='・'.join(missing)+'の耳が片側以上未検出です。両方で測定できた側だけを補修し、未測定側の輪郭は保持します')
         updated['local_hidden_completion'] = report
     changed = {name: Image.fromarray(image) for name, image in pixels.items()
                if name not in parts or not np.array_equal(image, parts[name])}

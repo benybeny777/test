@@ -5,11 +5,11 @@ from pathlib import Path
 from raw_reuse import SOURCES,sha,open_raw,semantic_identity,read_plain,pin_generated
 
 def identity(kind):
-    common={'version':3,'source':{name:sha(name.encode()) for name in SOURCES},'models':{'fixed':'model'},
+    common={'version':5,'source':{name:sha(name.encode()) for name in SOURCES},'models':{'fixed':'model'},
         'runtime':{'torch':'fixed'},'workflow':sha(b'workflow'),'source_region':[0,0,64,64],
         'parameters':{'steps':50,'seed':777,'fast_disk':True,'prompt':'fixture'}}
     if kind=='eye':
-        common.update(comfy_code={'main.py':'fixed'},overlay=sha(b'overlay'),inputs={'input.png':sha(b'input'),'eye-mask.png':sha(b'mask')},resolved_workflow={'node':'fixed'})
+        common.update(comfy_code={'main.py':'fixed'},overlay=sha(b'overlay'),inputs={'input.png':sha(b'input'),'left-eye-mask.png':sha(b'left'),'right-eye-mask.png':sha(b'right')},resolved_workflow={'node':'fixed'})
         common['parameters'].update(resolution=1024,mask_margin_ratio=.2,mask_core_ratio=.5)
     else:
         common.update(version=1,job=kind,prepared_input_sha256=sha(b'input'),mask_sha256=sha(b'mask'),
@@ -44,7 +44,7 @@ class ReuseTests(unittest.TestCase):
             value=copy.deepcopy(wanted);value['models']['fixed']='changed';variants.append(value)
             value=copy.deepcopy(wanted);value['source']['source/input.png']=sha(b'new original');variants.append(value)
             value=copy.deepcopy(wanted)
-            if kind=='eye':value['inputs']['eye-mask.png']=sha(b'one pixel')
+            if kind=='eye':value['inputs']['left-eye-mask.png']=sha(b'one pixel')
             else:value['mask_sha256']=sha(b'one pixel')
             variants.append(value)
             for value in variants:self.assertIsNone(open_raw(cache,value,kind))
@@ -61,6 +61,7 @@ class ReuseTests(unittest.TestCase):
         for shape in shapes:
             previous=copy.deepcopy(wanted)
             previous['version']=shape['version'];previous['parameters'].pop('mask_core_ratio')
+            previous['inputs']={'input.png':sha(b'input'),'eye-mask.png':sha(b'mask')}
             previous['runtime']={key:'fixture-version' for key in shape['runtime_keys']}
             self.assertEqual(sorted(previous),shape['identity_keys'])
             self.assertEqual(sorted(previous['parameters']),shape['parameter_keys'])
@@ -71,6 +72,14 @@ class ReuseTests(unittest.TestCase):
             self.assertIsNone(open_raw(cache,wanted,'eye'))
             self.assertEqual((cache/'manifest.json').read_bytes(),before)
             with self.assertRaises(ValueError):semantic_identity(previous,'eye',requested=True)
+
+    def test_eye_v4_is_valid_old_provenance_but_not_current_cache(self):
+        cache,wanted=self.save('eye');marker=cache/'manifest.json'
+        record=json.loads(marker.read_bytes());record['identity']['version']=4
+        record['identity']['inputs']={'input.png':sha(b'input'),'eye-mask.png':sha(b'mask')}
+        marker.write_text(json.dumps(record));before=marker.read_bytes()
+        self.assertIsNone(open_raw(cache,wanted,'eye'))
+        self.assertEqual(marker.read_bytes(),before)
     def test_legacy_corruption_is_rejected_before_version_cache_miss(self):
         cache,wanted=self.save('eye')
         for version in (1,2):

@@ -1,7 +1,7 @@
 """閉眼の線を原寸で測定し、線の無い画像を拒否する。"""
 import unittest
 import numpy as np
-from materials import closed_curve,extract_lid_ink,validate_masked_pixels,reconstruct_closed_skin,replace_closed_backing
+from materials import closed_curve,extract_lid_ink,validate_masked_pixels,reconstruct_closed_skin,reconstruct_eye_skin,replace_closed_backing
 
 
 class ClosedPreviewTests(unittest.TestCase):
@@ -94,6 +94,24 @@ class ClosedPreviewTests(unittest.TestCase):
         self.assertTrue(np.all(result[~hidden,:3]==155))
         self.assertTrue(np.all(result[~hidden,3]==254))
         self.assertTrue(np.all(original[:,:,:3]==200))
+
+    def test_open_eye_is_filled_from_surrounding_skin_without_an_oval_edge(self):
+        yy,xx=np.mgrid[:24,:32]
+        skin=np.stack([180+xx*.4+yy*.2,150+xx*.3+yy*.1,130+xx*.2],axis=2)
+        source=skin.copy();region=np.zeros((24,32),bool);region[7:18,8:24]=True
+        source[region]=255
+        donors=~region
+        result,metrics=reconstruct_eye_skin(source,region,donors)
+        self.assertEqual(metrics['filled_eye_pixels'],176)
+        np.testing.assert_array_equal(result[~region],source[~region])
+        self.assertLess(np.abs(result[region]-skin[region]).max(),4)
+
+    def test_eye_skin_rejects_missing_region_or_boundary(self):
+        source=np.full((8,10,3),180.)
+        with self.assertRaisesRegex(ValueError,'領域がありません'):
+            reconstruct_eye_skin(source,np.zeros((8,10),bool),np.ones((8,10),bool))
+        with self.assertRaisesRegex(ValueError,'肌が不足'):
+            reconstruct_eye_skin(source,np.ones((8,10),bool),np.zeros((8,10),bool))
 
     def test_skin_reconstruction_rejects_missing_donors_or_unverified_dark_line(self):
         edited=np.full((12,16,3),150.)

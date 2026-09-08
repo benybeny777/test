@@ -1,5 +1,6 @@
 """管理下ComfyUIで局所閉眼を補完し、検証済みのリグ世代だけを公開する。"""
 import argparse
+import copy
 import hashlib
 import importlib.util
 import importlib.metadata
@@ -35,11 +36,44 @@ client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
 VERSION = 4
 # 推論や入力準備の意味を変えた場合に上げる。抽出だけの変更ではGPUを再実行しない。
-IMAGE_GENERATION_VERSION = 3
-PROMPT = ('Close both eyes naturally, preserving the original character identity and original rendering style. '
-          'Relaxed closed eyelids with a thin natural eyelash line. Edit only the eyes within the mask. '
+IMAGE_GENERATION_VERSION = 5
+PROMPT = ('Close only the specified eye completely, preserving the original character identity and original rendering style. '
+          'The specified eye must be fully shut with a relaxed closed eyelid and a thin natural eyelash line; leave no iris, pupil, sclera, or open eye visible. Edit only that eye within the mask. '
           'Preserve the original hair, eyebrows, nose, mouth, skin texture, lighting, pose and image framing. '
           'Do not change any unmasked area.')
+
+
+def side_prompt(base, side):
+    label = 'left' if side == 'left' else 'right'
+    return f'{base} The specified eye is the character\'s {label} eye.'
+
+
+def sequential_eye_workflow(template, args):
+    """同一ComfyUI起動内で左右を別マスクのまま直列編集する。"""
+    workflow = copy.deepcopy(template)
+    required = {'7','8','9','10','12','13','14','15','16'}
+    if not required.issubset(workflow):
+        raise ValueError('閉眼の左右直列編集に必要なworkflowノードがありません')
+    workflow['7']['inputs']['prompt'] = side_prompt(args.prompt,'left')
+    workflow['14']['inputs']['image'] = 'left-eye-mask.png'
+    workflow['10']['inputs'].update(steps=args.steps, seed=args.seed, latent_image=['15',0])
+    mapping={'7':'17','8':'18','9':'19','10':'20','12':'21','14':'22','15':'23','16':'24'}
+    def remap(value):
+        if isinstance(value,list):
+            if len(value)==2 and isinstance(value[0],str) and value[0] in mapping:
+                return [mapping[value[0]],value[1]]
+            return [remap(item) for item in value]
+        if isinstance(value,dict):return {key:remap(item) for key,item in value.items()}
+        return value
+    for old,new in mapping.items():workflow[new]=remap(copy.deepcopy(workflow[old]))
+    workflow['17']['inputs'].update(prompt=side_prompt(args.prompt,'right'),image1=['16',0])
+    workflow['18']['inputs']['image1']=['16',0]
+    workflow['19']['inputs']['pixels']=['16',0]
+    workflow['20']['inputs'].update(steps=args.steps,seed=(args.seed+1)%(2**32),latent_image=['23',0])
+    workflow['22']['inputs']['image']='right-eye-mask.png'
+    workflow['24']['inputs']['destination']=['16',0]
+    workflow['13']['inputs']['images']=['24',0]
+    return workflow
 
 
 def digest(path):
@@ -233,21 +267,24 @@ def complete_locked(args):
     original = np.array(isolated.crop(bounds))
     with np.load(args.character/'analysis/masks.npz', allow_pickle=False) as masks:
         all_masks = {name:masks[name].copy() for name in masks.files}
-        mask = eye_edit_mask([masks[s+'_eye'][t:b, l:r] for s in ('left', 'right')],
-                             masks['hair'][t:b, l:r], original[:, :, 3], args.mask_margin_ratio,args.mask_core_ratio)
+        eye_masks = {side:eye_edit_mask([masks[side+'_eye'][t:b, l:r]],
+                     masks['hair'][t:b, l:r], original[:, :, 3], args.mask_margin_ratio,args.mask_core_ratio)
+                     for side in ('left','right')}
+        if np.any((eye_masks['left']>0)&(eye_masks['right']>0)):
+            raise ValueError('左右の閉眼編集マスクが重なっています')
+        mask = np.maximum(eye_masks['left'],eye_masks['right'])
     run = args.character/'temp'/('completion-'+uuid.uuid4().hex)
     for name in ('input', 'output', 'temp', 'user'):
         (run/name).mkdir(parents=True)
     white = Image.new('RGBA', (r-l, b-t), 'white')
     white.alpha_composite(Image.fromarray(original))
     white.convert('RGB').save(run/'input/input.png')
-    Image.fromarray(mask).convert('RGB').save(run/'input/eye-mask.png')
+    for side in ('left','right'):
+        Image.fromarray(eye_masks[side]).convert('RGB').save(run/f'input/{side}-eye-mask.png')
     workflow = json.loads(args.workflow.read_text(encoding='utf-8'))
     workflow.update(json.loads(args.overlay.read_text(encoding='utf-8')))
-    # overlay の VAEEncode は原寸入力から潜在寸法を決める。幅・高さの再指定や拡大はしない。
-    workflow['10']['inputs'].update(steps=args.steps, seed=args.seed, latent_image=['15', 0])
-    workflow['7']['inputs']['prompt'] = args.prompt
-    workflow['13']['inputs']['images'] = ['16', 0]
+    # 左右は別マスクの原寸潜在表現を順番に編集し、両目同時指示の片目残りを避ける。
+    workflow = sequential_eye_workflow(workflow,args)
     inputs = tree_hashes(run/'input')
     generation_identity.update(inputs=inputs, source_region=list(bounds), resolved_workflow=workflow)
     def guard():

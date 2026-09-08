@@ -88,6 +88,8 @@ class ControllerTests(unittest.TestCase):
             events.append('original' if source_reference else 'generated')
             if source_reference and threshold > .3:
                 return [mask.copy(),np.zeros_like(mask)],{'status':'partial'}
+            if not source_reference:
+                return [np.zeros_like(mask),mask.copy()],{'status':'partial'}
             return [mask.copy(),mask.copy()],{'status':'complete'}
         def infer(*values):
             events.append('edit');return self.infer(*values)
@@ -96,6 +98,8 @@ class ControllerTests(unittest.TestCase):
             result=hidden_bridge.prepare_hidden(self.args,self.prepared,[0,0,64,64],self.source,generation,
                     lambda:None,infer,lambda *a,**k:None,original,masks)
             self.assertEqual(events,['original','edit','edit','generated'])
+            self.assertTrue(result['ears']['source_ears'].any())
+            self.assertTrue(result['ears']['generated_ears'].any())
             hidden_bridge.assert_hidden_sources(self.args,result,lambda:None)
             hidden_bridge.prepare_hidden(self.args,self.prepared,[0,0,64,64],self.source,generation,
                     lambda:None,infer,lambda *a,**k:None,original,masks)
@@ -104,6 +108,7 @@ class ControllerTests(unittest.TestCase):
             partial=hidden_bridge.prepare_hidden(self.args,self.prepared,[0,0,64,64],self.source,generation,
                     lambda:None,infer,lambda *a,**k:None,original,masks)
             self.assertFalse(partial['ears']['source_ears'].any())
+            self.assertFalse(partial['ears']['generated_ears'].any())
             with np.load(self.root/'completion-original-ears/masks.npz') as raw:
                 self.assertTrue(raw['left'].any());self.assertFalse(raw['right'].any())
             with self.assertRaisesRegex(ValueError,'耳解析素材'):
@@ -159,8 +164,13 @@ class ControllerTests(unittest.TestCase):
     def test_source_ear_absence_is_explicit_not_fake_coordinates(self):
         detections={'face':[([10,10,50,50],.9)],'ear':[]}
         self.assertEqual(choose_ears(detections,True),[None,None])
-        with self.assertRaisesRegex(ValueError,'左右'):
+        with self.assertRaisesRegex(ValueError,'一側も'):
             choose_ears(detections,False)
+
+    def test_generated_one_side_is_partial_without_fake_coordinates(self):
+        detections={'face':[([10,10,90,90],.8)],'ear':[([75,35,85,55],.5)]}
+        boxes=choose_ears(detections,False)
+        self.assertIsNone(boxes[0]);self.assertEqual(boxes[1],detections['ear'][0])
 
 
 

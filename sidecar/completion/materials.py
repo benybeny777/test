@@ -98,6 +98,27 @@ def reconstruct_closed_skin(edited,line_mask,allowed):
                          'extra_pixels':int((extra&~core).sum()),'radius':radius,'noise':noise}
 
 
+def reconstruct_eye_skin(source, region, donors):
+    """原画の開眼画素を意味解析済みの周辺肌から補間し、閉眼用の下地を作る。"""
+    if source.ndim!=3 or source.shape[2]!=3 or region.shape!=source.shape[:2]:
+        raise ValueError('閉眼下地の補間寸法が一致しません')
+    if donors.shape!=region.shape:raise ValueError('閉眼下地の肌領域寸法が一致しません')
+    if region.dtype!=bool or donors.dtype!=bool:raise ValueError('閉眼下地の領域は真偽マスクが必要です')
+    if not np.isfinite(source).all():raise ValueError('閉眼下地に不正な画素があります')
+    if not region.any():raise ValueError('閉眼下地の補間領域がありません')
+    usable=donors&~region
+    if usable.sum()<4:raise ValueError('閉眼下地の周囲に補間用の肌が不足しています')
+    sigma=max(2.,np.sqrt(region.sum())/5.)
+    weights=ndimage.gaussian_filter(usable.astype(float),sigma=sigma,mode='nearest')
+    if np.any(weights[region]<1e-8):raise ValueError('閉眼下地の肌補間が成立しません')
+    field=np.empty_like(source,dtype=float)
+    for channel in range(3):
+        values=ndimage.gaussian_filter(source[:,:,channel]*usable,sigma=sigma,mode='nearest')
+        field[:,:,channel]=values/np.maximum(weights,1e-8)
+    result=source.astype(float).copy();result[region]=np.clip(field[region],0,255)
+    return result,{'filled_eye_pixels':int(region.sum()),'donor_skin_pixels':int(usable.sum()),'blend_sigma':float(sigma)}
+
+
 def replace_closed_backing(backing,clean,weight,protected):
     """生成済みの肌を編集範囲だけへ置き、保護領域では元の顔を透過表示する。"""
     if clean.shape!=backing[:,:,:3].shape or weight.shape!=backing.shape[:2] or protected.shape!=weight.shape:

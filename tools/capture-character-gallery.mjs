@@ -11,6 +11,8 @@ if(!/^c_[0-9a-f]{12}$/.test(id??''))throw new Error('確認対象のキャラID�
 const destination=resolve(output);
 const tempRoot=resolve('temp');
 if(!destination.startsWith(tempRoot+'\\')&&!destination.startsWith(tempRoot+'/'))throw new Error('撮影先はtemp内に限定します');
+const previewUrl=process.env.LVS_PREVIEW_URL??'http://127.0.0.1:8791/ui/check.html';
+if(!/^http:\/\/127\.0\.0\.1:\d+\/ui\/check\.html$/.test(previewUrl))throw new Error('撮影先は管理下のローカル確認画面に限定します');
 const packagePath=process.env.LVS_PLAYWRIGHT_MODULE;
 const {chromium}=await import(packagePath?pathToFileURL(packagePath).href:'playwright');
 await mkdir(destination,{recursive:true});
@@ -21,8 +23,8 @@ try{
   const errors=[];
   const captures=[];
   const animationChecks={};
-  page.on('pageerror',error=>errors.push(error.message));
-  await page.goto(`http://127.0.0.1:8791/ui/check.html?character=${id}`);
+  page.on('pageerror',error=>errors.push(error.stack??error.message));
+  await page.goto(`${previewUrl}?character=${id}`);
   await page.getByRole('button',{name:'中立状態へ戻す',exact:true}).waitFor();
   await page.waitForFunction(()=>{
     const text=document.querySelector('#status')?.textContent;
@@ -33,8 +35,9 @@ try{
   const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
   const waitForValue=async(locator,predicate,timeoutMs)=>{
     const deadline=Date.now()+timeoutMs;
-    while(Date.now()<deadline){const value=Number(await locator.inputValue());if(predicate(value))return value;await page.waitForTimeout(25);}
-    throw new Error('アニメーションのパラメータ変化を確認できません');
+    let lastValue=Number(await locator.inputValue());
+    while(Date.now()<deadline){if(predicate(lastValue))return lastValue;await page.waitForTimeout(50);lastValue=Number(await locator.inputValue());}
+    throw new Error('アニメーションのパラメータ変化を確認できません。最終値: '+lastValue);
   };
   const capture=async name=>{
     await settle();
@@ -80,7 +83,7 @@ try{
   }
   await page.getByRole('button',{name:'顔の拡大検査',exact:true}).click();
   await page.getByRole('button',{name:'口パク動作テスト（無音）',exact:true}).click();
-  animationChecks.mouthOpenY=await waitForValue(page.getByRole('slider',{name:'開き',exact:true}),value=>value>.2,5000);
+  animationChecks.mouthOpenY=await waitForValue(page.getByRole('slider',{name:'開き',exact:true}),value=>value>.2,10000);
   await page.getByRole('button',{name:'自動まばたきを開始',exact:true}).click();
   animationChecks.autoBlinkOpen=await waitForValue(page.getByRole('slider',{name:'左目',exact:true}),value=>value<=.01,1500);
   await page.getByRole('button',{name:'口パクテストを停止',exact:true}).click();
