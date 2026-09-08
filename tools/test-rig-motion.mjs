@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {headDisplacement,armDisplacement,bodyBreathDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from '../ui/shared/rig-motion.js';
+import {headDisplacement,armDisplacement,bodyBreathDisplacement,validateSecondaryMotion,springStep,hairSecondaryDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from '../ui/shared/rig-motion.js';
 
 test('耳境界の補修は中立と比較オフでゼロ、指定角度で上限になる',()=>{
   const profile={repair_layer:'scene_ear_repair',angle_limit:15};
@@ -51,4 +51,16 @@ test('呼吸は肩と頭を一緒に動かし、胴体下端で0になる',()=>{
   assert.notEqual(bodyBreathDisplacement(20,100,torso,neck,100,200,1)[0],0);
   assert.deepEqual(bodyBreathDisplacement(50,180,torso,neck,100,200,1),[0,0]);
   assert.throws(()=>bodyBreathDisplacement(0,0,undefined,neck,100,200,1));
+});
+test('髪物理は頭の目標へ遅れて収束し中心上部を過剰に動かさない',()=>{
+  const profile={hair:{role:'hair',frequency_hz:1.8,damping_ratio:.72,strength:1}};
+  validateSecondaryMotion(profile);assert.throws(()=>validateSecondaryMotion({hair:{...profile.hair,frequency_hz:0}}));
+  let spring={value:0,velocity:0};
+  spring=springStep(spring,1,.016,1.8,.72);assert.ok(spring.value>0&&spring.value<1);
+  for(let i=0;i<300;i++)spring=springStep(spring,1,.016,1.8,.72);
+  assert.ok(Math.abs(spring.value-1)<.001);
+  const center=hairSecondaryDisplacement(50,20,[30,10,70,70],100,200,1,1);
+  const tip=hairSecondaryDisplacement(15,65,[30,10,70,70],100,200,1,1);
+  assert.ok(Math.hypot(...tip)>Math.hypot(...center));
+  assert.deepEqual(hairSecondaryDisplacement(15,65,[30,10,70,70],100,200,0,1),[0,0]);
 });

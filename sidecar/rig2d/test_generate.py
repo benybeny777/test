@@ -48,6 +48,8 @@ class RigCreationTests(unittest.TestCase):
             rig = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(rig["profile"], "lvs-anime25d-v1")
             self.assertEqual(rig['schema_version'],3)
+            self.assertEqual(rig['secondary_motion_version'],1)
+            self.assertEqual(rig['secondary_motion']['hair']['role'],'hair')
             self.assertEqual(rig['layers']['neutral']['texture_box'],[11,17,25,32])
             with Image.open(root/'output/parts/neutral.png') as image:
                 self.assertEqual(image.size,(14,15))

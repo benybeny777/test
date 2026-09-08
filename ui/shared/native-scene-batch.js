@@ -1,10 +1,12 @@
 import {bleedTransparentRgb} from './texture-alpha.js';
 
-// 順序を保った連続区間だけをまとめる。生成下地と独立移動する髪を越えない。
-export function planSceneBatches(graph,independentHair){
+// 順序を保った連続区間だけをまとめる。生成下地と独立移動する部位を越えない。
+export function planSceneBatches(graph,independentRoles=[]){
+  // フォールバック許可: 旧呼出しの真偽値は髪だけを独立させる指定として読む。
+  const roles=new Set(independentRoles===true?['hair']:independentRoles||[]);
   const batches=[];
   for(const part of graph){
-    const separate=part.role==='hidden_face'||(independentHair&&part.role==='hair');
+    const separate=part.role==='hidden_face'||roles.has(part.role);
     if(separate)batches.push({separate:true,parts:[part]});
     else if(batches.length&&!batches.at(-1).separate)batches.at(-1).parts.push(part);
     else batches.push({separate:false,parts:[part]});

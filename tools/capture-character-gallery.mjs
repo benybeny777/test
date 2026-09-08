@@ -36,7 +36,11 @@ try{
   const waitForValue=async(locator,predicate,timeoutMs)=>{
     const deadline=Date.now()+timeoutMs;
     let lastValue=Number(await locator.inputValue());
-    while(Date.now()<deadline){if(predicate(lastValue))return lastValue;await page.waitForTimeout(50);lastValue=Number(await locator.inputValue());}
+    while(Date.now()<deadline){
+      if(errors.length)throw new Error(errors.join('\n'));
+      if(predicate(lastValue))return lastValue;
+      await page.waitForTimeout(50);lastValue=Number(await locator.inputValue());
+    }
     throw new Error('アニメーションのパラメータ変化を確認できません。最終値: '+lastValue);
   };
   const capture=async name=>{

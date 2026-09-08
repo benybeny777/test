@@ -169,6 +169,15 @@ def _create_rig(manifest_path: Path, output_path: Path, published_dir: Path) -> 
         "eye_rig_version": 3,
         "scene_graph_version": 1,
         "scene_graph": manifest.get('scene_graph',[]),
+        "secondary_motion_version": 1,
+        "secondary_motion": {
+            "hair": {
+                "role": "hair",
+                "frequency_hz": 1.8,
+                "damping_ratio": 0.72,
+                "strength": 1.0,
+            }
+        },
         "material_status": manifest.get('material_status',{}),
         "profile": "lvs-anime25d-v1",
         "material_readiness": manifest.get("material_readiness", {

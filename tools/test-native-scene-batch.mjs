@@ -29,6 +29,7 @@ test('生成下地と独立髪を越えず連続した共通変位群だけを�
   const graph=['torso','neck','hidden_face','face','hair','residual'].map(role=>({role,layer:'scene_'+role}));
   assert.deepEqual(planSceneBatches(graph,true).map(b=>b.parts.map(p=>p.role)),[['torso','neck'],['hidden_face'],['face'],['hair'],['residual']]);
   assert.deepEqual(planSceneBatches(graph,false).map(b=>b.parts.map(p=>p.role)),[['torso','neck'],['hidden_face'],['face','hair','residual']]);
+  assert.deepEqual(planSceneBatches(graph,['face','hair']).map(b=>b.parts.map(p=>p.role)),[['torso','neck'],['hidden_face'],['face'],['hair'],['residual']]);
 });
 test('254の相補境界は原寸合成後の補間で254を保つ',()=>{
   const face=image(2,1,[80,120,160,254]),hair=image(2,1,[80,120,160,254]);
