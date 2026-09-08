@@ -3,7 +3,7 @@ import {localAssetUrl,loadLocalJson} from './local-assets.js';
 import {drawMouth,lipMesh,MOUTH_PRESETS} from './mouth-geometry.js?v=local-lips7';
 import {eyeAperture,drawBlink,automaticBlinkOpen,AUTOMATIC_BLINK_DURATION_MS} from './eye-geometry.js?v=visible-blink1';
 import {planSceneBatches,sceneBatchBox,createNativeSceneBatch} from './native-scene-batch.js';
-import {headDisplacement,armDisplacement,bodyBreathDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=body-breath1';
+import {headDisplacement,armDisplacement,bodyBreathDisplacement,validateSecondaryMotion,springStep,hairSecondaryDisplacement,validateHiddenMotion,hiddenOffset,hiddenRepairAmount} from './rig-motion.js?v=hair-spring1';
 import {createHairCoverage} from './hair-coverage.js';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -28,7 +28,8 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
   const camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);camera.position.z=2;
   const faceCanvas=document.createElement('canvas'),ctx=faceCanvas.getContext('2d');
   let rig,state={},images=new Map(),meshes=[],textures=[],batches=[],positions,worldUV,faceBatch,faceTexture,faceAlpha,hairCoverage;
-  let revision=0,disposed=false,frame,nextBlink=Infinity,lastAppearance='';
+  let revision=0,disposed=false,frame,nextBlink=Infinity,lastAppearance='',lastFrameTime;
+  let hairSpring={value:0,velocity:0};
   const resize=()=>renderer.setSize(Math.max(1,canvas.clientWidth),Math.max(1,canvas.clientHeight),false);
   const observer=new ResizeObserver(resize);observer.observe(canvas);resize();
   function release(){
@@ -37,7 +38,7 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
     for(const texture of textures)texture.dispose();
     for(const batch of batches)batch.dispose();
     meshes=[];textures=[];batches=[];images.clear();faceBatch=null;faceTexture=null;faceAlpha=null;rig=null;positions=null;worldUV=null;
-    faceCanvas.width=faceCanvas.height=0;
+    faceCanvas.width=faceCanvas.height=0;lastFrameTime=undefined;hairSpring={value:0,velocity:0};
   }
   async function applyState(next,{beforeCommit}={}){
     if(disposed)throw new Error('破棄済みの描画画面には読み込めません');
@@ -50,6 +51,8 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
         throw new Error('独立部位または目口の素材がない旧リグです。分解から再生成してください');
       const graph=incoming.scene_graph;
       validateHiddenMotion(incoming.hidden_motion,65*97);
+      if(incoming.secondary_motion_version!==undefined&&incoming.secondary_motion_version!==1)throw new Error('局所物理の版に対応していません');
+      validateSecondaryMotion(incoming.secondary_motion);
       if(incoming.hidden_motion&&!graph?.some(p=>p.role==='hidden_face'))throw new Error('補完比較の下地がありません');
       if(!Array.isArray(graph)||graph.length<6||new Set(graph.map(p=>p.role)).size!==graph.length||!graph.some(p=>p.role==='face'))
         throw new Error('独立部位の構造が不正です');
@@ -75,10 +78,12 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
       const face=images.get('scene_face');faceCanvas.width=face.naturalWidth;faceCanvas.height=face.naturalHeight;
       ctx.drawImage(face,0,0);faceAlpha=ctx.getImageData(0,0,faceCanvas.width,faceCanvas.height).data.filter((_,i)=>i%4===3);
       try{
-      for(const [index,plan] of planSceneBatches(graph,Boolean(rig.hidden_motion)).entries()){
+      const independentRoles=[];
+      if(rig.hidden_motion||rig.secondary_motion?.hair)independentRoles.push('hair');
+      for(const [index,plan] of planSceneBatches(graph,independentRoles).entries()){
         const part=plan.parts[0];
         const geometry=template.clone();
-        geometry.setAttribute('position',plan.separate&&rig.hidden_motion&&part.role==='hair'?positions.clone():positions);
+        geometry.setAttribute('position',plan.separate?positions.clone():positions);
         const box=sceneBatchBox(plan.parts,rig.layers),uv=geometry.attributes.uv;
         for(let i=0;i<uv.count;i++)uv.setXY(i,(worldUV[i*2]*w-box[0])/(box[2]-box[0]),1-((1-worldUV[i*2+1])*h-box[1])/(box[3]-box[1]));
         let texture;
@@ -152,6 +157,9 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
       appearance(state.eyeLOpen===undefined?blinkOpen:clamp(state.eyeLOpen,0,1),state.eyeROpen===undefined?blinkOpen:clamp(state.eyeROpen,0,1),open,form);
       const {width:w,height:h}=rig.canvas,face=rig.layers.face.bbox,neck=rig.layers.scene_neck.bbox,torso=rig.layers.scene_torso.bbox,cx=(face[0]+face[2])/2;
       const idlePhase=now/(state.idleSwayPeriodMs??4200)*Math.PI*2,wave=Math.sin(idlePhase),idleAmount=state.idleSwayDegrees??.7,sway=idleAmount*wave;
+      const elapsed=lastFrameTime===undefined?0:Math.max(0,(now-lastFrameTime)/1000);lastFrameTime=now;
+      const hairProfile=rig.secondary_motion?.hair,hairTarget=(state.hairSway??wave)*idleAmount;
+      if(hairProfile)hairSpring=springStep(hairSpring,hairTarget,elapsed,hairProfile.frequency_hz,hairProfile.damping_ratio);
       // 部位は独立テクスチャ・メッシュ。未補完の接続部を裂かない共通変位場を当面共有する。
       for(let i=0;i<positions.count;i++){
         const x=worldUV[i*2]*w,y=(1-worldUV[i*2+1])*h,head=1-smooth(face[3],Math.max(face[3]+1,neck[3]),y);
@@ -162,17 +170,20 @@ export function createAvatarRenderer(canvas,{onError=error=>{throw error;}}={}){
         const side=x<cx?'left':'right',arm=rig.layers[side+'_arm'].bbox;
         const [armX,armY]=armDisplacement(x,y,arm,cx,w,state.armPose?.[side+'UpperArm']?.[2]??0);
         dx+=armX;dy+=armY;
-        dx+=(state.hairSway??wave)*(state.idleSwayDegrees??.7)*w*.001*head*smooth(w*.045,w*.13,Math.abs(x-cx));
+        if(!hairProfile)dx+=hairTarget*w*.001*head*smooth(w*.045,w*.13,Math.abs(x-cx));
         positions.setXYZ(i,x-w/2+dx,h/2-y-dy,0);
       }
       positions.needsUpdate=true;
       let independentHairMoved=false;
       for(const mesh of meshes){
         if(mesh.userData.role==='hidden_face')mesh.visible=state.showHiddenMaterial!==false;
-        if(rig.hidden_motion&&mesh.userData.role==='hair'){
+        if((rig.hidden_motion||hairProfile)&&mesh.userData.role==='hair'){
           const hairPositions=mesh.geometry.attributes.position;
           for(let i=0;i<positions.count;i++){
-            const [dx,dy]=hiddenOffset(rig.hidden_motion,i,state.yaw??0,state.pitch??0);
+            const x=worldUV[i*2]*w,y=(1-worldUV[i*2+1])*h;
+            const [hiddenX,hiddenY]=rig.hidden_motion?hiddenOffset(rig.hidden_motion,i,state.yaw??0,state.pitch??0):[0,0];
+            const [springX,springY]=hairProfile?hairSecondaryDisplacement(x,y,face,w,h,hairSpring.value,hairProfile.strength):[0,0];
+            const dx=hiddenX+springX,dy=hiddenY+springY;
             independentHairMoved ||= dx!==0||dy!==0;
             hairPositions.setXYZ(i,positions.getX(i)+dx,positions.getY(i)-dy,0);
           }

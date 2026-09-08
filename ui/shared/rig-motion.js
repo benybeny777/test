@@ -31,6 +31,35 @@ export function bodyBreathDisplacement(x,y,torso,neck,width,height,amount){
   const strength=clamp(amount,-2,2);
   return [(x-cx)*strength*.0012*weight,-height*strength*.0012*weight];
 }
+export function validateSecondaryMotion(profile){
+  if(profile===undefined)return;
+  const hair=profile?.hair;
+  if(profile===null||hair?.role!=='hair'||
+     !Number.isFinite(hair.frequency_hz)||hair.frequency_hz<.2||hair.frequency_hz>8||
+     !Number.isFinite(hair.damping_ratio)||hair.damping_ratio<.2||hair.damping_ratio>2||
+     !Number.isFinite(hair.strength)||hair.strength<0||hair.strength>2)
+    throw new Error('局所物理の定義が不正です');
+}
+export function springStep(current,target,elapsedSeconds,frequencyHz,dampingRatio){
+  if(!current||![current.value,current.velocity,target,elapsedSeconds,frequencyHz,dampingRatio].every(Number.isFinite)||
+     elapsedSeconds<0||frequencyHz<=0||dampingRatio<=0)throw new Error('局所物理の状態が不正です');
+  let value=current.value,velocity=current.velocity,remaining=Math.min(elapsedSeconds,.1);
+  const omega=2*Math.PI*frequencyHz;
+  // 長い停止後も発散させないため、最大10msずつ半陰解法で積分する。
+  while(remaining>0){const dt=Math.min(remaining,.01);
+    velocity+=((target-value)*omega*omega-2*dampingRatio*omega*velocity)*dt;
+    value+=velocity*dt;remaining-=dt;
+  }
+  return {value,velocity};
+}
+export function hairSecondaryDisplacement(x,y,face,width,height,value,strength){
+  if(![x,y,width,height,value,strength].every(Number.isFinite)||!Array.isArray(face)||face.length!==4||!face.every(Number.isFinite))
+    throw new Error('髪物理に必要な範囲が不正です');
+  const cx=(face[0]+face[2])/2,side=smooth(width*.035,width*.24,Math.abs(x-cx));
+  const vertical=smooth(face[1],Math.max(face[1]+1,face[3]),y);
+  const weight=Math.max(side,vertical*.45);
+  return [value*strength*width*.0022*weight,Math.abs(value)*strength*height*.00035*vertical];
+}
 // 比較用の局所髪移動。未補完の外周・首肩には変位を加えない。
 export function validateHiddenMotion(profile,count){
   if(profile===undefined)return;
