@@ -11,15 +11,15 @@ from hidden_controller import ear_analysis
 class EarFailureDiagnosticTests(unittest.TestCase):
     def detections(self):return {'face':[([10,10,90,90],.8)],'ear':[([12,35,22,55],.4),([75,35,85,55],.5)]}
 
-    def test_success_and_source_partial_rules_unchanged(self):
+    def test_success_and_one_side_partial_rules(self):
         data=self.detections();self.assertEqual(choose_ears(data,False),data['ear'])
         data['ear']=data['ear'][1:]
         self.assertEqual(choose_ears(data,True),[None,data['ear'][0]])
-        with self.assertRaises(EarSelectionError):choose_ears(data,False)
+        self.assertEqual(choose_ears(data,False),[None,data['ear'][0]])
 
     def test_absence_width_side_and_missing_face_are_distinct(self):
         scenarios=[({'ear':[]},'face_not_detected'),({'face':[([10,10,90,90],.8)],'ear':[]},None),
-                   ({'face':[([10,10,90,90],.8)],'ear':[([0,30,60,50],.9),([75,35,85,55],.5)]},None)]
+                   ({'face':[([10,10,90,90],.8)],'ear':[([0,30,60,50],.9)]},None)]
         for data,reason in scenarios:
             with self.assertRaises(EarSelectionError) as caught:choose_ears(data,False)
             report=caught.exception.ear_diagnostics
@@ -27,8 +27,7 @@ class EarFailureDiagnosticTests(unittest.TestCase):
             elif not data['ear']:self.assertEqual(report['sides']['left']['candidates'],[])
             else:
                 self.assertIn('width_out_of_range',report['sides']['left']['candidates'][0]['rejections'])
-                self.assertIn('opposite_side',report['sides']['left']['candidates'][1]['rejections'])
-                self.assertEqual(report['sides']['right']['selected_index'],1)
+                self.assertIsNone(report['sides']['right']['selected_index'])
 
     def test_failure_persists_diagnostics_without_touching_success_cache(self):
         temporary=Path.cwd()/'temp';temporary.mkdir(exist_ok=True)
@@ -41,7 +40,7 @@ class EarFailureDiagnosticTests(unittest.TestCase):
                     (cache/'masks.npz').write_bytes(b'old-mask')
                 before={p.name:p.read_bytes() for p in cache.iterdir()} if existing else {}
                 def segment(*args):
-                    data=self.detections();data['ear']=data['ear'][1:];choose_ears(data,False)
+                    data=self.detections();data['ear']=[];choose_ears(data,False)
                 with self.assertRaises(EarSelectionError) as caught:
                     ear_analysis(cache,image,False,{'threshold':.2},segment,lambda:None,lambda:None)
                 after={p.name:p.read_bytes() for p in cache.iterdir()} if cache.exists() else {}
@@ -63,7 +62,7 @@ class EarFailureDiagnosticTests(unittest.TestCase):
                     ear_analysis(root/'cache',image,False,{},segment,lambda:None,lambda:None)
             self.assertIsInstance(caught.exception.__cause__,EarSelectionError)
             self.assertIn('fixture write denied',str(caught.exception))
-            self.assertIn('生成耳を左右とも検出できません',str(caught.exception))
+            self.assertIn('生成耳を一側も検出できません',str(caught.exception))
             self.assertFalse((root/'cache').exists())
 
     @unittest.skipUnless(os.name=='nt','Windowsの実junction検査')

@@ -44,11 +44,11 @@ def choose_ears(detections, source_reference):
         candidates = [(box, score) for box, score in detections.get('ear', [])
                       if ((box[0]+box[2])/2 < cx) == left and 0 < box[2]-box[0] < (face[2]-face[0])*.6]
         if not candidates:
-            if not source_reference:
-                raise EarSelectionError('生成耳を左右とも検出できません。固定座標で補いません',ear_selection_diagnostics(detections))
             boxes.append(None)
         else:
             boxes.append(max(candidates, key=lambda pair: pair[1]))
+    if not source_reference and not any(boxes):
+        raise EarSelectionError('生成耳を一側も検出できません。固定座標で補いません',ear_selection_diagnostics(detections))
     return boxes
 
 

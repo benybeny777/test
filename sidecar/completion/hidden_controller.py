@@ -133,7 +133,7 @@ def ear_analysis(cache, image, source_reference, parser_identity, segment, asser
     if cache.is_symlink():
         raise ValueError('耳解析キャッシュにリンクを使用できません')
     fingerprint = digest(image)
-    identity = {'version': 1, 'input_sha256': fingerprint, 'source_reference': source_reference, 'parser': parser_identity}
+    identity = {'version': 2, 'input_sha256': fingerprint, 'source_reference': source_reference, 'parser': parser_identity}
     marker = cache/'manifest.json'
     if marker.is_file():
         record = json.loads(marker.read_text(encoding='utf-8'))
@@ -147,8 +147,8 @@ def ear_analysis(cache, image, source_reference, parser_identity, segment, asser
                 expected = (opened.height, opened.width)
             if any(mask.dtype != bool or mask.shape != expected for mask in masks):
                 raise ValueError('耳解析キャッシュの原寸が一致しません')
-            if not source_reference and any(not mask.any() for mask in masks):
-                raise ValueError('キャッシュ内に左右の生成耳が必要です')
+            if not source_reference and not any(mask.any() for mask in masks):
+                raise ValueError('キャッシュ内に生成耳が1側以上必要です')
             guard()
             return masks, record
     assert_comfy_stopped(); guard()
@@ -167,8 +167,8 @@ def ear_analysis(cache, image, source_reference, parser_identity, segment, asser
         raise
     if len(masks) != 2 or any(mask.dtype != bool or mask.shape != (original.height, original.width) for mask in masks):
         raise ValueError('耳解析の出力が原寸左右マスクではありません')
-    if not source_reference and any(not mask.any() for mask in masks):
-        raise ValueError('左右の生成耳が必要です')
+    if not source_reference and not any(mask.any() for mask in masks):
+        raise ValueError('生成耳が1側以上必要です')
     with directory_output(cache) as pending:
         np.savez_compressed(pending/'masks.npz', left=masks[0], right=masks[1])
         record = {'identity': identity, 'masks_sha256': digest(pending/'masks.npz'), 'details': details}

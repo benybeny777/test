@@ -20,9 +20,9 @@
 
 ブラウザ確認は固定世代のNDJSON snapshotを逐次受信し、素材SHA・PNG/RGBA・原寸・URL・終了レコードを検証してBlob URLを共通レンダラーへ渡す。配信中断ではleaseと未採用Blobを解放し、旧表示・選択名を保持する。既定上限はレコード0.096 MB、チャンク0.048 MB、1素材32 MB、合計256 MB、256素材、辺長8192px。`display.snapshot_*`の保存値を読み、上限超過を縮小で通さない。サーバーの全体応答bufferを避けるが、ブラウザのBlob・デコード・WebGLメモリは別に必要で、全体の省メモリ実測は未完了。WebGL構築失敗・コンテキスト消失からの復旧までは保証しない。
 
-最終補完版4は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。隠れ顔はマスク版3の肌支持帯と限定境界、横髪/耳は版2のscene髪所有・閉領域・限定境界・測定原画耳と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。両側の原画耳が測れない場合は可視輪郭の描き直しを抑止し、partialと画面の警告を残す。生成耳が両側測れなければ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
+最終補完版4は閉眼に加え、原画耳のDINO/SAM解析→隠れ顔編集→横髪/耳編集→生成耳のDINO/SAM解析を逐次実行する。隠れ顔はマスク版3の肌支持帯と限定境界、横髪/耳は版2のscene髪所有・閉領域・限定境界・測定原画耳と元画像の潜在表現を使い、目口とマスク外を保持する。構図が変わった全体再生成をそのまま貼らない。`completion-hidden-source/`・`completion-side-source/`と`completion-original-ears/`・`completion-generated-ears/`を独立保存し、抽出だけの失敗で推論を繰り返さない。原画または生成画の耳が片側未検出なら、両方で測定できた側だけを補修し、未測定側の輪郭は保持してpartialと画面の警告を残す。生成耳が両側とも測れない場合だけ明示失敗する。追加2回のQwen推論で所要時間が増えるため、閉眼だけの実測時間を全補完の所要時間としない。統合のCPU検証と実機品質検証は別に行う。
 
-作業用の`tools/capture-character-gallery.mjs <characterId> <temp内の出力先>`は起動済み8791の共通確認画面をChromeで撮影する。Node/Playwrightは開発作業用だけで製品依存ではない。既存Playwrightを使う場合は`LVS_PLAYWRIGHT_MODULE`へその`index.mjs`を指定する。Codex Desktopでは`load_workspace_dependencies`が返すNode.js packages配下の`playwright/index.mjs`を使う。2026年9月7日のAstra環境では`C:\Users\benyb\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules\playwright\index.mjs`。存在しなければ同ツールで現行パスを取り直す。中立・左右閉眼・母音・小角度に加え、口と目を止めた全身表示で待機動作を単独撮影してから総合動作を保存する。撮影用Chromeは終了する。ハッシュ差を品質合格と扱わず実画像を目視する。
+作業用の`tools/capture-character-gallery.mjs <characterId> <temp内の出力先>`は起動済みの共通確認画面をChromeで撮影する。既定は8791で、別の管理下ローカルポートを使う場合は`LVS_PREVIEW_URL`へ`http://127.0.0.1:<port>/ui/check.html`を指定する。Node/Playwrightは開発作業用だけで製品依存ではない。既存Playwrightを使う場合は`LVS_PLAYWRIGHT_MODULE`へその`index.mjs`を指定する。Codex Desktopでは`load_workspace_dependencies`が返すNode.js packages配下の`playwright/index.mjs`を使う。2026年9月7日のAstra環境では`C:\Users\benyb\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules\playwright\index.mjs`。存在しなければ同ツールで現行パスを取り直す。中立・左右閉眼・母音・小角度に加え、口と目を止めた全身表示で待機動作を単独撮影してから総合動作を保存する。撮影用Chromeは終了する。ハッシュ差を品質合格と扱わず実画像を目視する。
 
 末尾に`--video`を付けると静止画も従来どおり残し、口パク・自動まばたき中の共通レンダラーのcanvasを8秒の無音`motion.webm`へ録画する。要求値は20 fpsだが、実際のフレームレートは描画負荷に依存するため`requestedFps`と区別する。headless Chromeを使用し、別canvasや生成画像で動きを作らない。開始後に目の開きが0.5未満、口の開きが0.2超へ変化したことと、アニメーションを許可した実canvasの複数フレーム差を検査する。録画機能非対応・空データ・描画エラー・パラメータまたは画素の無変化は明示失敗とし、ページとブラウザを終了する。録画形式・寸法・時間・SHAと動作パラメータを`capture-report.json`へ保存する。WebMの透過再生は閲覧ソフト依存なので、透明境界の合格は別の市松静止画で検証する。
 
@@ -33,7 +33,7 @@ ffmpeg -n -i temp/character-video-test/motion.webm -vf "fps=12,scale='min(480,iw
 
 GIFはスマホ向けの動作確認用に縮小するだけで、原画・最終素材に戻さない。色数や透過表現は元のWebMと異なり、静止画の原寸品質検査を代替しない。
 
-現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の閉眼・隠れ顔・耳を適用した最終リグを`rig-generations/`へ分離し、`rig-current.json`で公開する。口は現状承認済みで、この工程から描き直さない。PicoAgent本体への組み込み、OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。
+現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の閉眼・隠れ顔・耳を適用した最終リグを`rig-generations/`へ分離し、`rig-current.json`で公開する。口は現状承認済みで、生成時の局所補完ではなく共通レンダラーで描く。PicoAgentはschema 3を直接読む。OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。
 
 ```powershell
 cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>
@@ -47,11 +47,11 @@ cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> co
 
 設定画面の「Qwen局所補完の設定」から保存し、次回の補完で読む。全キー・範囲・既定値は[SETTINGS.md](SETTINGS.md)を正本とする。原寸頭部ROIの目マスクだけを編集し、拡大素材を採用しない。このPCの比較実測では閉眼1体約15〜18分、RSS最大約16.3 GB・GPU全体最大約7.6 GB。通常入口の実走・全キャラ品質の証明とは分ける。
 
-`completion-source/{edited.png,manifest.json}`と隠れ顔/耳の2rawは、生成署名と抽出署名を分離する。閉眼生成版3・隠れ顔マスク版3・横髪/耳マスク版2を使う。実入力PNG/マスク・原寸ROI・原画2SHA・モデル・ComfyUIコード/依存版・確定workflow・全条件が厳密一致すれば、解析2SHAだけの変更では再推論しない。元raw manifest全バイトと実生成時source4SHAを保持し、今回のsource4SHAと別に完成証跡へ記録する。RawLeaseが画像とmanifestの取得時SHAを固定し、後工程後・読込時・公開直前に再照合する。原画/解析/基底/コードの実行中変更は拒否する。既知eye1/2・隠れ顔mask1/2・横髪耳mask1は完全性検査後に新版不一致として再生成、未知版/破損は明示失敗。実入力準備や推論の意味を変えた場合だけ生成版を上げる。
+`completion-source/{edited.png,manifest.json}`と隠れ顔/耳の2rawは、生成署名と抽出署名を分離する。閉眼生成版5・隠れ顔マスク版3・横髪/耳マスク版2を使う。閉眼版5は左目編集の出力を右目編集へ渡す直列ワークフローで両目を完全閉眼し、虹彩・瞳・白目を残さない指示を署名に含める。両目同時編集と左右別生成後の合成は、それぞれ片目未編集と境界差が実入力で生じたため採用しない。実入力PNG/マスク・原寸ROI・原画2SHA・モデル・ComfyUIコード/依存版・確定workflow・全条件が厳密一致すれば、解析2SHAだけの変更では再推論しない。元raw manifest全バイトと実生成時source4SHAを保持し、今回のsource4SHAと別に完成証跡へ記録する。RawLeaseが画像とmanifestの取得時SHAを固定し、後工程後・読込時・公開直前に再照合する。原画/解析/基底/コードの実行中変更は拒否する。既知eye1/2/3/4・隠れ顔mask1/2・横髪耳mask1は完全性検査後に新版不一致として再生成、未知版/破損は明示失敗。実入力準備や推論の意味を変えた場合だけ生成版を上げる。
 
 公開世代の`completion.json`には最終版4の現在source4SHA・基底・元rawの出自/画像SHA・抽出コード・完成素材SHAを記録する。公開前SHA検査を外さない。成功後は処理専用一時ディレクトリを除去し、失敗時は診断と成功済みrawを保持する。partialは`rig.local_completion.hidden.warning`へ保存し、最終cache再利用時も画面へ警告する。初回移行で旧mutable rig2dを新方式の完成cacheとして採用せず、検証済みrawから抽出して世代公開する。
 
-閉眼抽出では主曲線を変えず、測定列厚さ内にある薄い/分離した睫毛片を下地から除く。原寸・許可域外・アルファ・白目を保持し、空線/非有限/参照肌不足は明示エラーにする。むぎの原寸抽出候補はChrome半閉眼/全閉眼を確認したが、通常再生成後と別原画の目視は別の受入条件である。
+閉眼抽出では主曲線を変えず、測定列厚さ内にある薄い/分離した睫毛片を下地から除く。原寸・許可域外・原画アルファを保持し、白目を残さない肌色下地を目周囲へ限定して再構成する。空線/非有限/参照肌不足は明示エラーにする。むぎの通常公開版はChromeで半閉眼/全閉眼と連続動作を確認済み。別原画の目視は別の受入条件である。
 
 WindowsのPythonサイドカーは停止状態で起動し、所有するJob Objectへ所属させてから再開する。Jobのkill-on-closeにより正常終了・中断・Drop・不正JSON時にComfyUIを含む子孫も回収する。起動からJob所属までの極短区間にアプリをOS強制終了すると、停止中Pythonだけが残る可能性はある（GPU初期化前）。既存利用者プロセスを名前で一括終了しない。
 
@@ -83,7 +83,7 @@ sidecar/.venv/Scripts/python.exe tools/qwen-eval/segment_ears.py temp/qwen-eval-
 sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_preview.py --character temp/t7-characters/c_190454c86edb --comparison temp/qwen-eval-edit-mugi-head-bf16 --side-comparison temp/qwen-eval-edit-mugi-side-ear-bf16 --redraw-ear-contour
 ```
 
-完了した`ears/`と`source-ears/`には原寸マスクと入力SHAを保存し、既存出力は上書きしない。`--threshold`既定0.2、`--context`既定0.5は検出閾値と耳検出枠に対する解析余白である。生成耳は左右とも必要。原画側は隠れて検出できない側を欠測として記録するが、両側欠測はエラーにする。今回の実測は生成側17.39秒、原画側5.875秒。新しい耳を顔素材に合成し、古い耳は未分類を含む全素材から除く。顔の基準座標は保持し、素材の切り出し範囲だけを拡張する。耳全体を明度差で選ぶ案は背景まで矩形で混入したため却下した。
+完了した`ears/`と`source-ears/`には原寸マスクと入力SHAを保存し、既存出力は上書きしない。`--threshold`既定0.2、`--context`既定0.5は検出閾値と耳検出枠に対する解析余白である。生成画の耳は1側以上が必要で、原画と生成画の両方で測れた側だけを輪郭補修に使う。未測定側は固定座標で補わず、原画輪郭を保持してpartialとする。今回の実測は生成側17.39秒、原画側5.875秒。新しい耳を顔素材に合成し、古い耳は測定側だけを未分類を含む全素材から除く。顔の基準座標は保持し、素材の切り出し範囲だけを拡張する。耳全体を明度差で選ぶ案は背景まで矩形で混入したため却下した。
 
 `--side-comparison temp/qwen-eval-edit-mugi-side-ear-bf16`を指定すると、同じ原画/解析/原寸範囲で完了した横髪除去結果を使用する。実測した目の高さで前髪用下地から耳・頬用下地へ滑らかに切り替える。`--edge-band-ratio`（既定0.015、0超〜0.05）は髪境界の調整幅/顔幅、`--edge-gain`（既定40、0超〜255）は横髪除去での平均RGB明度増加の下限。髪に接続する境界だけを再分類し、目口と口より下の輪郭を保護する。むぎでは637画素を顔側から髪へ戻した。全素材は原寸のままであり、画像名による分岐はない。この境界調整の汎用性は未承認。
 

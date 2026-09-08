@@ -72,7 +72,7 @@ export function createHairCoverage(renderer,hair,hidden,commonPositions,image){
     hidden.material.customProgramCacheKey=()=>oldKey+'-continuous-hair-coverage-v1';hidden.material.needsUpdate=true;
     const ids=visibleVertices(hidden.geometry),point=new THREE.Vector3(),size=new THREE.Vector2(),maskCamera=new THREE.OrthographicCamera();
     const viewport=new THREE.Vector4(),scissor=new THREE.Vector4(),clearColor=new THREE.Color();
-    let disposed=false;
+    let disposed=false,invalidProjectionFrames=0;
     return {
       render(camera,active){
         uniforms.hairCoverageEnabled.value=0;
@@ -82,6 +82,14 @@ export function createHairCoverage(renderer,hair,hidden,commonPositions,image){
           point.fromBufferAttribute(commonPositions,id).applyMatrix4(hidden.matrixWorld).project(camera);
           return [(point.x+1)*size.x/2,(1-point.y)*size.y/2];
         });
+        if(projected.some(([x,y])=>!Number.isFinite(x)||!Number.isFinite(y))){
+          invalidProjectionFrames++;
+          // フォールバック許可: リサイズと状態更新が同じフレームに重なる一過性投影では、
+          // キャラ全体を破棄せず髪補完だけを次フレームへ送る。継続異常は明示失敗する。
+          if(invalidProjectionFrames<3)return;
+          throw new Error('髪被覆の投影座標が3フレーム連続で不正です');
+        }
+        invalidProjectionFrames=0;
         const roi=coveragePixelBounds(projected,size.x,size.y);if(!roi)return;
         if(roi.width>renderer.capabilities.maxTextureSize||roi.height>renderer.capabilities.maxTextureSize)throw new Error('髪被覆の表示解像度がGPU上限を超えています');
         if(h0.width!==roi.width||h0.height!==roi.height){h0.setSize(roi.width,roi.height);ht.setSize(roi.width,roi.height);}

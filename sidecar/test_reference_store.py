@@ -56,6 +56,24 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(store.reference(self.root),first)
         with store.acquire(self.root) as (_,path):self.assertEqual((path/'parts/test.png').read_bytes(),b'first')
 
+    def test_windows_generation_rename_retries_only_temporary_access_denial(self):
+        source=self.root/'source';target=self.root/'target';source.mkdir()
+        original=Path.rename;attempts=[]
+        def flaky(path,destination):
+            attempts.append((path,destination))
+            if len(attempts)<3:raise PermissionError('fixture')
+            return original(path,destination)
+        with patch.object(store.os,'name','nt'),patch.object(Path,'rename',flaky),patch.object(store.time,'sleep') as sleep:
+            store.rename_generation(source,target)
+        self.assertTrue(target.is_dir());self.assertEqual(len(attempts),3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list],[.02,.04])
+
+    def test_windows_generation_rename_keeps_persistent_access_denial(self):
+        source=self.root/'source';source.mkdir()
+        with patch.object(store.os,'name','nt'),patch.object(Path,'rename',side_effect=PermissionError('fixture')),patch.object(store.time,'sleep') as sleep:
+            with self.assertRaises(PermissionError):store.rename_generation(source,self.root/'target')
+        self.assertEqual(sleep.call_count,4)
+
     def test_crashed_reader_lease_is_reclaimed_by_os_lock_probe(self):
         self.publish('first')
         code="import sys,os;sys.path.insert(0,sys.argv[1]);import reference_store as s;ctx=s.acquire(sys.argv[2]);ctx.__enter__();os._exit(0)"

@@ -30,6 +30,17 @@ def sha(path):
     with safe(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 
 
+def rename_generation(source,target):
+    """Windowsの短時間占有だけを有限回待ち、世代ディレクトリを原子的に公開する。"""
+    for attempt in range(5):
+        try:
+            source.rename(target)
+            return
+        except PermissionError:
+            if os.name!='nt' or attempt==4:raise
+            time.sleep(.02*(attempt+1))
+
+
 def try_lock(stream):
     import msvcrt
     stream.seek(0)
@@ -163,7 +174,7 @@ def publish(character,build,verify_sources):
         with guard(root):
             verify_sources()
             previous=reference(root)['generation'] if (root/'rig-current.json').exists() else None
-            pending.rename(parent/name);renamed=True
+            rename_generation(pending,parent/name);renamed=True
             value={'schema_version':1,'generation':name,'previous':previous,'rig_sha256':rig_sha,'completion_sha256':sha(parent/name/'completion.json')}
             temporary=safe(root/('rig-current-'+uuid.uuid4().hex+'.part'))
             try:
