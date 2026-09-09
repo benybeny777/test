@@ -1,5 +1,7 @@
 # DEVELOPMENT.md — 開発・ビルド・配布
 
+`pipeline-probe`は`--until <工程>`で終了工程を明示できる。新しい原画を`--until rig2d`で実行すると、背景除去・部位解析・基底リグまでを正規入口で保存し、長時間の最終補完は起動しない。完成品ではなく準備済み基底リグとして扱い、続行は`--resume <ID> complete`を使う。開始工程より前の終了工程は拒否する。
+
 `cargo xtask verify`はRust・Pythonに加え、作業用Nodeで共通描画とsnapshotのCPU検査も実行する。製品のビルド・起動・セットアップにはNodeを要求しない。
 
 ## 通常の局所補完

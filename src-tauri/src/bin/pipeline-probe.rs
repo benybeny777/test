@@ -6,7 +6,28 @@ use local_vtuber_studio::{
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let arguments: Vec<String> = env::args().skip(1).collect();
+    let mut arguments: Vec<String> = env::args().skip(1).collect();
+    // 新しい原画も正規入口で解析まで確定し、不要な後続推論を起動しない。
+    let until = if let Some(index) = arguments.iter().position(|value| value == "--until") {
+        if index + 1 >= arguments.len() {
+            return Err("--untilには終了工程が必要です".into());
+        }
+        let value = arguments.remove(index + 1);
+        arguments.remove(index);
+        Some(value)
+    } else {
+        None
+    };
+    let end = until
+        .as_deref()
+        .map(|stage| {
+            STAGES
+                .iter()
+                .position(|value| *value == stage)
+                .ok_or("終了工程が不正です")
+        })
+        .transpose()?
+        .unwrap_or(STAGES.len() - 1);
     let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or("リポジトリルートを取得できません")?
@@ -74,7 +95,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stages = if only {
         &STAGES[start..=start]
     } else {
-        &STAGES[start..]
+        if end < start {
+            return Err("終了工程が開始工程より前です".into());
+        }
+        &STAGES[start..=end]
     };
     for stage in stages {
         let result = context.run_stage(None, &config, &character.character_id, stage)?;
