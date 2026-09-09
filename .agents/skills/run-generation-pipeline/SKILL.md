@@ -15,9 +15,11 @@ description: イラスト1枚から2D/2.5Dキャラクターを生成する工�
 cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>
 cargo run -p local-vtuber-studio --bin pipeline-probe -- --only <characterId> <stage>
 cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> <stage>
+cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags> --until rig2d
 ```
 
 - 工程を isolate → decompose → rig2d → complete の順に実行し、前段をディスクへ確定してから次へ進む。
+- 新規原画の部位解析・基底リグだけが必要な場合は`--until rig2d`で止める。最終補完済みとは扱わず、必要になったら同じIDのcompleteから再開する。
 - source/input.png は上書き・削除しない。
 - isolate は元のキャンバスを保つ。入力に明示された透過があれば保持し、不透明画像には背景除去を実行する。
 - decompose は承認済み固定版Grounding DINO baseで意味領域を検出し、SAM 2.1 Hiera Tinyで原寸マスクを求める。`cargo xtask setup grounding`で取得し、モデルを逐次ロードする。未検出を固定座標で補わない。analysis.jsonに候補と選別結果を保存する。
