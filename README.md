@@ -2,6 +2,69 @@
 
 PicoAgent向けに、このWindows環境で高品質なキャラクターを同一パイプラインから量産する制作ツールです。ひよりを品質目標に、現在は2D/2.5D方式をブラウザで確認します。完成Live2Dモデル・ひより相当の品質は未達です。Live2D関連の既存PoCは保持し、現行schema 3の直接読込はPicoAgentへ統合済みです。OBS・VRM・macOS／Linux対応は現在行いません。
 
+> [!IMPORTANT]
+> 現行の完成物は**独自2.5Dキャラクターパック**です。Live2D対応コードは保持していますが、Cubismモデルを自動生成するツールではありません。品質はキャラクターごとに実画面で判断し、ひより相当を達成済みとは扱いません。
+
+## まず分かること
+
+- **入力**: 権利を持つ立ち絵1枚。原画`source/input.png`は上書きしません。
+- **出力**: `character.json + rig2d/`の自己完結パック。PicoAgentは変換せずそのまま読みます。
+- **動き**: 左右まばたき、`MouthOpenY × MouthForm`による5母音、視線、表情、呼吸、頭・腕・髪の小さな動きです。
+- **生成**: 背景分離、部位解析、素材分離、局所補完をローカルで逐次実行します。製品からクラウドAPIは呼びません。
+- **再現性**: むぎ・あおい・実写テスト・りん・まい・セナを同じ4工程で処理し、キャラ名別の座標分岐を持ちません。
+
+## パイプライン概要
+
+```mermaid
+flowchart LR
+  A["立ち絵を登録<br/>source/input.png"] --> B["① isolate<br/>背景分離"]
+  B --> C["② decompose<br/>DINO + SAMで原寸分解"]
+  C --> D["③ rig2d<br/>基底2.5Dリグ"]
+  D --> E["④ complete<br/>Qwen + ComfyUIで局所補完"]
+  E --> F["検査済み不変世代<br/>rig-generations/g_ID"]
+  F --> G["PicoAgentへ登録<br/>共通PIXI描画"]
+```
+
+| 工程 | 主な処理 | 主な成果物 |
+|---|---|---|
+| 入力登録 | 原画と人物設定を保存 | `source/input.png`、`character.json` |
+| ① `isolate` | 既存透過を保持し、不透明入力だけ背景分離 | `source/isolated.png` |
+| ② `decompose` | Grounding DINOで意味領域を検出し、SAM 2.1で原寸マスクと部位を分離 | `analysis/`、`layers/manifest.json`、`layers/parts/`、`layers/source.psd` |
+| ③ `rig2d` | 重なり順・座標・可動範囲を検査して補完前リグを作る | `rig2d-base/rig.json`、`rig2d-base/parts/` |
+| ④ `complete` | 閉眼・髪に隠れた顔・耳を原寸範囲だけ局所編集し、公開前検査を行う | `rig-generations/g_<ID>/`、`rig-current.json`、編集・耳解析キャッシュ |
+| PicoAgent表示 | 完成パックを変換せず、同じ描画コードで動かす | `character.json`、`rig2d/rig.json`、`rig2d/parts/*.png` |
+
+各工程は成果物をディスクへ確定してから次へ進みます。途中から再実行でき、上流をやり直した場合は下流だけを無効化します。失敗した生成物や空素材へ黙って切り替えず、直前の公開済み世代を保持します。詳細は[キャラクター生成の処理フロー](#キャラクター生成の処理フロー)と[SPEC.md 4.2](SPEC.md#42-生成パイプライン)を参照してください。
+
+## 技術スタック
+
+| 領域 | 採用技術 | 役割 |
+|---|---|---|
+| デスクトップアプリ | Tauri 2、Rust、Windows WebView2 | UI、設定、工程管理、サイドカーと子プロセスの確実な回収 |
+| 生成ランタイム | Python 3.12、PyTorch、CUDA | GPU推論を行う単一の同梱Python環境 |
+| 背景分離 | rembg | 不透明な入力から透過立ち絵を作る |
+| 意味解析・素材分離 | Grounding DINO base、SAM 2.1 Hiera Tiny | 目・口・髪・顔・首・襟・胴体・腕などの候補と原寸マスクを作る |
+| 局所画像編集 | 管理下ComfyUI、Qwen-Image-Edit-2511 | 閉眼・隠れ顔・耳を許可領域だけ補完する |
+| 2.5D描画 | PIXI.js 6.5.10、独自メッシュリグ | 原寸透過PNGを連続変形し、口・目・視線・身体・髪を動かす |
+| Live2D PoC | Cubism Core、pixi-live2d-display、PSD出力 | 既存の対応経路を保持。現行の自動生成方式ではない |
+| 音声駆動 | Rust、cpal、rustfft | マイク入力から口の開きと母音形状をローカル解析する |
+| 検証 | Rust/Pythonテスト、Playwright、Chrome実画面 | 構造検査と、透過・継ぎ目・口・目・動きの目視確認を分ける |
+
+## 確認する
+
+```powershell
+cargo xtask dev
+# 別ターミナルで
+sidecar/.venv/Scripts/python.exe tools/preview_server.py
+```
+
+- [ローカル確認画面](http://127.0.0.1:8791/ui/check.html): 公開済みの各キャラ、原画比較、目・口・表情・動作を切り替えます。
+- [Qwen局所補完の確認画面](http://127.0.0.1:8791/ui/qwen-check.html): 原画範囲、編集画像、抽出RGBAを比較します。
+- [GitHubで見られる実画面ギャラリー](docs/CHARACTER_GALLERY.md): スマートフォンでも確認できる固定証跡です。
+
+<details>
+<summary>現行キャラクターと実装・検証状態の詳細</summary>
+
 確認画面は同一キャラの過去候補を混ぜず、むぎ・あおい・PicoAgent実写・りん・まい・セナを各1体だけ表示します。[りん](http://127.0.0.1:8791/ui/check.html?character=c_e12584df6d71)、[まい](http://127.0.0.1:8791/ui/check.html?character=c_5b46597fb911)、[セナ](http://127.0.0.1:8791/ui/check.html?character=c_037e36b55b3b)は同じ4工程を通した最新公開世代です。旧「女性A」はPicoAgent側で「あおい」として人格を定義します。耳が片側だけ測定できたキャラは、測定側だけを補修し未測定側の原画輪郭を保持します。
 
 キャラ切り替え中は旧表示を保ち、新しい固定世代の素材を読み終えてから切り替えます。読込に失敗した場合は旧表示・選択名・URLを維持し、画面内へ理由を表示します。再生成中も公開済み世代を固定して読み、未公開の途中成果物を混ぜません。
@@ -37,6 +100,8 @@ PicoAgent向けに、このWindows環境で高品質なキャラクターを同�
 Qwen-Image-Edit-2511を通常生成の局所閉眼補完へ採用しました。DINO/SAMは維持し、Layeredは比較のままです。同じ確認サーバーの`http://127.0.0.1:8791/ui/qwen-check.html`で、実験用の原画範囲・生成画像・RGBAレイヤーを並べて確認できます。まだ生成結果がない場合はその旨を表示します。ログ・重み・生のレポートは配信しません。実行条件と手順は[開発手順](docs/DEVELOPMENT.md)を参照してください。
 
 動作確認は`http://127.0.0.1:8791/ui/check.html`で公開中の最新むぎまたはPicoAgent実写を選びます。「顔を拡大」で接合部を見て、「顔左右」「顔上下」「待機動作テスト」で小さな髪の相対移動を確認できます。口は現状で暫定承認されていますが、髪際や別原画の品質は検証中で、全身独立関節や完成Live2Dモデルではありません。生成素材はローカル生成が必要で、Gitへ同梱していません。
+
+</details>
 
 ## できること
 
