@@ -137,6 +137,8 @@ sidecar/.venv/Scripts/python.exe tools/qwen-eval/build_eye_preview.py --characte
 
 ### 意味解析候補の比較
 
+Qwen比較の`--edit-region mouth`は正規解析の口マスクだけを編集し、目・髪・顔全体の構図を保つための比較指定である。既存の`eyes`と同じ原画像の潜在表現・ノイズマスク・原画像へのマスク合成を使う。ワークフローとの互換のため実入力名は`eye-mask.png`を維持し、実際の部位はreport.jsonの`source.edit_region`へ記録する。全体編集の候補が拡大・移動した場合、位置を手で合わせて採用せず局所編集を再実行する。生成後はマスク外と目口の形を比較し、診断候補をそのまま製品へ昇格しない。
+
 承認済みQwenの比較準備は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/download.py`を使う。`models.json`の5ファイルだけを固定版で取得し、SHA-256を照合してから`models/qwen-eval/`へ公開する。途中ファイルは`temp/qwen-download/`に置き、Rangeの範囲・長さを検査して再開する。各取得ファイルの応答を4個までに制限し、全重みをメモリへ蓄積しない。
 
 比較実行は`sidecar/.venv/Scripts/python.exe tools/qwen-eval/run.py layered --character temp/t7-characters/<ID> --output temp/<新規比較名> --comfy <本アプリ管理ComfyUI>`。もう一方は`layered`を`edit`へ変更する。既定は同じ原寸1024pxの頭/首ROI、50step、seed777。`--view full`は比較専用の長辺1024px以下への縮小で、拡大は行わない。`--prompt`で比較条件を明示的に変えられる。既定のEditは髪除去と隠れた顔/首/服の補完、Layeredは内容記述から4レイヤーへ分解する。**用途が異なるため、出力枚数を品質の順位と扱わない。**

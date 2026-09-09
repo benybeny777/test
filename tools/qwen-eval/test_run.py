@@ -6,10 +6,16 @@ import unittest
 
 import numpy as np
 from PIL import Image
-from run import graph,prepare_input,ROOT,verify_source,measured_head_region,eye_edit_mask
+from run import graph,prepare_input,ROOT,verify_source,measured_head_region,feature_edit_mask
 
 
 class CompareTests(unittest.TestCase):
+    def test_mouth_mask_does_not_reach_distant_eyes(self):
+        mouth=np.zeros((160,120),bool);mouth[110:120,45:75]=True
+        mask=feature_edit_mask([mouth],np.zeros_like(mouth),np.full(mouth.shape,255,np.uint8),.3)
+        self.assertGreater(mask[115,60],0)
+        self.assertFalse(mask[:80].any())
+
     def test_eye_edit_preserves_reference_latent_and_composites_only_mask(self):
         value=graph('edit',256,256,'eyes',50,777,4,True)
         self.assertEqual(value['9']['class_type'],'VAEEncode')
@@ -23,7 +29,7 @@ class CompareTests(unittest.TestCase):
         eye=np.zeros((30,40),bool);eye[12:18,10:30]=True
         hair=np.zeros_like(eye);hair[:13]=True
         alpha=np.full(eye.shape,254,np.uint8);alpha[:,31:]=0
-        mask=eye_edit_mask([eye],hair,alpha,.2)
+        mask=feature_edit_mask([eye],hair,alpha,.2)
         self.assertGreater(mask.max(),0);self.assertFalse(mask[hair].any());self.assertFalse(mask[alpha==0].any())
 
     def test_measured_head_is_native_translation_invariant_and_bounded(self):
