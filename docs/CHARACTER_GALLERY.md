@@ -1,8 +1,20 @@
 # 2.5Dキャラクター確認
 
-原画1枚からの通常生成と、過去の比較記録です。動的な確認画面には、むぎ・女性A・PicoAgent実写を各1体だけ表示し、同一キャラの旧候補は混ぜません。女性Aは閉眼まで描画可能な最新成功版で、左耳の差異は判別困難な範囲として利用者承認済みです。左は変更しない原画、右は本体と共通の2.5Dレンダラーです。2026年9月7日、Chrome・1440×1050の確認画面で撮影しています。新旧の生成条件は各項目に明記し、画像をタップすると拡大表示できます。
+原画1枚からの通常生成と、過去の比較記録です。動的な確認画面には、むぎ・あおい（旧女性A）・PicoAgent実写・りん・まい・セナを各1体だけ表示し、同一キャラの旧候補は混ぜません。左は変更しない原画、右は本体と共通の2.5Dレンダラーです。りん・まい・セナは2026年9月9日、Chrome・1440×1050の確認画面で撮影しています。新旧の生成条件は各項目に明記し、画像をタップすると拡大表示できます。
 
 これは実走・動作の確認用です。2026年9月7日に利用者判断で、現状の見た目を今回の実装完了基準として受け入れました。ひより相当の全身可動へ到達したという意味ではなく、下記の既知の粗さは将来の追加調整まで保留します。口は現在の形で暫定承認され、追加造形調整を保留しています。
+
+## りん・まい・セナ：同一パイプラインの追加実走
+
+3体とも`isolate → decompose → rig2d → complete`をキャラ別分岐なしで完走しました。下地PNG全体が顔へ出ていた描画不具合を直し、原画の目開口内へ制限した再撮影です。口5形、左右別閉眼、腕寄せ、首・肩・胴体の待機動作も自動取得し、描画エラーは0件でした。
+
+| キャラ | 全体 | 中立 | 半閉眼 | 完全閉眼 |
+|---|---|---|---|---|
+| りん | [全体](character-gallery-25d/rin/full.png) | [![りん中立](character-gallery-25d/rin/neutral.png)](character-gallery-25d/rin/neutral.png) | [![りん半閉眼](character-gallery-25d/rin/half.png)](character-gallery-25d/rin/half.png) | [![りん閉眼](character-gallery-25d/rin/closed.png)](character-gallery-25d/rin/closed.png) |
+| まい | [全体](character-gallery-25d/mai/full.png) | [![まい中立](character-gallery-25d/mai/neutral.png)](character-gallery-25d/mai/neutral.png) | [![まい半閉眼](character-gallery-25d/mai/half.png)](character-gallery-25d/mai/half.png) | [![まい閉眼](character-gallery-25d/mai/closed.png)](character-gallery-25d/mai/closed.png) |
+| セナ | [全体](character-gallery-25d/sena/full.png) | [![セナ中立](character-gallery-25d/sena/neutral.png)](character-gallery-25d/sena/neutral.png) | [![セナ半閉眼](character-gallery-25d/sena/half.png)](character-gallery-25d/sena/half.png) | [![セナ閉眼](character-gallery-25d/sena/closed.png)](character-gallery-25d/sena/closed.png) |
+
+**残る問題:** 半閉眼のまぶた・肌境界はひより相当の調整品質ではありません。耳が片側以上未測定のキャラは、測定できた側だけを補修し未測定側の原画輪郭を保持するため、素材充足表示は`incomplete`です。今回は利用者の「いったん今のクオリティでよい」という判断範囲で統合し、品質到達を過大評価しません。
 
 ## むぎ：通常生成版の最新検証（全体品質は未合格）
 

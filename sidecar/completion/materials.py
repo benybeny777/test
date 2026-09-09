@@ -110,13 +110,31 @@ def reconstruct_eye_skin(source, region, donors):
     if usable.sum()<4:raise ValueError('閉眼下地の周囲に補間用の肌が不足しています')
     sigma=max(2.,np.sqrt(region.sum())/5.)
     weights=ndimage.gaussian_filter(usable.astype(float),sigma=sigma,mode='nearest')
-    if np.any(weights[region]<1e-8):raise ValueError('閉眼下地の肌補間が成立しません')
+    supported=weights>=1e-8
     field=np.empty_like(source,dtype=float)
     for channel in range(3):
         values=ndimage.gaussian_filter(source[:,:,channel]*usable,sigma=sigma,mode='nearest')
         field[:,:,channel]=values/np.maximum(weights,1e-8)
+    unsupported=region&~supported
+    extrapolation_rmse=None
+    if unsupported.any():
+        # 長い前髪で目の周囲の肌が分断されても、固定色で塗りつぶさず
+        # 検出済みの肌全体から明るさの傾きを測定し、届かない画素だけを補外する。
+        ys,xs=np.nonzero(usable)
+        design=np.column_stack((xs,ys,np.ones(len(xs))))
+        if np.linalg.matrix_rank(design)<3:raise ValueError('閉眼下地の肌補間が成立しません')
+        coefficients,_,_,_=np.linalg.lstsq(design,source[ys,xs],rcond=None)
+        if not np.isfinite(coefficients).all():raise ValueError('閉眼下地の肌補間が成立しません')
+        uy,ux=np.nonzero(unsupported)
+        predicted=np.column_stack((ux,uy,np.ones(len(ux))))@coefficients
+        low,high=np.percentile(source[ys,xs],[1,99],axis=0)
+        field[uy,ux]=np.clip(predicted,low,high)
+        fitted=design@coefficients
+        extrapolation_rmse=float(np.sqrt(np.mean((fitted-source[ys,xs])**2)))
     result=source.astype(float).copy();result[region]=np.clip(field[region],0,255)
-    return result,{'filled_eye_pixels':int(region.sum()),'donor_skin_pixels':int(usable.sum()),'blend_sigma':float(sigma)}
+    return result,{'filled_eye_pixels':int(region.sum()),'donor_skin_pixels':int(usable.sum()),'blend_sigma':float(sigma),
+                   'extrapolated_eye_pixels':int(unsupported.sum()),'extrapolation_method':'affine-plane' if unsupported.any() else None,
+                   'extrapolation_rmse':extrapolation_rmse}
 
 
 def replace_closed_backing(backing,clean,weight,protected):

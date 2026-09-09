@@ -106,6 +106,19 @@ class ClosedPreviewTests(unittest.TestCase):
         np.testing.assert_array_equal(result[~region],source[~region])
         self.assertLess(np.abs(result[region]-skin[region]).max(),4)
 
+    def test_distant_skin_is_extrapolated_without_flattening_its_shading(self):
+        yy,xx=np.mgrid[:220,:260]
+        skin=np.stack([178+xx*.08+yy*.04,148+xx*.06+yy*.03,128+xx*.04+yy*.02],axis=2)
+        source=skin.copy();region=np.zeros((220,260),bool);region[70:155,70:190]=True
+        source[region]=255
+        donors=np.zeros(region.shape,bool);donors[10:18,10:250]=True;donors[202:210,10:250]=True
+        result,metrics=reconstruct_eye_skin(source,region,donors)
+        self.assertGreater(metrics['extrapolated_eye_pixels'],0)
+        self.assertEqual(metrics['extrapolation_method'],'affine-plane')
+        self.assertLess(metrics['extrapolation_rmse'],1e-8)
+        np.testing.assert_array_equal(result[~region],source[~region])
+        self.assertLess(np.abs(result[region]-skin[region]).max(),4)
+
     def test_eye_skin_rejects_missing_region_or_boundary(self):
         source=np.full((8,10,3),180.)
         with self.assertRaisesRegex(ValueError,'領域がありません'):

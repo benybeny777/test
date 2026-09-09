@@ -35,7 +35,16 @@ export function drawBlink(ctx, images, rig, side, openness) {
   const base=rig.layers[side+'_eye_base'],upper=rig.layers[side+'_eyelid_upper'];
   const points=eyeAperture(base,openness);
   const draw=(name,layer)=>ctx.drawImage(images.get(name),layer.texture_box[0],layer.texture_box[1]);
-  ctx.save();draw(side+'_eye_base',base);
+  // 閉眼下地は目の開口内だけへ描く。下地PNGは補間に必要な周辺肌も持つため、
+  // 全体を重ねると半閉眼で矩形の肌面が顔へ現れる。
+  ctx.save();ctx.beginPath();
+  const aperture=base.eye_aperture;
+  ctx.moveTo(aperture[0][0]-.5,aperture[0][1]);
+  for(const [x,top] of aperture)ctx.lineTo(x,top);
+  ctx.lineTo(aperture.at(-1)[0]+.5,aperture.at(-1)[1]);
+  ctx.lineTo(aperture.at(-1)[0]+.5,aperture.at(-1)[2]);
+  for(const [x,,bottom] of [...aperture].reverse())ctx.lineTo(x,bottom);
+  ctx.closePath();ctx.clip();draw(side+'_eye_base',base);
   if(openness>0) {
     ctx.save();ctx.beginPath();
     ctx.moveTo(points[0][0]-.5,points[0][1]);
@@ -47,11 +56,11 @@ export function drawBlink(ctx, images, rig, side, openness) {
     for(const suffix of ['eye_backplate','eye_iris'])draw(side+'_'+suffix,rig.layers[side+'_'+suffix]);
     ctx.restore();
   }
+  ctx.restore();
   const image=images.get(side+'_eyelid_upper'),[left,top]=upper.texture_box;
   for(const [x,y,,closed] of points) {
     const column=Math.floor(x)-left;
     if(column<0||column>=image.naturalWidth)continue;
     ctx.drawImage(image,column,0,1,image.naturalHeight,left+column,top+y-closed,1,image.naturalHeight);
   }
-  ctx.restore();
 }

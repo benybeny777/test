@@ -34,7 +34,7 @@ from raw_reuse import open_raw,pin_generated
 spec = importlib.util.spec_from_file_location('completion_comfy_client', HERE.parent/'expression/generate.py')
 client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
-VERSION = 4
+VERSION = 5
 # 推論や入力準備の意味を変えた場合に上げる。抽出だけの変更ではGPUを再実行しない。
 IMAGE_GENERATION_VERSION = 5
 PROMPT = ('Close only the specified eye completely, preserving the original character identity and original rendering style. '

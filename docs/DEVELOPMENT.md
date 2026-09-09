@@ -35,6 +35,8 @@ GIFはスマホ向けの動作確認用に縮小するだけで、原画・最�
 
 現行の正規入口はアプリの「全工程を実行」と`pipeline-probe`で、`isolate → decompose → rig2d → complete`を逐次実行する。DINO/SAMの解析を維持し、未補完リグを`rig2d-base/`、Qwen-Image-Edit-2511の閉眼・隠れ顔・耳を適用した最終リグを`rig-generations/`へ分離し、`rig-current.json`で公開する。口は現状承認済みで、生成時の局所補完ではなく共通レンダラーで描く。PicoAgentはschema 3を直接読む。OBS、VRM、macOS対応は現在の作業対象外とし、旧PoCは比較用に保持する。
 
+閉眼抽出版5は、近傍肌へガウス補間が届かない画素だけを検出済み肌のアフィンRGB平面から補外し、推定誤差と補外画素数を記録する。参照不足は失敗であり固定色へ降格しない。この抽出変更ではQwen生成画像を再生成せず、`IMAGE_GENERATION_VERSION=5`を維持して抽出版`VERSION=5`だけを更新する。確認画面では半閉眼・閉眼時の下地が原画の目開口外へ出ていないことも確認する。
+
 ```powershell
 cargo run -p local-vtuber-studio --bin pipeline-probe -- <input.png> <id> <identity-tags>
 cargo run -p local-vtuber-studio --bin pipeline-probe -- --resume <characterId> rig2d
